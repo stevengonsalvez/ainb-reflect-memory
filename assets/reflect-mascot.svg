@@ -1,0 +1,47 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="reflect elephant mascot">
+  <defs>
+    <clipPath id="r"><rect width="512" height="512" rx="96"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect width="512" height="512" fill="#FAF9F5"/>
+
+    <!-- memory-graph constellation (top-right) -->
+    <g stroke="#788C5D" stroke-width="3" opacity="0.9">
+      <line x1="392" y1="96" x2="436" y2="132"/>
+      <line x1="436" y1="132" x2="404" y2="180"/>
+      <line x1="392" y1="96" x2="404" y2="180"/>
+    </g>
+    <g fill="#788C5D">
+      <circle cx="392" cy="96" r="11"/>
+      <circle cx="436" cy="132" r="9"/>
+      <circle cx="404" cy="180" r="8"/>
+    </g>
+
+    <!-- ears (behind head) -->
+    <ellipse cx="168" cy="250" rx="78" ry="92" fill="#D97757"/>
+    <ellipse cx="344" cy="250" rx="78" ry="92" fill="#D97757"/>
+    <ellipse cx="172" cy="252" rx="46" ry="60" fill="#C9613F"/>
+    <ellipse cx="340" cy="252" rx="46" ry="60" fill="#C9613F"/>
+
+    <!-- head -->
+    <rect x="146" y="168" width="220" height="210" rx="100" fill="#D97757"/>
+
+    <!-- trunk -->
+    <path d="M256 300 C256 360 244 392 230 420 C222 438 236 458 258 452 C276 447 274 426 268 414 C260 396 286 360 296 326 Z" fill="#D97757"/>
+    <path d="M243 438 q15 10 26 -2" stroke="#C9613F" stroke-width="6" fill="none" stroke-linecap="round"/>
+
+    <!-- tusks -->
+    <path d="M214 372 q-14 22 -4 40" stroke="#FAF9F5" stroke-width="11" fill="none" stroke-linecap="round"/>
+    <path d="M300 372 q14 22 4 40" stroke="#FAF9F5" stroke-width="11" fill="none" stroke-linecap="round"/>
+
+    <!-- eyes -->
+    <circle cx="214" cy="262" r="15" fill="#141413"/>
+    <circle cx="298" cy="262" r="15" fill="#141413"/>
+    <circle cx="219" cy="257" r="5" fill="#FAF9F5"/>
+    <circle cx="303" cy="257" r="5" fill="#FAF9F5"/>
+
+    <!-- olive brow accents -->
+    <path d="M192 232 q22 -16 44 -4" stroke="#788C5D" stroke-width="7" fill="none" stroke-linecap="round"/>
+    <path d="M276 232 q22 -16 44 -4" stroke="#788C5D" stroke-width="7" fill="none" stroke-linecap="round"/>
+  </g>
+</svg>
