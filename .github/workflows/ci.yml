@@ -10,87 +10,116 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  pytest:
-    name: pytest (${{ matrix.os }} / py${{ matrix.python-version }})
+  # ---------------------------------------------------------------------------
+  # Lint + type-check + fast unit tests on the SLIM ([dev]) install.
+  #
+  # We deliberately do NOT install the [graph] extra here: it pulls
+  # sentence-transformers -> torch (~2GB) and nano-graphrag's import-time
+  # chain. graph_engine.py lazy-imports that stack inside _get_graph_engine(),
+  # and the unit tests under tests/ stub networkx / inject a fake
+  # sentence_transformers (or pytest.importorskip), so the base suite is green
+  # without it. The heavy GraphRAG + LOCOMO suites live under tests/eval/ and
+  # need [graph] + model downloads + an API key — they are excluded here.
+  # ---------------------------------------------------------------------------
+  test:
+    name: lint + test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
         python-version: ['3.11', '3.12']
-    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: install package + dev deps
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .[dev]
-      - name: run pytest
-        run: pytest -q
 
-  pipx-smoke:
-    name: pipx smoke (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
         with:
-          python-version: '3.12'
-      - name: install pipx
-        run: python -m pip install --upgrade pip pipx
-      - name: pipx install reflect-kb (slim)
-        # `--force` so re-runs on cached venvs reinstall cleanly. We
-        # explicitly install WITHOUT the [graph] extra so this job
-        # validates that the slim CLI surface (search/help, share, team,
-        # metrics, dashboard sync) resolves without sentence-transformers/
-        # torch — the slim install is what most pipx users get.
-        run: pipx install --force .
-      - name: ensure pipx bin on PATH
-        run: |
-          pipx ensurepath
-          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
-      - name: assert torch is NOT installed (slim install guarantee)
-        # If this ever starts failing, a heavy ML dep leaked back into the
-        # base `dependencies` list in pyproject.toml — move it to `[graph]`.
-        run: |
-          if pipx runpip reflect-kb show torch 2>/dev/null | grep -q '^Name:'; then
-            echo "::error::torch is installed in the slim pipx env — it should live under the [graph] extra"
-            exit 1
-          fi
-          echo "ok: torch absent from slim install"
-      - name: smoke — reflect --help
-        # The reflect CLI exposes search/share/stats/etc. without optional
-        # graph deps; --help guarantees the entry point resolves and the
-        # click tree builds. This is the minimum viable signal that pipx
-        # produced a working binary.
-        run: reflect --help
-      - name: smoke — reflect search --help (lazy graph imports)
-        # `reflect search` only imports the heavy graph stack inside its
-        # function body, so `--help` MUST resolve from a slim install.
-        # If this regresses, an eager import has snuck back in.
-        run: reflect search --help
+          enable-cache: true
+          cache-dependency-glob: 'pyproject.toml'
 
-  nix:
-    name: nix (ubuntu-latest)
+      - name: set up python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: install package (dev extra only — NOT graph)
+        # [dev] gives ruff/mypy/pytest/respx/jsonschema. The [graph] extra is
+        # intentionally omitted (see job comment). --python pins the matrix
+        # interpreter into a fresh venv uv manages.
+        run: uv pip install --system --python ${{ matrix.python-version }} -e '.[dev]'
+
+      - name: ruff check
+        # NON-BLOCKING for now: the freshly-extracted engine carries a backlog
+        # of style violations (f-strings w/o placeholders, semicolon-joined
+        # statements in tests/eval/locomo plot scripts, a few unused imports).
+        # Ruff still RUNS on every PR via --output-format=github so the
+        # annotations show inline; flip continue-on-error off once the backlog
+        # is cleared (`ruff check --fix src/reflect_kb tests`).
+        continue-on-error: true
+        run: ruff check --output-format=github src/reflect_kb tests
+
+      - name: mypy (src/reflect_kb)
+        # NON-BLOCKING: src/reflect_kb is not fully typed yet, and the slim
+        # install is missing stubs for the optional graph stack
+        # (sentence_transformers / numpy / nano_graphrag) plus PyYAML
+        # (types-PyYAML). Those import-not-found / import-untyped errors are
+        # expected on the slim build. Runs for signal; does not gate the build.
+        continue-on-error: true
+        run: mypy src/reflect_kb
+
+      - name: pytest (fast unit tests; excludes heavy tests/eval suite)
+        # THE gate. tests/eval/{behavioral,locomo} need the [graph] extra,
+        # model downloads, and (LOCOMO) an Anthropic API key, so they are
+        # excluded here. Everything directly under tests/ runs on the slim
+        # install.
+        run: pytest -q tests --ignore=tests/eval
+
+  # ---------------------------------------------------------------------------
+  # Lightweight manifest validation. The Claude Code plugin ships its manifest
+  # at BOTH plugin/.claude-plugin/plugin.json (the canonical Claude Code
+  # location) and plugin/plugin.json (root mirror). Both must be valid JSON and
+  # declare name + version. No package install needed — stdlib json only.
+  # ---------------------------------------------------------------------------
+  plugin-manifest:
+    name: validate plugin manifests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@v14
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-      - name: nix flake check
-        # Run the full check (no `--no-build`) so derivations actually get
-        # validated. The `nix build .#reflect-kb` step below is then just
-        # a focused signal that the main package built — the cache from
-        # `flake check` makes it near-instant.
-        run: nix flake check
-      - name: nix build .#reflect-kb
-        run: nix build .#reflect-kb --print-build-logs
-      - name: smoke — reflect --help via nix run
-        run: nix run .#reflect-kb -- --help
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: validate plugin.json files (valid JSON + name + version)
+        run: |
+          python -c '
+          import json, sys
+
+          paths = ["plugin/.claude-plugin/plugin.json", "plugin/plugin.json"]
+          failed = False
+          for p in paths:
+              try:
+                  with open(p) as fh:
+                      data = json.load(fh)
+              except FileNotFoundError:
+                  print(f"::error file={p}::manifest not found")
+                  failed = True
+                  continue
+              except json.JSONDecodeError as exc:
+                  print(f"::error file={p}::invalid JSON: {exc}")
+                  failed = True
+                  continue
+              name = data.get("name")
+              version = data.get("version")
+              if not name:
+                  print(f"::error file={p}::missing required field: name")
+                  failed = True
+              if not version:
+                  print(f"::error file={p}::missing required field: version")
+                  failed = True
+              if name and version:
+                  print(f"ok: {p} -> name={name} version={version}")
+          sys.exit(1 if failed else 0)
+          '

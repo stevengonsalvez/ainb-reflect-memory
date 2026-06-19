@@ -82,9 +82,9 @@ graph = [
 reflect = "reflect_kb.cli.main:main"
 
 [project.urls]
-Homepage = "https://github.com/stevengonsalvez/reflect-kb"
-Repository = "https://github.com/stevengonsalvez/reflect-kb"
-Issues = "https://github.com/stevengonsalvez/reflect-kb/issues"
+Homepage = "https://github.com/stevengonsalvez/ainb-reflect-memory"
+Repository = "https://github.com/stevengonsalvez/ainb-reflect-memory"
+Issues = "https://github.com/stevengonsalvez/ainb-reflect-memory/issues"
 Specification = "https://github.com/stevengonsalvez/ai-coder-rules/blob/main/plans/reflect-v4-universal-install-spec.md"
 
 [tool.hatch.build.targets.wheel]

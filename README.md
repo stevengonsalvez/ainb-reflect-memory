@@ -1,169 +1,142 @@
-# reflect-kb
+# reflect
 
-> Universal cross-harness retrieval + learning knowledge base for AI coding agents.
+> **Long-term memory for AI coding agents — correct once, never again.**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
-[![Python](https://img.shields.io/badge/python-%3E%3D3.11-blue.svg)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.1.1-green.svg)](./pyproject.toml)
+<p align="center">
+  <img src="./assets/reflect-mascot.png" alt="reflect mascot — an elephant that never forgets" width="280" />
+</p>
 
-> **Two version streams — don't confuse them.** This directory hosts the `reflect`
-> **CLI** (Python package `reflect-kb`, semver `0.1.x`, version field in
-> [`pyproject.toml`](./pyproject.toml)). The Claude Code **plugin** that wires the
-> CLI into the agent harness lives at [`plugins/reflect/`](../plugins/reflect/)
-> and follows its **own** semver `3.x.x` (see
-> [`plugins/reflect/.claude-plugin/plugin.json`](../plugins/reflect/.claude-plugin/plugin.json)).
-> When asked "what version of reflect is installed?" you usually want **both**:
-> `reflect --version` for the CLI and the plugin manifest for the harness wiring.
+<p align="center">
+  <a href="https://github.com/stevengonsalvez/ainb-reflect-memory/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/stevengonsalvez/ainb-reflect-memory/ci.yml?branch=main&label=CI" alt="CI status" /></a>
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT" /></a>
+  <a href="./pyproject.toml"><img src="https://img.shields.io/badge/python-%3E%3D3.11-blue.svg" alt="Python >=3.11" /></a>
+  <a href="./tests/eval/locomo/REPORT.md"><img src="https://img.shields.io/badge/LOCOMO%20J-0.80-olive" alt="LOCOMO J 0.80" /></a>
+</p>
 
-## What it does
+reflect captures every correction and design decision your AI assistant makes, indexes them into a hybrid **GraphRAG + BM25** knowledge base, and **auto-recalls** the relevant ones at the start of every new session — automatically, before the first token of your prompt is generated.
 
-reflect-kb implements the **capture → index → recall** loop for agent knowledge. After every session,
-the agents-in-a-box reflect plugin drains the ingest queue (`~/.learnings/ingest/`), calls `reflect add`
-for each pending document, and rebuilds the graph index. At the start of the next session, `reflect search`
-recalls the most relevant prior learnings and surfaces them before the agent touches the first file.
-The result is a compounding knowledge base that gets smarter the more it is used — without per-session
-context-window blowup. Works across Claude Code, Codex CLI, and GitHub Copilot via cross-harness adapters
-baked into the plugin.
+Works across **Claude Code**, **Codex CLI**, and **GitHub Copilot** — same engine, same KB, three harnesses.
 
-## 📊 LOCOMO benchmark
+---
 
-reflect 4.1.0 evaluated on [LOCOMO](https://github.com/snap-research/locomo) (long-term conversational
-memory). **Preliminary test:** a category-stratified pilot on conversation `conv-26`; answers generated
-by **Sonnet**, graded by an **Opus** reference LLM-judge. Retrieval is reflect-kb's **real** engine; the
-dialogue→note extraction is a documented LOCOMO-domain adapter. (Judge is load-bearing: the same answers
-grade ~0.07 lower under Sonnet and ~0.18 lower under Haiku — cheaper judges under-credit valid
-paraphrases — so all figures use the Opus reference.)
+## Why
 
-| config · Opus judge | single-hop | multi-hop | temporal | open-domain | adversarial | **overall** |
-|---|:--:|:--:|:--:|:--:|:--:|:--:|
-| reflect 4.1.0 (tuned recall + extraction) | 0.70 | 0.75 | 0.80 | 0.50 | 0.90 | **0.73** |
-| **reflect 4.1.0 + retrieval fixes** | 0.80 | 0.80 | 0.80 | 0.70 | 0.90 | **0.80** |
+If you've used AI coding assistants for more than a week, you've corrected the same mistake twice. Maybe ten times. The assistant doesn't remember that:
 
-The **+fixes** config adds two additive, env-gated, **zero-new-API-key** knobs: a stronger embedder
-(`REFLECT_EMBED_MODEL=BAAI/bge-base-en-v1.5`, local) and **HyDE** query-expansion (`REFLECT_RECALL_HYDE=1`,
-reusing reflect's own `claude -p`). Both default off — shipped behavior is unchanged.
+- Your team uses Bun, not Node, for that one repo
+- The Postgres migration in your project must run before the seed
+- That third-party library has a footgun you discovered last month
+- "When I ask you to delete files, also clean the imports"
 
-![LOCOMO leaderboard](./tests/eval/locomo/results/locomo_positioning.png)
+The context window forgets the moment the session ends. reflect fixes that by **capturing** corrections as structured learnings, **indexing** them into a searchable knowledge base, and **recalling** the relevant ones at the start of every new session — so a fix you make once is a fix you never have to make again.
 
-reflect's tuned 4-category mean (**77.5**) lands mid-field — on par with **Memobase / Zep**, above
-**Mem0** — while the newest systems (**ByteRover ~96, Honcho ~90, Hindsight ~90**) sit higher but are
-self-reported on their own harnesses. Judges/harnesses differ across the field, so treat this as
-directional placement, not a strict ranking. Methodology + per-fix ablation + judge calibration:
-[`tests/eval/locomo/REPORT.md`](./tests/eval/locomo/REPORT.md).
+---
 
 ## Install
 
-Recommended: `uv tool install` with the `[graph]` extra (pulls the full GraphRAG + vector stack):
+The engine lives at the repo root — install it with `uv` and the `[graph]` extra (pulls the full GraphRAG + vector stack):
 
 ```bash
-uv tool install --upgrade 'git+https://github.com/stevengonsalvez/reflect-kb.git[graph]'
+uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 ```
 
-Verify: `reflect --version` should print `0.1.x`.
+Verify with `reflect --version`.
 
-**Post-consolidation install (after Phase 7 of the monorepo plan):**
+### Quickstart
 
 ```bash
-uv tool install --upgrade 'git+https://github.com/stevengonsalvez/agents-in-a-box.git#subdirectory=reflect-kb[graph]'
+reflect init                                    # one-time: create the KB at ~/.claude/global-learnings/
+reflect add ./my-solution.md                    # capture a learning (optional --entities sidecar)
+reflect search "how did we fix the tokio panic" # hybrid GraphRAG + BM25 recall
 ```
 
-Both URLs will resolve during the transition window.
+The Claude Code **plugin** (hooks + skills) that wires this into your agent harness lives under [`plugin/`](./plugin/) — see [plugin/README.md](./plugin/README.md) for the one-step `claude plugin install` flow plus the Codex / Copilot adapters.
 
-## Quick start
+---
 
-```bash
-# 1. Initialise the KB (one time per machine — creates ~/.claude/global-learnings/)
-reflect init
+## How it works
 
-# 2. Add a learning document (with optional entity sidecar)
-reflect add ./my-solution.md --entities ./my-solution.entities.yaml
-
-# 3. Search the knowledge base
-reflect search "how did we fix the tokio runtime panic"
-
-# 4. Show KB statistics
-reflect stats
-
-# 5. Drill into the statusline dashboard
-reflect timeline --explain TOK
-```
-
-## Subcommands
-
-| Command | What it does |
-|---|---|
-| [`reflect init`](docs/usage.md#reflect-init) | Initialise the KB at `~/.claude/global-learnings/` |
-| [`reflect add`](docs/usage.md#reflect-add) | Add a learning doc; `--force` for non-interactive overwrite |
-| [`reflect search`](docs/usage.md#reflect-search) | Hybrid GraphRAG + vector search over the KB |
-| [`reflect reindex`](docs/usage.md#reflect-reindex) | Rebuild the full graph index from all documents |
-| [`reflect stats`](docs/usage.md#reflect-stats) | Show KB metrics (doc count, entities, relationships, confidence) |
-| [`reflect critical-patterns`](docs/usage.md#reflect-critical-patterns) | Surface high-confidence, widely-applicable patterns |
-| [`reflect generate-sidecars`](docs/usage.md#reflect-generate-sidecars) | Backfill missing `.entities.yaml` sidecars (heuristic, no LLM) |
-| [`reflect metrics`](docs/usage.md#reflect-metrics) | Command group for recall-metrics aggregation (subcommands below) |
-| &nbsp;&nbsp;↳ [`reflect metrics stats`](docs/usage.md#reflect-metrics-stats) | Aggregate the recall-metrics JSONL log: total events, hit rate, p50/p95 latency, top tags |
-| `reflect errors` | Triage the error sink (`~/.reflect/errors.json`): `count` (un-acked, drives the statusline badge), `ack [ids…]`, `append`. Lets callers use the installed binary instead of bare `python3 -m reflect_kb.errors`. |
-| [`reflect timeline`](docs/usage.md#reflect-timeline) | Drill down on statusline dashboard rows (REC/MEM/ING/DRN/TOK/ERR/COM/AGT) |
-
-See [docs/usage.md](docs/usage.md) for per-subcommand synopsis, all flags, examples, and common errors.
-
-## Architecture
+reflect runs a **capture → index → recall** loop:
 
 ```
-┌────────────────────────────────────────────────────────────────┐
-│  agents-in-a-box reflect plugin  (orchestrator)                │
-│  ┌─────────────────┐  ┌──────────────────┐                     │
-│  │ PreCompact hook │  │ SessionStart hook │                     │
-│  │  drains ingest  │  │  calls `reflect   │                     │
-│  │  queue; calls   │  │   search` + injects│                    │
-│  │ `reflect add`   │  │   context         │                     │
-│  └────────┬────────┘  └────────┬──────────┘                    │
-│           │                    │                                │
-└───────────┼────────────────────┼────────────────────────────────┘
-            │                    │
-            ▼                    ▼
-┌───────────────────────────────────────────────────────────────┐
-│  reflect-kb  (this library — Python CLI + retrieval engine)   │
-│  • GraphRAG index (nano-graphrag)                             │
-│  • Vector search (nano-vectordb + sentence-transformers)      │
-│  • Entity sidecar store (.entities.yaml)                      │
-│  • Metrics JSONL writer                                       │
-└───────────────────────────────┬───────────────────────────────┘
-                                │  reads/writes
-                                ▼
-┌───────────────────────────────────────────────────────────────┐
-│  learnings-kb  (~/.claude/global-learnings/ or               │
-│                 $GLOBAL_LEARNINGS_PATH)                       │
-│  • documents/*.md          knowledge documents                │
-│  • documents/*.entities.yaml   entity sidecars                │
-│  • nano_graphrag_cache/    graph index (gitignored)           │
-│  • metrics.jsonl           recall telemetry (rotated 10 MB)   │
-└───────────────────────────────────────────────────────────────┘
+┌──────────────┐   corrections,    ┌──────────────┐   hybrid search   ┌──────────────┐
+│   1. CAPTURE │   root causes,    │   2. INDEX   │   top-3 reranked  │   3. RECALL  │
+│              │──design decisions▶│              │──by confidence × ▶│              │
+│  /reflect +  │                   │ GraphRAG +   │   recency × tags  │ SessionStart │
+│ PreCompact   │                   │ BM25 (local) │                   │ hook + /recall│
+└──────────────┘                   └──────────────┘                   └──────────────┘
+       ▲                                                                      │
+       └──────────────── injected back into the agent's context ◀────────────┘
 ```
 
-**Key split:** reflect-kb is the data layer — it knows nothing about Claude Code. The plugin is the
-orchestrator — it knows when to drain, recall, and surface. The learnings-kb content directory is a
-separate git repo (private; content not code).
+1. **Capture** — `/reflect` analyses your conversation, classifies corrections vs. successes, and writes a Markdown learning note plus a YAML entity sidecar (people, files, libraries, decisions). A `PreCompact` hook fires automatically when the agent compacts a conversation, so nothing is lost.
+2. **Index** — notes are dual-indexed: nano-graphrag for semantic + entity-graph search, qmd for fast BM25 lexical search. Both run locally on your machine — nothing leaves it.
+3. **Recall** — at every `SessionStart`, a hook runs hybrid search using the new session's working dir + recent commits as the query, fuses the results, reranks by confidence × recency × tag overlap, and injects the top three into the agent's context before you type anything.
 
-## Companion tooling
+---
 
-- **Claude Code plugin:** `claude plugin install reflect@agents-in-a-box`
-  — ships the PreCompact + SessionStart hooks, drain script, recall skill, and statusline timeline.
-- **Content directory:** `~/.claude/global-learnings/` (override with `$GLOBAL_LEARNINGS_PATH`).
+## Benchmark
 
-## What's new in 0.1.1
+reflect 4.1.0 evaluated on [LOCOMO](https://github.com/snap-research/locomo) (long-term conversational memory). **Preliminary**: a category-stratified pilot graded by an **Opus** reference LLM-judge. Retrieval runs reflect's **real** engine; the dialogue→note extraction is a documented LOCOMO-domain adapter. The judge is load-bearing — cheaper judges systematically under-credit valid paraphrases — so every figure uses the Opus reference.
 
-- **`--force` flag on `reflect add`** — non-interactive overwrite for ingest pipelines and subprocess
-  contexts where `click.confirm` cannot read a TTY. Without `--force`, non-TTY stdin now fails loudly
-  rather than silently dropping the file.
-- **Content-hash `doc_id`** — `doc_id` is now `slug(title) + sha256(title + body)[:6]`. Previously
-  hashing title-only caused silent collisions when two documents shared a slug-able title. Same title +
-  same body = same id (idempotent re-ingest). Same title + different body = distinct ids.
-- **`reflect timeline --explain ROW`** — drill-down on a single statusline dashboard row (REC, MEM,
-  ING, DRN, TOK, ERR, COM, AGT, or `all`). Delegates to the reflect plugin's `reflect_timeline.sh`
-  helper, auto-discovered from `$CLAUDE_PLUGIN_ROOT` or the plugin cache.
-- **`reflect metrics stats`** — aggregate the recall-metrics JSONL log: total events, hit rate,
-  p50/p95 latency, top tags. Supports `--format json` for machine consumption and `--window-days` for
-  custom time windows.
+| config · Opus judge | single-hop | multi-hop | temporal | open-domain | adversarial | **overall** |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| **reflect 4.1.0 + retrieval fixes** | 0.80 | 0.80 | 0.80 | 0.70 | 0.90 | **0.80** |
+
+The retrieval fixes are two additive, env-gated, **zero-new-API-key** knobs: a stronger local embedder (`REFLECT_EMBED_MODEL=BAAI/bge-base-en-v1.5`) and **HyDE** query-expansion (`REFLECT_RECALL_HYDE=1`, reusing reflect's own `claude -p`). Both default off — shipped behavior is unchanged.
+
+![LOCOMO positioning — reflect vs other memory systems](tests/eval/locomo/results/locomo_positioning.png)
+
+reflect lands mid-field — on par with Memobase / Zep, above Mem0 — while the newest systems (ByteRover, Honcho, Hindsight) sit higher but are self-reported on their own harnesses. Judges and harnesses differ across the field, so treat this as **directional placement, not a strict ranking**. Full methodology, per-fix ablation, and judge calibration: [`tests/eval/locomo/REPORT.md`](./tests/eval/locomo/REPORT.md).
+
+---
+
+## Cross-harness
+
+One engine, one knowledge base, three harnesses. A correction captured in Claude Code is recalled in Codex; a footgun learned in Copilot surfaces back in Claude.
+
+| Harness | Wiring | Memory source ingested |
+|---|---|---|
+| **Claude Code** | Native plugin — SessionStart / UserPromptSubmit / Stop / PreCompact hooks | `~/.claude/projects/<hash>/memory/*.md` |
+| **Codex CLI** | Python adapter (`plugin/adapters/codex/`) | `~/.codex/memories/*.md` + `~/.codex/AGENTS.md` |
+| **GitHub Copilot** | Python adapter (`plugin/adapters/copilot/`) | `~/.copilot/AGENTS.md` |
+
+All sources flow through one ingest pipeline and land in one place: `~/.learnings/documents/`, dual-indexed into graph + vector stores.
+
+---
+
+## Repo layout
+
+```
+ainb-reflect-memory/
+├── pyproject.toml          # the reflect engine (Python package `reflect-kb`)
+├── src/reflect_kb/         # CLI + retrieval engine (GraphRAG + BM25)
+├── tests/                  # engine tests + the LOCOMO benchmark harness
+│   └── eval/locomo/        # REPORT.md, positioning plot, eval scripts
+├── docs/                   # engine docs (usage, architecture)
+├── schemas/                # learning-note + entity-sidecar schemas
+├── scripts/                # helper scripts
+├── assets/                 # mascot + branding
+└── plugin/                 # the Claude Code plugin (hooks + skills)
+    ├── .claude-plugin/plugin.json   # plugin manifest (v4.1.x)
+    ├── skills/             # reflect, reflect:recall, reflect:ingest, …
+    ├── hooks/              # SessionStart / PreCompact / Stop / PostToolUse
+    └── adapters/           # codex + copilot cross-harness adapters
+```
+
+**Two version streams — don't confuse them.** The **engine** is the Python package `reflect-kb`, versioned in [`pyproject.toml`](./pyproject.toml). The **plugin** that wires the engine into the agent harness follows its own semver in [`plugin/.claude-plugin/plugin.json`](./plugin/.claude-plugin/plugin.json) (currently 4.1.x). When asked "what version of reflect is installed?" you usually want both: `reflect --version` for the engine and the plugin manifest for the harness wiring.
+
+**Key split:** the engine is the data layer — it knows nothing about any specific harness. The plugin is the orchestrator — it knows when to capture, drain, recall, and surface.
+
+---
+
+## Documentation
+
+- 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
+- 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration
+- 📄 **[LICENSE](./LICENSE)** — MIT
+
+---
 
 ## License
 
