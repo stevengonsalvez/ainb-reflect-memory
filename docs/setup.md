@@ -22,6 +22,8 @@ cp .env.example .env   # .env is git-ignored; never commit it
 | `SUPABASE_URL`              | `https://<ref>.supabase.co`                  | direct client path (Phase 2+)       | safe to expose                                  |
 | `SUPABASE_ANON_KEY`         | public anon key                              | direct browser/PostgREST reads      | safe to expose (RLS still applies)              |
 | `SUPABASE_SERVICE_ROLE_KEY` | service-role key (**bypasses RLS**)          | migrations / trusted workers only   | **NEVER** to browser/client; NEVER commit       |
+| `REFLECT_PG_DSN`            | DSN that switches reflect to the shared backend | enabling the backend (write path = service_role) | server/worker only |
+| `REFLECT_WORKSPACE_ID`      | tenant UUID (hard isolation boundary)        | enabling the backend                | n/a (not a secret)                              |
 
 ### Bitwarden item
 
@@ -104,8 +106,7 @@ evidence pack. It is idempotent — re-running creates no duplicates.
 ### Unit tests — no database, no credentials (the default CI path)
 
 ```bash
-
-pytest -m "not integration"
+PYTHONPATH=src pytest -m "not integration" tests/postgres
 ```
 
 These cover normalization/dedupe hashing, model validation, and the SQL-builder
@@ -161,7 +162,7 @@ test and truncate tables between tests.
 - duplicate ingestion is idempotent (per-tenant content hash)
 - tenant isolation on the trusted path; RLS fail-closed on the direct path
 
-See the [phase roadmap](../README.md#phase-roadmap) for Phases 4–5.
+See [README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
 
 ---
 
@@ -169,7 +170,7 @@ See the [phase roadmap](../README.md#phase-roadmap) for Phases 4–5.
 
 Makes reflect's nano-graphrag use this Postgres as its shared vector + graph +
 community store, so the same memory is queryable from every machine. See
-[README → Shared nano-graphrag backend](../README.md#shared-nano-graphrag-backend).
+[README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
 
 ### Apply the Phase 2 migration (needs pgvector)
 
@@ -204,8 +205,9 @@ worker, not PostgREST. The adapter sets the `app.current_workspace` GUC on
 connect so reads work under RLS for any role; the resolver treats a signed JWT
 claim as authoritative over that GUC.
 
-The `reflect` client still needs nano-graphrag + its embedding stack (reflect-kb
-`[graph]` extra). The `ainb-reflect-memory` adapters need `[postgres]` (+ `[pg]`).
+The `reflect` client needs nano-graphrag + its embedding stack (the `[graph]`
+extra); the Postgres adapters add the `[postgres]` extra (psycopg). Install both:
+`pip install '.[graph,postgres]'`.
 
 ### Cross-machine demo + tests
 
@@ -215,8 +217,8 @@ PYTHONPATH=src DATABASE_URL=... python scripts/demo_cross_machine.py
 
 # adapter conformance + cross-machine + RLS + full-pipeline tests
 #   (need nano-graphrag + networkx + numpy + psycopg + a pgvector Postgres)
-PYTHONPATH=src DATABASE_URL=... pytest -m integration tests/nanographrag
+PYTHONPATH=src DATABASE_URL=... pytest -m integration tests/postgres
 
 # the always-on "server stays dumb" scan needs no DB and no nano-graphrag:
-pytest -m "not integration" tests/test_server_is_dumb.py
+PYTHONPATH=src pytest -m "not integration" tests/postgres/test_server_is_dumb.py
 ```

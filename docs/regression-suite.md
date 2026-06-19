@@ -56,7 +56,7 @@ of proof files in `reflect-kb/tests/eval/behavioral/proofs/`.
 
 **Blast radius of the PG backend:** of the 57, exactly **one (R1)** routes
 through nano-graphrag's storage; the other 56 are recall-layer and
-backend-agnostic. The change is inert unless `REFLECT_PG_DSN`/`DATABASE_URL`
+backend-agnostic. The change is inert unless `REFLECT_PG_DSN`
 **and** `REFLECT_WORKSPACE_ID` are both set.
 
 ---
