@@ -50,7 +50,16 @@ reflect add ./my-solution.md                    # capture a learning (optional -
 reflect search "how did we fix the tokio panic" # hybrid GraphRAG + BM25 recall
 ```
 
-The Claude Code **plugin** (hooks + skills) that wires this into your agent harness lives under [`plugin/`](./plugin/) — see [plugin/README.md](./plugin/README.md) for the one-step `claude plugin install` flow plus the Codex / Copilot adapters.
+### Plugin (Claude Code)
+
+The **plugin** (hooks + skills) that wires reflect into your agent harness lives under [`plugin/`](./plugin/). Install it from this repo's marketplace:
+
+```bash
+claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
+claude plugin install reflect@ainb-reflect-memory
+```
+
+See [plugin/README.md](./plugin/README.md) for the lifecycle hooks, sub-skills, and the Codex / Copilot adapters. (`ainb reflect bootstrap` installs the engine + prints system-tool steps in one shot.)
 
 ---
 
