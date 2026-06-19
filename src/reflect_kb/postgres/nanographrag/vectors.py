@@ -89,16 +89,16 @@ class PgVectorStorage(BaseVectorStorage):
     async def query(self, query: str, top_k: int = 5) -> list[dict]:
         embedding = (await self.embedding_func([query]))[0]
         q = vector_literal(embedding)
+        # Apply the cosine threshold in SQL (not after the LIMIT) so we return
+        # the top_k among rows that PASS the threshold — matching NanoVectorDB,
+        # not "the top_k nearest, then drop the failing ones" (which would under-
+        # return when some of the nearest fall below threshold). `distance` holds
+        # cosine SIMILARITY (1 - distance); nano-graphrag reads id/meta only.
         rows = self._pg.fetchall(
             "select id, meta, 1 - (embedding <=> %s::vector) as distance "
             f"from {_TABLE} where workspace_id=%s and namespace=%s "
+            "and 1 - (embedding <=> %s::vector) >= %s "
             "order by embedding <=> %s::vector limit %s",
-            (q, self._ws, self.namespace, q, int(top_k)),
+            (q, self._ws, self.namespace, q, self.cosine_better_than_threshold, q, int(top_k)),
         )
-        results = []
-        for r in rows:
-            similarity = float(r["distance"])
-            if similarity < self.cosine_better_than_threshold:
-                continue
-            results.append({**(r["meta"] or {}), "id": r["id"], "distance": similarity})
-        return results
+        return [{**(r["meta"] or {}), "id": r["id"], "distance": float(r["distance"])} for r in rows]
