@@ -17,6 +17,8 @@ reflect captures every correction and design decision your AI assistant makes, i
 
 Works across **Claude Code**, **Codex CLI**, and **GitHub Copilot** — same engine, same KB, three harnesses.
 
+> 📖 **Full documentation → [stevengonsalvez.github.io/agents-in-a-box](https://stevengonsalvez.github.io/agents-in-a-box/)** — architecture, per-harness setup, and the Postgres backend in depth.
+
 ---
 
 ## Why
@@ -68,7 +70,7 @@ See [plugin/README.md](./plugin/README.md) for the lifecycle hooks, sub-skills, 
 reflect runs a **capture → index → recall** loop:
 
 <p align="center">
-  <img src="./assets/reflect-knowledge-system.svg" alt="reflect architecture — agent session feeds the capture→index→recall engine (GraphRAG + QMD) backed by three memory tiers" width="900" />
+  <img src="./assets/reflect-topology.svg" alt="reflect component topology — harness hooks feed the reflect engine (capture/index/recall); markdown KB is the source of truth; derived stores run either local (QMD sqlite + nano-graphrag) or shared (Supabase Postgres + pgvector)" width="940" />
 </p>
 
 1. **Capture** — `/reflect` analyses your conversation, classifies corrections vs. successes, and writes a Markdown learning note plus a YAML entity sidecar (people, files, libraries, decisions). A `PreCompact` hook fires automatically when the agent compacts a conversation, so nothing is lost.
@@ -77,37 +79,44 @@ reflect runs a **capture → index → recall** loop:
 
 ---
 
-## Shared memory across machines (Postgres backend)
+## Two ways to run: local or shared
 
-By default reflect's derived stores (vectors + entity graph + community reports)
-are **local files** — each machine rebuilds its own. The optional
-`reflect_kb.postgres` backend moves those into one shared **Supabase Postgres**,
-so laptop, desktop, and CI all query the *same* memory. The markdown KB stays
-the local source of truth; **all LLM/embedding/clustering stays client-side** —
-the database only stores, scopes by tenant, and runs ANN/graph reads.
+The markdown KB (`~/.claude/global-learnings/*.md`) is **always** the local
+source of truth, and **all LLM/embedding/clustering always stays client-side**.
+What changes between the two modes is only the *derived* vector + graph store.
 
-```
- machine A ─┐  (file KB local · QMD/sqlite lexical local · client keeps the brain)
- machine B ─┤── nano-graphrag (unchanged) ──▶ Supabase Postgres
- machine C ─┘     storage_classes() swap        ng_vectors (pgvector) · ng_graph_* · ng_kv
-```
+| | **Mode 1 — Local** (default) | **Mode 2 — Shared** (Postgres) |
+|---|---|---|
+| Derived store | per-machine: QMD `index.sqlite` (BM25) + nano-graphrag (hnswlib + `.graphml`) | one **Supabase Postgres** (pgvector) for everyone |
+| Setup | nothing — works out of the box | set 2 env vars + apply 2 migrations |
+| Share across machines | git-sync the markdown KB, then `reflect reindex` on each machine (re-embeds locally) | automatic — every machine queries the same store |
+| Best for | solo / single machine / offline | laptop + desktop + CI sharing one memory |
 
-nano-graphrag runs **unchanged** — it's handed Postgres-backed storage classes
-(the same way it ships `Neo4jStorage`). Opt in per machine:
+**Mode 1 — local (default).** Nothing to configure. To use the same memory on
+another machine, sync the source notes and rebuild the index there:
 
 ```bash
-pip install '.[graph,postgres]'           # postgres extra = psycopg
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
-export REFLECT_PG_DSN=postgresql://…       # trigger; NOT the generic DATABASE_URL
-export REFLECT_WORKSPACE_ID=<uuid>          # hard tenant boundary
+# on each machine, after syncing ~/.claude/global-learnings (e.g. via git):
+reflect reindex            # re-embeds + rebuilds the local graph/vector store
 ```
 
-Unset → original local-file behavior, unchanged. Tenant isolation is enforced by
-RLS (fail-closed) on the direct path and explicit `workspace_id` scoping on the
-trusted-worker path; writes require a `service_role` DSN. Details +
-threat-model: [`docs/setup.md`](./docs/setup.md) ·
-[`docs/regression-suite.md`](./docs/regression-suite.md).
+**Mode 2 — shared Postgres.** nano-graphrag runs **unchanged** — it's handed
+Postgres-backed storage classes (the same way it ships `Neo4jStorage`), so the
+vector + graph + community store lives in one shared DB. Opt in per machine:
+
+```bash
+pip install '.[graph,postgres]'                                   # postgres extra = psycopg
+psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
+psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
+export REFLECT_PG_DSN=postgresql://…        # the trigger (NOT the generic DATABASE_URL)
+export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
+```
+
+Unset → Mode 1, unchanged. The DB is **dumb**: no LLM, no embeddings — it
+stores, scopes by tenant, and runs ANN/graph reads. Tenant isolation is RLS
+(fail-closed) on the direct path + explicit `workspace_id` scoping on the
+trusted-worker path; writes need a `service_role` DSN. Full setup + threat
+model: [`docs/setup.md`](./docs/setup.md) · [`docs/regression-suite.md`](./docs/regression-suite.md).
 
 ---
 
@@ -127,45 +136,75 @@ reflect lands mid-field — on par with Memobase / Zep, above Mem0 — while the
 
 ---
 
-## Cross-harness
+## Cross-harness — Claude Code · Codex · Copilot
 
-One engine, one knowledge base, three harnesses. A correction captured in Claude Code is recalled in Codex; a footgun learned in Copilot surfaces back in Claude.
+One engine, one knowledge base, three harnesses. A correction captured in Claude
+Code is recalled in Codex; a footgun learned in Copilot surfaces back in Claude.
+**No extra LLM/embedding configuration on any of them** — recall + indexing run a
+local embedding model (no API key), and capture reuses your harness's own LLM
+(`claude -p`). You install one thing per harness; the harness does the rest.
 
-| Harness | Wiring | Memory source ingested |
-|---|---|---|
-| **Claude Code** | Native plugin — SessionStart / UserPromptSubmit / Stop / PreCompact hooks | `~/.claude/projects/<hash>/memory/*.md` |
-| **Codex CLI** | Python adapter (`plugin/adapters/codex/`) | `~/.codex/memories/*.md` + `~/.codex/AGENTS.md` |
-| **GitHub Copilot** | Python adapter (`plugin/adapters/copilot/`) | `~/.copilot/AGENTS.md` |
+### Install per harness
 
-All sources flow through one ingest pipeline and land in one place: `~/.claude/global-learnings/documents/` (the engine default; `~/.learnings/` is the legacy alias of the same store), dual-indexed into graph + vector stores.
+```bash
+# Claude Code — native plugin runtime (auto-wires hooks)
+claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
+claude plugin install reflect@ainb-reflect-memory
+
+# Codex CLI — no plugin runtime, so an adapter copies skills + merges hooks.json
+python plugin/adapters/codex/codex_adapter.py install
+
+# GitHub Copilot — adapter writes a native ~/.copilot/hooks/reflect.json
+python plugin/adapters/copilot/copilot_adapter.py install
+```
+
+### What each harness supports
+
+| Capability | Claude Code | Codex CLI (0.129+) | GitHub Copilot |
+|---|:--:|:--:|:--:|
+| Plugin runtime | ✅ native | ❌ adapter copies skills | ❌ adapter copies skills |
+| Lifecycle hooks (SessionStart / PreCompact / Stop / PostToolUse) | ✅ | ✅ via `~/.codex/hooks.json` | ✅ via `~/.copilot/hooks/reflect.json` |
+| **Auto-recall** at session start | ✅ | ✅ | ✅ (`additionalContext`) |
+| **Per-prompt** recall surfacing | ✅ `UserPromptSubmit` | ✅ | ⚠️ **manual `/recall`** — Copilot ignores `userPromptSubmitted` output |
+| Auto-capture on compact | ✅ | ✅ | ✅ |
+
+### Caveats to know
+
+- **Codex / Copilot capture needs the `claude` CLI.** The reflection drain
+  (`reflect-drain-bg.sh`) shells out to `claude -p /reflect <transcript>` to turn
+  a transcript into a learning. It's not a *new* key — it reuses your Claude
+  auth — but `claude` must be installed. Without it, capture won't drain → run
+  `/reflect` manually in-session.
+- **Copilot per-prompt recall is manual.** SessionStart auto-recall works, but
+  Copilot drops `userPromptSubmitted` hook output, so mid-session recall is `/recall`.
+- **Older Codex (< 0.129)** had no hooks — if you're on an old build, install
+  with `--no-hooks` and drive `/reflect` + `/recall` manually each session.
+
+All harnesses' memory flows through one ingest pipeline into one store
+(`~/.claude/global-learnings/documents/`; `~/.learnings/` is the legacy alias),
+dual-indexed into the graph + vector stores (local or shared Postgres).
 
 ---
 
-## Repo layout
+## Components
 
-```
-ainb-reflect-memory/
-├── pyproject.toml          # the reflect engine (Python package `reflect-kb`)
-├── src/reflect_kb/         # CLI + retrieval engine (GraphRAG + BM25)
-│   └── postgres/           # optional shared-Postgres backend (MemoryStore + nano-graphrag adapters)
-├── supabase/migrations/    # Postgres schema: memory/entities/edges + ng_* (pgvector) + RLS
-├── tests/                  # engine tests + the LOCOMO benchmark harness
-│   ├── postgres/           # Postgres backend tests (no-DB + integration, auto-skip)
-│   └── eval/locomo/        # REPORT.md, positioning plot, eval scripts
-├── docs/                   # engine docs (usage, architecture)
-├── schemas/                # learning-note + entity-sidecar schemas
-├── scripts/                # helper scripts
-├── assets/                 # mascot + branding
-└── plugin/                 # the Claude Code plugin (hooks + skills)
-    ├── .claude-plugin/plugin.json   # plugin manifest (v4.1.x)
-    ├── skills/             # reflect, reflect:recall, reflect:ingest, …
-    ├── hooks/              # SessionStart / PreCompact / Stop / PostToolUse
-    └── adapters/           # codex + copilot cross-harness adapters
-```
+The same topology as the diagram above, component by component:
 
-**Two version streams — don't confuse them.** The **engine** is the Python package `reflect-kb`, versioned in [`pyproject.toml`](./pyproject.toml). The **plugin** that wires the engine into the agent harness follows its own semver in [`plugin/.claude-plugin/plugin.json`](./plugin/.claude-plugin/plugin.json) (currently 4.1.x). When asked "what version of reflect is installed?" you usually want both: `reflect --version` for the engine and the plugin manifest for the harness wiring.
+| Layer | Component | What it is | Where |
+|---|---|---|---|
+| Harness | **lifecycle hooks** | fire capture/recall on SessionStart, PreCompact, Stop, PostToolUse | `plugin/` (+ `plugin/adapters/` for Codex/Copilot) |
+| Engine | **reflect CLI** (`reflect-kb`) | capture → index → recall orchestrator | `src/reflect_kb/` |
+| Source of truth | **markdown KB** | the learning notes — local, always | `~/.claude/global-learnings/*.md` |
+| Local store | **QMD** | BM25 lexical index | `~/.cache/qmd/index.sqlite` |
+| Local store | **nano-graphrag** | semantic vectors + entity graph | hnswlib + `.graphml` (per machine) |
+| Shared store | **Postgres** (opt-in) | pgvector + graph + KV, RLS, tenant-scoped | `src/reflect_kb/postgres/` + `supabase/migrations/` |
 
-**Key split:** the engine is the data layer — it knows nothing about any specific harness. The plugin is the orchestrator — it knows when to capture, drain, recall, and surface.
+**Two version streams — don't confuse them.** The **engine** is the Python
+package `reflect-kb` ([`pyproject.toml`](./pyproject.toml)); the **plugin** that
+wires it into a harness has its own semver
+([`plugin/.claude-plugin/plugin.json`](./plugin/.claude-plugin/plugin.json),
+4.1.x). `reflect --version` reports the engine; the manifest reports the wiring.
+The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 
 ---
 
