@@ -1,0 +1,28 @@
+{
+  "name": "ainb-reflect-memory",
+  "owner": {
+    "name": "stevengonsalvez",
+    "url": "https://github.com/stevengonsalvez"
+  },
+  "metadata": {
+    "description": "reflect \u2014 long-term memory for AI coding agents (GraphRAG + recall). Install the plugin with `claude plugin install reflect@ainb-reflect-memory`; the engine CLI installs via `uv tool install 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`.",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "reflect",
+      "source": "./plugin",
+      "description": "Agent self-improvement + retrieval. Captures learnings via colon-namespaced sub-skills (reflect, reflect:consolidate, reflect:ingest, reflect:recall, reflect-status) and auto-injects relevant prior learnings via SessionStart/UserPromptSubmit hooks. PostToolUse arms low-cost mini-learning capture; Stop enqueues short-session reflection. v4 cost rearchitecture: a $0 skip-gate + cascade slice the drain so it runs on Sonnet under hard caps (8 turns / 180s / 2M-token poison), with cost observability (reflect cost) and a weekly Opus synthesis pass. Philosophy: Correct once, never again; recall everything next time.",
+      "strict": false,
+      "keywords": [
+        "memory",
+        "recall",
+        "learnings",
+        "graphrag",
+        "self-improvement",
+        "retrieval",
+        "long-term-memory"
+      ]
+    }
+  ]
+}
