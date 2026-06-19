@@ -54,13 +54,26 @@ class GraphEngineError(Exception):
 class LearningsGraphEngine:
     """Wrapper around nano-graphrag for the Global Learnings knowledge base."""
 
-    def __init__(self, cache_dir: str | Path):
+    def __init__(
+        self,
+        cache_dir: str | Path,
+        pg_dsn: Optional[str] = None,
+        workspace_id: Optional[str] = None,
+    ):
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._graph = None
         self._model = None
         self._pending_entities: Optional[str] = None
         self._entity_queue: deque = deque()
+        # Opt-in shared Postgres backend (reflect_kb.postgres). When BOTH a DSN
+        # and a workspace id resolve, nano-graphrag's graph / vectors / community
+        # reports live in shared Postgres instead of per-machine local files, so
+        # the store is the same across machines. Default keeps local-file behavior.
+        # Trigger is REFLECT_PG_DSN ONLY — not the generic DATABASE_URL, which
+        # usually points at an unrelated DB.
+        self._pg_dsn = pg_dsn or os.environ.get("REFLECT_PG_DSN")
+        self._workspace_id = workspace_id or os.environ.get("REFLECT_WORKSPACE_ID")
 
     def _load_embedding_model(self):
         """Lazy-load the sentence transformer model."""
@@ -195,13 +208,42 @@ class LearningsGraphEngine:
                 "Run: uv pip install nano-graphrag"
             )
 
-        self._graph = GraphRAG(
+        graphrag_kwargs = dict(
             working_dir=str(self._cache_dir),
             embedding_func=self._get_embedding_func(),
             best_model_func=self._llm_complete,
             cheap_model_func=self._llm_complete,
             enable_naive_rag=True,
         )
+
+        # Shared Postgres backend (opt-in): hand nano-graphrag the reflect_kb.
+        # postgres storage classes so its graph / vectors / community reports
+        # live in shared Postgres — same store across machines. nano-graphrag's
+        # own code is unchanged; only the *_storage_cls + addon_params change.
+        if self._pg_dsn and self._workspace_id:
+            try:
+                from reflect_kb.postgres.nanographrag import (
+                    addon_params,
+                    storage_classes,
+                )
+            except ImportError as exc:
+                raise GraphEngineError(
+                    "Postgres backend requested (REFLECT_PG_DSN + "
+                    "REFLECT_WORKSPACE_ID) but reflect_kb.postgres deps are not "
+                    f"installed (extras: [postgres]): {exc}"
+                )
+            graphrag_kwargs.update(storage_classes())
+            graphrag_kwargs["addon_params"] = addon_params(
+                pg_dsn=self._pg_dsn,
+                workspace_id=self._workspace_id,
+                embedding_model=EMBEDDING_MODEL_NAME,
+            )
+            logger.info(
+                "LearningsGraphEngine: using shared Postgres backend (workspace=%s)",
+                self._workspace_id,
+            )
+
+        self._graph = GraphRAG(**graphrag_kwargs)
 
     def insert_document(self, text: str, entities_formatted: Optional[str] = None):
         """Insert a single document into the graph.
