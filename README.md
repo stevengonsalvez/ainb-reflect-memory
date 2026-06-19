@@ -101,7 +101,7 @@ One engine, one knowledge base, three harnesses. A correction captured in Claude
 | **Codex CLI** | Python adapter (`plugin/adapters/codex/`) | `~/.codex/memories/*.md` + `~/.codex/AGENTS.md` |
 | **GitHub Copilot** | Python adapter (`plugin/adapters/copilot/`) | `~/.copilot/AGENTS.md` |
 
-All sources flow through one ingest pipeline and land in one place: `~/.learnings/documents/`, dual-indexed into graph + vector stores.
+All sources flow through one ingest pipeline and land in one place: `~/.claude/global-learnings/documents/` (the engine default; `~/.learnings/` is the legacy alias of the same store), dual-indexed into graph + vector stores.
 
 ---
 

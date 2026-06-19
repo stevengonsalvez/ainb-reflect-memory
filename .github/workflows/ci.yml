@@ -41,14 +41,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: 'pyproject.toml'
 
-      - name: set up python ${{ matrix.python-version }}
-        run: uv python install ${{ matrix.python-version }}
-
-      - name: install package (dev extra only — NOT graph)
-        # [dev] gives ruff/mypy/pytest/respx/jsonschema. The [graph] extra is
-        # intentionally omitted (see job comment). --python pins the matrix
-        # interpreter into a fresh venv uv manages.
-        run: uv pip install --system --python ${{ matrix.python-version }} -e '.[dev]'
+      - name: install package (dev extra only — NOT graph) into a uv venv
+        # uv venv creates .venv and downloads the matrix interpreter if needed;
+        # uv pip install targets that venv; uv run executes inside it. We do NOT
+        # use `uv pip install --system`: the runner's interpreter is externally
+        # managed (PEP 668), so --system aborts with exit 2.
+        # [dev] gives ruff/mypy/pytest/respx/jsonschema. [graph] is intentionally
+        # omitted (see job comment): the graph stack lazy-imports, so the slim
+        # suite is green without it.
+        run: |
+          uv venv --python ${{ matrix.python-version }}
+          uv pip install -e '.[dev]'
 
       - name: ruff check
         # NON-BLOCKING for now: the freshly-extracted engine carries a backlog
@@ -58,7 +61,7 @@ jobs:
         # annotations show inline; flip continue-on-error off once the backlog
         # is cleared (`ruff check --fix src/reflect_kb tests`).
         continue-on-error: true
-        run: ruff check --output-format=github src/reflect_kb tests
+        run: uv run ruff check --output-format=github src/reflect_kb tests
 
       - name: mypy (src/reflect_kb)
         # NON-BLOCKING: src/reflect_kb is not fully typed yet, and the slim
@@ -67,14 +70,14 @@ jobs:
         # (types-PyYAML). Those import-not-found / import-untyped errors are
         # expected on the slim build. Runs for signal; does not gate the build.
         continue-on-error: true
-        run: mypy src/reflect_kb
+        run: uv run mypy src/reflect_kb
 
       - name: pytest (fast unit tests; excludes heavy tests/eval suite)
         # THE gate. tests/eval/{behavioral,locomo} need the [graph] extra,
         # model downloads, and (LOCOMO) an Anthropic API key, so they are
         # excluded here. Everything directly under tests/ runs on the slim
         # install.
-        run: pytest -q tests --ignore=tests/eval
+        run: uv run pytest -q tests --ignore=tests/eval
 
   # ---------------------------------------------------------------------------
   # Lightweight manifest validation. The Claude Code plugin ships its manifest
