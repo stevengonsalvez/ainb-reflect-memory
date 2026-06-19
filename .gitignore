@@ -37,3 +37,8 @@ logs/
 .vscode/
 *.swp
 *.swo
+
+# Secrets — never commit (the Postgres backend reads these from a local .env)
+.env
+.env.local
+.env.*.local
