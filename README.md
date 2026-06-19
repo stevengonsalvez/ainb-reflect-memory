@@ -77,6 +77,40 @@ reflect runs a **capture → index → recall** loop:
 
 ---
 
+## Shared memory across machines (Postgres backend)
+
+By default reflect's derived stores (vectors + entity graph + community reports)
+are **local files** — each machine rebuilds its own. The optional
+`reflect_kb.postgres` backend moves those into one shared **Supabase Postgres**,
+so laptop, desktop, and CI all query the *same* memory. The markdown KB stays
+the local source of truth; **all LLM/embedding/clustering stays client-side** —
+the database only stores, scopes by tenant, and runs ANN/graph reads.
+
+```
+ machine A ─┐  (file KB local · QMD/sqlite lexical local · client keeps the brain)
+ machine B ─┤── nano-graphrag (unchanged) ──▶ Supabase Postgres
+ machine C ─┘     storage_classes() swap        ng_vectors (pgvector) · ng_graph_* · ng_kv
+```
+
+nano-graphrag runs **unchanged** — it's handed Postgres-backed storage classes
+(the same way it ships `Neo4jStorage`). Opt in per machine:
+
+```bash
+pip install '.[graph,postgres]'           # postgres extra = psycopg
+psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
+psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
+export REFLECT_PG_DSN=postgresql://…       # trigger; NOT the generic DATABASE_URL
+export REFLECT_WORKSPACE_ID=<uuid>          # hard tenant boundary
+```
+
+Unset → original local-file behavior, unchanged. Tenant isolation is enforced by
+RLS (fail-closed) on the direct path and explicit `workspace_id` scoping on the
+trusted-worker path; writes require a `service_role` DSN. Details +
+threat-model: [`docs/setup.md`](./docs/setup.md) ·
+[`docs/regression-suite.md`](./docs/regression-suite.md).
+
+---
+
 ## Benchmark
 
 reflect 4.1.0 evaluated on [LOCOMO](https://github.com/snap-research/locomo) (long-term conversational memory). **Preliminary**: a category-stratified pilot graded by an **Opus** reference LLM-judge. Retrieval runs reflect's **real** engine; the dialogue→note extraction is a documented LOCOMO-domain adapter. The judge is load-bearing — cheaper judges systematically under-credit valid paraphrases — so every figure uses the Opus reference.
@@ -113,7 +147,10 @@ All sources flow through one ingest pipeline and land in one place: `~/.claude/g
 ainb-reflect-memory/
 ├── pyproject.toml          # the reflect engine (Python package `reflect-kb`)
 ├── src/reflect_kb/         # CLI + retrieval engine (GraphRAG + BM25)
+│   └── postgres/           # optional shared-Postgres backend (MemoryStore + nano-graphrag adapters)
+├── supabase/migrations/    # Postgres schema: memory/entities/edges + ng_* (pgvector) + RLS
 ├── tests/                  # engine tests + the LOCOMO benchmark harness
+│   ├── postgres/           # Postgres backend tests (no-DB + integration, auto-skip)
 │   └── eval/locomo/        # REPORT.md, positioning plot, eval scripts
 ├── docs/                   # engine docs (usage, architecture)
 ├── schemas/                # learning-note + entity-sidecar schemas
@@ -134,6 +171,7 @@ ainb-reflect-memory/
 
 ## Documentation
 
+- 🐘 **[docs/setup.md](./docs/setup.md)** — shared Postgres backend: Supabase setup, secret names, migrations, enabling it, threat model
 - 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
 - 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration
 - 📄 **[LICENSE](./LICENSE)** — MIT

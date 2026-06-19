@@ -77,6 +77,12 @@ graph = [
     "xxhash>=3.0",
     "nano-graphrag",
 ]
+# Postgres backend (reflect_kb.postgres): the typed MemoryStore + the
+# nano-graphrag PG storage adapters. psycopg is the only new dep; the
+# nano-graphrag adapters also need the [graph] stack at runtime.
+postgres = [
+    "psycopg[binary]>=3.1",
+]
 
 [project.scripts]
 reflect = "reflect_kb.cli.main:main"
@@ -97,6 +103,9 @@ packages = ["src/reflect_kb"]
 # proof_*.py files exist in the repo, so standard test_*/*_test discovery is
 # unchanged for the 1000+ existing tests.
 python_files = ["test_*.py", "*_test.py", "proof_*.py"]
+markers = [
+    "integration: tests that need a live Postgres (auto-skip when none reachable)",
+]
 
 [tool.ruff]
 line-length = 100
