@@ -67,16 +67,9 @@ See [plugin/README.md](./plugin/README.md) for the lifecycle hooks, sub-skills, 
 
 reflect runs a **capture → index → recall** loop:
 
-```
-┌──────────────┐   corrections,    ┌──────────────┐   hybrid search   ┌──────────────┐
-│   1. CAPTURE │   root causes,    │   2. INDEX   │   top-3 reranked  │   3. RECALL  │
-│              │──design decisions▶│              │──by confidence × ▶│              │
-│  /reflect +  │                   │ GraphRAG +   │   recency × tags  │ SessionStart │
-│ PreCompact   │                   │ BM25 (local) │                   │ hook + /recall│
-└──────────────┘                   └──────────────┘                   └──────────────┘
-       ▲                                                                      │
-       └──────────────── injected back into the agent's context ◀────────────┘
-```
+<p align="center">
+  <img src="./assets/reflect-knowledge-system.svg" alt="reflect architecture — agent session feeds the capture→index→recall engine (GraphRAG + QMD) backed by three memory tiers" width="900" />
+</p>
 
 1. **Capture** — `/reflect` analyses your conversation, classifies corrections vs. successes, and writes a Markdown learning note plus a YAML entity sidecar (people, files, libraries, decisions). A `PreCompact` hook fires automatically when the agent compacts a conversation, so nothing is lost.
 2. **Index** — notes are dual-indexed: nano-graphrag for semantic + entity-graph search, qmd for fast BM25 lexical search. Both run locally on your machine — nothing leaves it.
