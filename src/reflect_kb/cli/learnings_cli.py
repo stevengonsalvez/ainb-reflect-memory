@@ -24,6 +24,7 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
+from reflect_kb import __version__
 from reflect_kb.metrics import write_metric
 from reflect_kb import errors as _err
 
@@ -112,7 +113,7 @@ def _get_graph_engine():
 
 
 @click.group()
-@click.version_option(version="0.1.1")
+@click.version_option(version=__version__)
 def cli():
     """Global Learnings CLI - Knowledge base with GraphRAG search."""
     ensure_repo_exists()
@@ -845,17 +846,20 @@ def timeline(explain_row):
             helper = str(candidate)
 
     if not helper:
-        pattern = str(
-            Path.home() / '.claude' / 'plugins' / 'cache' / 'agents-in-a-box'
-            / 'reflect' / '*' / 'scripts' / 'reflect_timeline.sh'
-        )
-        matches = sorted(glob.glob(pattern))
+        # Marketplace-agnostic, dual-layout: installed plugin nests scripts under
+        # <ver>/plugin/scripts/ (post-split); older caches used <ver>/scripts/.
+        cache = Path.home() / '.claude' / 'plugins' / 'cache'
+        patterns = [
+            cache / '*' / 'reflect' / '*' / 'plugin' / 'scripts' / 'reflect_timeline.sh',
+            cache / '*' / 'reflect' / '*' / 'scripts' / 'reflect_timeline.sh',
+        ]
+        matches = [m for p in patterns for m in glob.glob(str(p))]
         if matches:
-            helper = matches[-1]
+            helper = max(matches, key=os.path.getmtime)
 
     if not helper:
         click.echo(click.style("error: reflect plugin not found.", fg='red'), err=True)
-        click.echo("Install with: `claude plugin install reflect@agents-in-a-box`", err=True)
+        click.echo("Install with: `claude plugin install reflect@ainb-reflect-memory`", err=True)
         raise click.Abort()
 
     rc = subprocess.call([helper, '--explain', explain_row])
