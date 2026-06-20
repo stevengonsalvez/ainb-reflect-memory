@@ -203,7 +203,7 @@ The same topology as the diagram above, component by component:
 package `reflect-kb` ([`pyproject.toml`](./pyproject.toml)); the **plugin** that
 wires it into a harness has its own semver
 ([`plugin/.claude-plugin/plugin.json`](./plugin/.claude-plugin/plugin.json),
-4.1.x). `reflect --version` reports the engine; the manifest reports the wiring.
+5.0.x). `reflect --version` reports the engine; the manifest reports the wiring.
 The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 
 ---

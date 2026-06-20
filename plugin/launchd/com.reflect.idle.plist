@@ -10,7 +10,7 @@
   queue/cost dedup stops double-processing after a resume.
 
   INSTALL (replace {{PLUGIN_ROOT}} with the absolute reflect plugin path, e.g.
-  ~/.claude/plugins/cache/agents-in-a-box/reflect/<ver> or the toolkit source):
+  ~/.claude/plugins/cache/<marketplace>/reflect/<ver>/plugin or the toolkit source):
     sed "s|{{PLUGIN_ROOT}}|$HOME/.claude/.../reflect|g" \
       com.reflect.idle.plist > ~/Library/LaunchAgents/com.reflect.idle.plist
     launchctl load ~/Library/LaunchAgents/com.reflect.idle.plist

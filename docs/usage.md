@@ -499,7 +499,7 @@ discovered in this order:
 
 1. `$CLAUDE_PLUGIN_ROOT/scripts/reflect_timeline.sh`
 2. Highest-versioned path matching
-   `~/.claude/plugins/cache/agents-in-a-box/reflect/*/scripts/reflect_timeline.sh`
+   `~/.claude/plugins/cache/*/reflect/*/plugin/scripts/reflect_timeline.sh`
 
 The helper renders a plain-text drill-down for the requested row over the last 2 hours.
 
@@ -535,8 +535,8 @@ reflect timeline --explain ERR
 
 ### Notes / gotchas
 
-- `reflect timeline --explain` requires the agents-in-a-box reflect plugin to be installed:
-  `claude plugin install reflect@agents-in-a-box`. If the plugin is not found, the command
+- `reflect timeline --explain` requires the reflect plugin to be installed:
+  `claude plugin install reflect@ainb-reflect-memory`. If the plugin is not found, the command
   prints an install hint and exits with a non-zero code.
 - The live dashboard itself is rendered by the plugin's statusline hook, not by this command.
   `reflect timeline` is the *drill-down* companion — it expands a single row.
