@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 # Ensure sibling imports work when run standalone.
-_SCRIPTS_DIR = Path(__file__).resolve().parent
+_SCRIPTS_DIR = Path(__file__).resolve().parent.parent  # archived under scripts/archive/
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 

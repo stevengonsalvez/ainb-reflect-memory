@@ -1,4 +1,4 @@
-"""Tests for W5 structural pieces: graphml_repair + regate_backlog + surfacer no-op."""
+"""Tests for W5 structural pieces: graphml_repair + regate_backlog clustering."""
 
 from __future__ import annotations
 
@@ -12,8 +12,9 @@ import pytest
 HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 SCRIPTS = PLUGIN_ROOT / "scripts"
-SURFACER = PLUGIN_ROOT / "hooks" / "sessionstart_drain_reflections.py"
+ARCHIVE = SCRIPTS / "archive"
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(ARCHIVE))
 
 import graphml_repair  # noqa: E402
 import regate_backlog  # noqa: E402
@@ -107,23 +108,6 @@ def test_regate_dry_run_does_not_modify(tmp_path):
     assert (sd / "pending_reflections.jsonl").read_text() == before
     assert not (sd / "pending_reflections.jsonl.pre-regate").exists()
 
-
-# ── surfacer retired ─────────────────────────────────────────────────────────
-
-def test_surfacer_is_retired_noop(tmp_path):
-    """Retired surfacer must exit 0 without injecting additionalContext, even
-    when a queue exists (it must NOT surface it — bg drainer is sole consumer)."""
-    state = tmp_path / "state"
-    state.mkdir()
-    (state / "pending_reflections.jsonl").write_text(
-        json.dumps({"transcript_path": "/x.jsonl", "session_id": "s"}) + "\n"
-    )
-    import os
-    r = subprocess.run([sys.executable, str(SURFACER)], input="{}", text=True,
-                       capture_output=True, timeout=30,
-                       env={**os.environ, "REFLECT_STATE_DIR": str(state)})
-    assert r.returncode == 0
-    assert "additionalContext" not in r.stdout  # no longer surfaces the queue
 
 
 # ── reflect_synthesis clustering ─────────────────────────────────────────────

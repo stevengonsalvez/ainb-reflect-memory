@@ -391,31 +391,6 @@ def test_precompact_log_path_is_harness_neutral(tmp_path):
     assert "trigger=auto" in contents
     assert "session=deadbeef" in contents
 
-
-def test_drain_reflections_silent_fail_on_corrupt_queue(tmp_path):
-    """sessionstart_drain_reflections.py must also silent-fail. Feed it
-    a queue file whose parent directory is unreadable (simulated via
-    REFLECT_STATE_DIR pointing at a file, not a dir) → exit 0, breadcrumb."""
-    # Pre-create a regular file at the state dir path so get_state_dir
-    # returns a path that can't be used as a directory.
-    blocker = tmp_path / "not-a-dir"
-    blocker.write_text("blocker", encoding="utf-8")
-
-    drain_hook = PLUGIN_ROOT / "hooks" / "sessionstart_drain_reflections.py"
-    result = subprocess.run(
-        [sys.executable, str(drain_hook)],
-        input="{}",
-        capture_output=True,
-        text=True,
-        env={**os.environ, "REFLECT_STATE_DIR": str(blocker)},
-        timeout=20,
-    )
-    assert result.returncode == 0, (
-        f"drain hook exited non-zero on broken state dir:\n"
-        f"stdout={result.stdout!r}\nstderr={result.stderr!r}"
-    )
-
-
 def test_recall_via_uv_run_script_silent_fail(tmp_path):
     """The recall hook runs in production via ``uv run --script`` (per
     its shebang). Verify the silent-fail wrapper still catches via the

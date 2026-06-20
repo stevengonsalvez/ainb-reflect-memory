@@ -10,7 +10,9 @@ import pytest
 
 HERE = Path(__file__).resolve().parent
 SCRIPTS = HERE.parent / "scripts"
+ARCHIVE = SCRIPTS / "archive"
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(ARCHIVE))
 
 import reflect_cost  # noqa: E402
 import backfill_costs  # noqa: E402
@@ -128,7 +130,7 @@ def test_backfill_writes_only_reflect_runs(tmp_path):
     state = tmp_path / "state"
     import subprocess
     cp = subprocess.run(
-        [sys.executable, str(SCRIPTS / "backfill_costs.py"),
+        [sys.executable, str(ARCHIVE / "backfill_costs.py"),
          "--since", "3650d", "--projects-dir", str(projects), "--state-dir", str(state)],
         capture_output=True, text=True, timeout=60,
     )
