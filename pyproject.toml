@@ -97,6 +97,7 @@ Specification = "https://github.com/stevengonsalvez/ai-coder-rules/blob/main/pla
 packages = ["src/reflect_kb"]
 
 [tool.pytest.ini_options]
+pythonpath = ["src", "plugin/scripts"]
 # Behavioral proofs live in tests/eval/behavioral/proofs/proof_*.py — their test
 # FUNCTIONS are named test_* (default), but the FILE glob must include proof_*
 # so a plain `pytest tests/eval/behavioral/` discovers them. Additive: no other

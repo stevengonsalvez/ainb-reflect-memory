@@ -48,6 +48,7 @@ EVAL_ROOT = HERE.parent  # reflect-kb/tests/eval
 # alongside reflect-kb/; parents[1].parent covers a standalone reflect-kb
 # checkout with the plugin as a sibling dir.
 _CANDIDATES = [
+    EVAL_ROOT.parents[1] / "plugin" / "skills" / "recall" / "scripts" / "recall.py",
     EVAL_ROOT.parents[2] / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
     EVAL_ROOT.parents[1].parent / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
 ]
