@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${PLUGIN_ROOT}/skills/recall/hooks/session_start_recall.py"
+            "command": "uv run --script ${PLUGIN_ROOT}/skills/recall/hooks/session_start_recall.py"
           },
           {
             "type": "command",
@@ -22,7 +22,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
+            "command": "uv run --script ${PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
           }
         ]
       }
@@ -33,7 +33,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
+            "command": "uv run --script ${PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
           }
         ]
       }
@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${PLUGIN_ROOT}/hooks/stop_reflect.py"
+            "command": "uv run --script ${PLUGIN_ROOT}/hooks/stop_reflect.py"
           }
         ]
       }
@@ -55,7 +55,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
+            "command": "uv run --script ${PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
           }
         ]
       }
