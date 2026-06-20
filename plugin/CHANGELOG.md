@@ -4,6 +4,27 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.0.0] — 2026-06-20 — Standalone repo + tagged releases
+
+Major bump marking the plugin's move to its own repository
+(`stevengonsalvez/ainb-reflect-memory`) and the switch to **tagged, pinned
+releases**. Functionally a continuation of 4.1.x — no runtime behavior change —
+but the install lineage and source-of-truth changed, hence the major.
+
+### Changed
+- Plugin now lives in `stevengonsalvez/ainb-reflect-memory` (`plugin/` subdir),
+  no longer under the `agents-in-a-box` monorepo.
+- The `agents-in-a-box` marketplace entry for `reflect` redirects here via a
+  GitHub source pinned to a release tag (`source.ref`), so existing
+  `reflect@agents-in-a-box` installs keep working — they just resolve to the
+  pinned tag instead of a stale local path.
+
+### Added
+- **Automated releases** (`.github/workflows/release.yml`): merging a
+  `plugin.json` version bump to `main` auto-tags `vX.Y.Z`, cuts a GitHub
+  Release, and propagates the new tag into the `agents-in-a-box`
+  marketplace `reflect.source.ref` (direct push).
+
 ## [4.1.0] — 2026-06-17 — Recall upgrade (57 ports)
 
 Minor bump for the recall-upgrade campaign (PR #248): **57 features ported** from
