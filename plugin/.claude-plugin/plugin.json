@@ -1,6 +1,6 @@
 {
   "name": "reflect",
-  "version": "5.0.0",
+  "version": "5.0.1",
   "description": "Agent self-improvement + retrieval. Captures learnings via colon-namespaced sub-skills (reflect, reflect:consolidate, reflect:ingest, reflect:recall, reflect-status) and auto-injects relevant prior learnings via SessionStart/UserPromptSubmit hooks. PostToolUse arms low-cost mini-learning capture; Stop enqueues short-session reflection. v4 cost rearchitecture: a $0 skip-gate + cascade slice the drain so it runs on Sonnet under hard caps (8 turns / 180s / 2M-token poison), with cost observability (reflect cost) and a weekly Opus synthesis pass. Philosophy: Correct once, never again; recall everything next time.",
   "author": {
     "name": "stevengonsalvez"
@@ -12,7 +12,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/session_start_recall.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/session_start_recall.py"
           },
           {
             "type": "command",
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/notification_reflect.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/notification_reflect.py"
           }
         ]
       }
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
           }
         ]
       }
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/stop_reflect.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/stop_reflect.py"
           }
         ]
       }
@@ -72,7 +72,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
           }
         ]
       }

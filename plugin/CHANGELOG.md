@@ -4,6 +4,19 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.0.1] — 2026-06-20 — Hook hardening: force `uv --script`
+
+Patch. All lifecycle hooks now invoke `uv run --script` instead of `uv run`,
+across the Claude (`.claude-plugin/plugin.json`), Codex (`codex-hooks.json`),
+and Copilot (`copilot-hooks.json`) manifests.
+
+### Fixed
+- Hooks no longer fail with `No requires-python value found in the workspace` /
+  exit 2 when the session's working directory contains a `pyproject.toml` that
+  lacks `requires-python`. `uv run <script>` could drop into project/workspace
+  mode and ignore the script's own PEP 723 metadata; `--script` forces uv to
+  treat the file as a self-contained script every time, independent of cwd.
+
 ## [5.0.0] — 2026-06-20 — Standalone repo + tagged releases
 
 Major bump marking the plugin's move to its own repository
