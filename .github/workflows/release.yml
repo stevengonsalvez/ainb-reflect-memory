@@ -1,0 +1,158 @@
+name: release
+
+# Auto-release on a plugin.json version bump.
+#
+# The version lives in ONE place: plugin/.claude-plugin/plugin.json. When a
+# commit that bumps it lands on main, this workflow:
+#   1. reads the version,
+#   2. no-ops if tag vX.Y.Z already exists (idempotent — safe on every push),
+#   3. else: guards manifest-version drift, builds a changelog, tags vX.Y.Z,
+#      cuts a GitHub Release, and
+#   4. propagates the new tag into the agents-in-a-box marketplace by setting
+#      plugins[reflect].source.ref = vX.Y.Z (direct push, mirrors the proven
+#      homebrew-tap job in ai-coder-rules/release.yml).
+#
+# workflow_dispatch is kept as a manual re-run / backfill path.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'plugin/.claude-plugin/plugin.json'
+      - 'plugin/plugin.json'
+      - 'plugin/.codex-plugin/plugin.json'
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # The repo whose marketplace.json pins this plugin, and the plugin entry name.
+  MARKETPLACE_REPO: stevengonsalvez/ai-coder-rules
+  MARKETPLACE_FILE: .claude-plugin/marketplace.json
+  PLUGIN_NAME: reflect
+
+jobs:
+  release:
+    name: tag + release + propagate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      # Canonical version = the Claude Code manifest. Guard the two mirrors
+      # against drift so a half-bumped commit can't ship.
+      - name: Read + validate version
+        id: version
+        run: |
+          CANON=$(jq -r '.version' plugin/.claude-plugin/plugin.json)
+          if ! [[ "$CANON" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version '$CANON' is not semver"; exit 1
+          fi
+          for f in plugin/plugin.json plugin/.codex-plugin/plugin.json; do
+            V=$(jq -r '.version' "$f")
+            if [ "$V" != "$CANON" ]; then
+              echo "::error file=$f::version drift: $f=$V but canonical=$CANON"; exit 1
+            fi
+          done
+          echo "version=$CANON" >> "$GITHUB_OUTPUT"
+          echo "tag=v$CANON" >> "$GITHUB_OUTPUT"
+          echo "Canonical version: $CANON (tag v$CANON)"
+
+      - name: Skip if tag already exists
+        id: guard
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists — nothing to release."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate changelog
+        if: steps.guard.outputs.release == 'true'
+        id: changelog
+        run: |
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          RANGE=${LAST_TAG:+$LAST_TAG..HEAD}; RANGE=${RANGE:-HEAD}
+          {
+            echo "## ${{ steps.version.outputs.tag }}"
+            echo ""
+            FEAT=$(git log $RANGE --no-merges --pretty='- %s' --grep='^feat' | sort -u || true)
+            FIX=$(git log $RANGE --no-merges --pretty='- %s' --grep='^fix' | sort -u || true)
+            DOCS=$(git log $RANGE --no-merges --pretty='- %s' --grep='^docs' | sort -u || true)
+            [ -n "$FEAT" ] && { echo "### Added";   echo "$FEAT"; echo ""; }
+            [ -n "$FIX" ]  && { echo "### Fixed";   echo "$FIX";  echo ""; }
+            [ -n "$DOCS" ] && { echo "### Docs";    echo "$DOCS"; echo ""; }
+          } > /tmp/notes.md
+          cat /tmp/notes.md
+          {
+            echo 'body<<EOF'
+            cat /tmp/notes.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create + push tag
+        if: steps.guard.outputs.release == 'true'
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin "$TAG"
+
+      - name: Create GitHub Release
+        if: steps.guard.outputs.release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          body: ${{ steps.changelog.outputs.body }}
+          draft: false
+
+      # ---- Propagate the new tag into the agents-in-a-box marketplace pin ----
+      # GITHUB_TOKEN cannot push to another repo; MARKETPLACE_REPO_TOKEN is a
+      # PAT (or GitHub App token) with contents:write on MARKETPLACE_REPO.
+      - name: Checkout marketplace repo
+        if: steps.guard.outputs.release == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MARKETPLACE_REPO }}
+          token: ${{ secrets.MARKETPLACE_REPO_TOKEN }}
+          path: marketplace
+
+      - name: Bump reflect source.ref + push
+        if: steps.guard.outputs.release == 'true'
+        working-directory: marketplace
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          FILE="${{ env.MARKETPLACE_FILE }}"
+          NAME="${{ env.PLUGIN_NAME }}"
+
+          jq --arg name "$NAME" --arg ref "$TAG" '
+            .plugins |= map(
+              if .name == $name and (.source | type) == "object"
+              then .source.ref = $ref
+              else . end)
+          ' "$FILE" > "$FILE.tmp" && mv "$FILE.tmp" "$FILE"
+
+          # Confirm the pin actually changed to the expected tag.
+          GOT=$(jq -r --arg name "$NAME" '.plugins[] | select(.name==$name) | .source.ref' "$FILE")
+          if [ "$GOT" != "$TAG" ]; then
+            echo "::error::failed to set $NAME source.ref to $TAG (got '$GOT')"; exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$FILE"
+          git commit -m "chore: pin ${NAME} plugin to ${TAG}" || { echo "no change"; exit 0; }
+          git push
