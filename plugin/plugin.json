@@ -6,7 +6,13 @@
     "name": "stevengonsalvez"
   },
   "license": "MIT",
-  "keywords": ["reflect", "memory", "recall", "learnings", "self-improvement"],
+  "keywords": [
+    "reflect",
+    "memory",
+    "recall",
+    "learnings",
+    "self-improvement"
+  ],
   "skills": [
     "./skills/reflect/",
     "./skills/recall/",
@@ -14,6 +20,9 @@
     "./skills/consolidate/",
     "./skills/reflect-status/",
     "./skills/errors-ack/",
-    "./skills/cost/"
+    "./skills/cost/",
+    "./skills/export/",
+    "./skills/corpus/",
+    "./skills/slots/"
   ]
 }

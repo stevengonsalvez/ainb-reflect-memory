@@ -339,7 +339,7 @@ Review pending items? (approve N / reject N / skip)
 
 **GraphRAG stats unavailable:**
 - Check if reflect-kb CLI is installed: `command -v reflect`
-- Install if missing: `uv tool install --upgrade 'git+https://github.com/stevengonsalvez/agents-in-a-box.git#subdirectory=reflect-kb[graph]'`
+- Install if missing: `uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`
 
 **Sidecar count is 0:**
 - Knowledge notes may exist without sidecars (pre-v3 behavior)

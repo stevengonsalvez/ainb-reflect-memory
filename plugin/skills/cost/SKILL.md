@@ -67,12 +67,12 @@ WINDOW="1d"   # ← substitute from the table above
 COST_PY=""
 for cand in \
   "${CLAUDE_PLUGIN_ROOT:-}/scripts/reflect_cost.py" \
-  $(ls -t "$HOME"/.claude/plugins/cache/agents-in-a-box/reflect/*/scripts/reflect_cost.py 2>/dev/null); do
+  $(ls -t "$HOME"/.claude/plugins/cache/*/reflect/*/plugin/scripts/reflect_cost.py "$HOME"/.claude/plugins/cache/*/reflect/*/scripts/reflect_cost.py 2>/dev/null); do
   if [ -n "$cand" ] && [ -f "$cand" ]; then COST_PY="$cand"; break; fi
 done
 if [ -z "$COST_PY" ]; then
   echo "reflect_cost.py not found — install/update the reflect plugin (v4+):"
-  echo "  claude plugin update reflect@agents-in-a-box"
+  echo "  claude plugin update reflect@ainb-reflect-memory"
   exit 1
 fi
 
@@ -134,7 +134,7 @@ separate `drain-cost-backfill.jsonl` (which `reflect_cost.py` reads alongside
 the live log):
 
 ```bash
-BACKFILL_PY="$(dirname "$COST_PY")/backfill_costs.py"
+BACKFILL_PY="$(dirname "$COST_PY")/archive/backfill_costs.py"
 python3 "$BACKFILL_PY" --since "$WINDOW" \
   --projects-dir "$HOME/.claude/projects" \
   --state-dir "${REFLECT_STATE_DIR:-$HOME/.reflect}"
@@ -166,7 +166,7 @@ uncached split, the model, the $est, and call out any outlier transcript.
 ## Troubleshooting
 
 - **"reflect_cost.py not found"** — the installed plugin predates v4. Run
-  `claude plugin update reflect@agents-in-a-box` and restart.
+  `claude plugin update reflect@ainb-reflect-memory` and restart.
 - **All rows show model `?` and 0 tokens** — pre-v4 events only; run the
   backfill above.
 - **No events at all** — the drain hasn't run in the window, or

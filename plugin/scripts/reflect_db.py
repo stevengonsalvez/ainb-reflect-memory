@@ -655,7 +655,7 @@ def get_legacy_state_summary() -> Optional[str]:
                 continue
     if not yaml_found and not reflections_present:
         return None
-    script = Path(__file__).resolve().parent / "migrate_v2.py"
+    script = Path(__file__).resolve().parent / "archive" / "migrate_v2.py"
     return (
         "[reflect] Legacy v2 state detected ("
         f"{len(yaml_found)} YAML file(s)"
