@@ -235,6 +235,14 @@ def save_session_injected(session_id: str, injected: set[str]) -> None:
 
 # --- recall.py invocation (mirrors session_start_recall.py) -------------
 
+# Cold sentence-transformers / cross-encoder load does HF network round-trips
+# (~16s) that blow the recall subprocess timeout. The models are cached
+# locally, so pin offline for the model load this hook triggers (setdefault
+# lets a caller override). Propagates to the recall.py + reflect subprocesses.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# Cold model load is ~11-16s; the old 10s starved every uncached recall.
+_RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
 UV_BIN = shutil.which("uv")
 
 
@@ -285,7 +293,7 @@ def query_recall(query: str, session_id: str = "") -> tuple[str, list[str]]:
             cmd,
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_RECALL_TIMEOUT,
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError):
