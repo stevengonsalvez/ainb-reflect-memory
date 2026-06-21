@@ -560,7 +560,7 @@ class ReflectSystemTest(unittest.TestCase):
         # Run migrate_v2 against a fresh DB
         migrate_db = sb / "migrated.db"
         res = subprocess.run(
-            [sys.executable, str(SCRIPTS_DIR / "migrate_v2.py"),
+            [sys.executable, str(SCRIPTS_DIR / "archive" / "migrate_v2.py"),
              "--v2-dir", str(v2_dir),
              "--db", str(migrate_db),
              "--yes"],

@@ -19,9 +19,9 @@ The **+fixes** config adds two additive, env-gated, **zero-new-API-key** knobs: 
 
 ### vs other memory systems
 
-![LOCOMO leaderboard — reflect vs ByteRover / Honcho / Hindsight / Mem0 / Zep](../../reflect-kb/tests/eval/locomo/results/locomo_positioning.png)
+![LOCOMO leaderboard — reflect vs ByteRover / Honcho / Hindsight / Mem0 / Zep](../tests/eval/locomo/results/locomo_positioning.png)
 
-reflect's tuned 4-category mean (**77.5**) lands mid-field — on par with **Memobase / Zep**, above **Mem0** — while the newest systems (**ByteRover ~96, Honcho ~90, Hindsight ~90**) sit higher but are self-reported on their own harnesses. Judges/harnesses differ across the field (the same Zep reads 75 on one harness, 66 on another — that gap *is* the cross-harness noise), so this is **directional placement, not a strict ranking**. Full methodology, per-fix ablation, and the judge calibration: [`reflect-kb/tests/eval/locomo/REPORT.md`](../../reflect-kb/tests/eval/locomo/REPORT.md).
+reflect's tuned 4-category mean (**77.5**) lands mid-field — on par with **Memobase / Zep**, above **Mem0** — while the newest systems (**ByteRover ~96, Honcho ~90, Hindsight ~90**) sit higher but are self-reported on their own harnesses. Judges/harnesses differ across the field (the same Zep reads 75 on one harness, 66 on another — that gap *is* the cross-harness noise), so this is **directional placement, not a strict ranking**. Full methodology, per-fix ablation, and the judge calibration: [`tests/eval/locomo/REPORT.md`](../tests/eval/locomo/REPORT.md).
 
 ---
 
@@ -207,7 +207,7 @@ The fact has now travelled from a free-form correction in chat → an auto-memor
 
 ## Live timeline dashboard (optional)
 
-The plugin ships a 4-row activity dashboard renderer at `scripts/reflect_timeline.sh`. After install it lands at `~/.claude/plugins/cache/agents-in-a-box/reflect/<version>/scripts/reflect_timeline.sh`. Wire it into your statusline to see a rolling 2-hour view of all 8 reflect-pipeline signals side-by-side.
+The plugin ships a 4-row activity dashboard renderer at `scripts/reflect_timeline.sh`. After install it lands at `~/.claude/plugins/cache/<marketplace>/reflect/<version>/plugin/scripts/reflect_timeline.sh`. Wire it into your statusline to see a rolling 2-hour view of all 8 reflect-pipeline signals side-by-side.
 
 ```
 R: ▁·▁▂▅█▆▃▁·····▁··▂··░·   M: ········▁▂▃·····▁▂··    ◀ recall (blue)        | auto-memory (cyan)
@@ -228,7 +228,7 @@ Each sub-sparkline: 24 cells × 5 minutes = 2 hours, right edge = now. Heights e
 Wire it into your statusline by adding this block at the end (after `printf '%b\n %b' "$L1" "$L2"`):
 
 ```bash
-TIMELINE_HELPER="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/cache/agents-in-a-box/reflect/3.6.0}/scripts/reflect_timeline.sh"
+TIMELINE_HELPER="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/cache/<marketplace>/reflect/<version>/plugin/scripts}/reflect_timeline.sh"
 if [[ "${REFLECT_TIMELINE_DISABLE:-0}" != "1" ]] && [[ -x "$TIMELINE_HELPER" ]]; then
   "$TIMELINE_HELPER" 2>/dev/null
 fi
@@ -287,8 +287,8 @@ verify.
 
 ```bash
 # 1. plugin: SessionStart/UserPromptSubmit/Stop/PreCompact hooks + skills
-claude plugin marketplace add stevengonsalvez/agents-in-a-box
-claude plugin install reflect@agents-in-a-box
+claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
+claude plugin install reflect@ainb-reflect-memory
 
 # 2. everything else in one shot: auto-installs the reflect-kb CLI (full
 #    GraphRAG stack) and prints any missing system tools for you to install
@@ -332,7 +332,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 #   · nano-graphrag         — GraphRAG (entity + community retrieval)
 #   · sentence-transformers — embeddings (~2GB incl. torch)
 uv tool install --force --upgrade \
-  'git+https://github.com/stevengonsalvez/agents-in-a-box.git#subdirectory=reflect-kb[graph]'
+  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 
 # If the install chokes on nano-graphrag (graspologic → numba → llvmlite wants
 # py<3.10), install the base then inject nano-graphrag without its deps:
@@ -354,16 +354,16 @@ These harnesses don't have a native plugin runtime yet. Use the python adapter,
 then install the same CLI (annotated notes above):
 
 ```bash
-git clone https://github.com/stevengonsalvez/agents-in-a-box.git
-cd agents-in-a-box
+git clone https://github.com/stevengonsalvez/ainb-reflect-memory.git
+cd ainb-reflect-memory
 
 # pick your harness
-python3 plugins/reflect/adapters/codex/codex_adapter.py install
-python3 plugins/reflect/adapters/copilot/copilot_adapter.py install
+python3 plugin/adapters/codex/codex_adapter.py install
+python3 plugin/adapters/copilot/copilot_adapter.py install
 
 # same CLI prerequisite
 uv tool install --force --upgrade \
-  'git+https://github.com/stevengonsalvez/agents-in-a-box.git#subdirectory=reflect-kb[graph]'
+  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 ```
 
 ---
@@ -371,7 +371,7 @@ uv tool install --force --upgrade \
 ## Verify it's working
 
 ```bash
-# Should list reflect@agents-in-a-box, version 3.6.0
+# Should list reflect@ainb-reflect-memory, version <version>
 claude plugin list
 
 # Should print pending reflections, KB stats, sidecar coverage
@@ -409,7 +409,7 @@ For design decisions and the v4 universal-install spec, see **[docs/design-recor
 ## Companion CLI
 
 The Python CLI that powers this plugin lives in the same monorepo at
-[`reflect-kb/`](../../reflect-kb/) — install via `uv tool install` (see Install
+[`src/reflect_kb/`](../src/reflect_kb/) — install via `uv tool install` (see Install
 section above for the subdirectory URL).
 
 The plugin in this repo is the harness-side glue (skills, hooks, settings.json merge); the CLI is the actual KB engine.

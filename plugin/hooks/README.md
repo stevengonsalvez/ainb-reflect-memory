@@ -91,7 +91,7 @@ If you already have a PreCompact hook (like running `/handover`), chain the refl
         "hooks": [
           {
             "type": "command",
-            "command": "uv run /path/to/plugins/reflect/hooks/precompact_reflect.py --remind"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --remind"
           }
         ]
       }
@@ -112,7 +112,7 @@ Combine with your existing hook using shell chaining:
         "hooks": [
           {
             "type": "command",
-            "command": "uv run ~/.claude/hooks/pre_compact.py --backup && uv run /path/to/precompact_reflect.py --remind"
+            "command": "uv run ~/.claude/hooks/pre_compact.py --backup && uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --remind"
           }
         ]
       }
