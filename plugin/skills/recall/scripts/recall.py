@@ -526,6 +526,22 @@ def shard_kb_path(project: str, branch: str = "") -> Path | None:
     return root
 
 
+def _shard_is_populated(shard: Path) -> bool:
+    """A6/R15 healing: a per-branch/project shard is only usable if it has
+    documents or a built index. Empty shards (created on demand but never
+    populated) would otherwise starve recall — callers fall back to the
+    pooled global KB instead. Plumbing only; the sharding design is unchanged.
+    """
+    try:
+        docs = shard / "documents"
+        if docs.is_dir() and any(docs.glob("*.md")):
+            return True
+        vdb = shard / "nano_graphrag_cache" / "vdb_entities.json"
+        return vdb.is_file() and vdb.stat().st_size > 2
+    except OSError:
+        return False
+
+
 def resolve_kb_root(
     scope_global: bool, all_branches: bool = False
 ) -> Path | None:
@@ -559,7 +575,7 @@ def resolve_kb_root(
     #       sub-shard unless --all-branches widens to the project level.
     branch = "" if (all_branches or RECALL_ALL_BRANCHES_ENV) else detect_current_branch()
     shard = shard_kb_path(project, branch)
-    if shard is not None:
+    if shard is not None and _shard_is_populated(shard):
         return shard
     # (5) No project context → fall back to the pooled global KB.
     return _global_learnings_root()
