@@ -21,6 +21,7 @@ on:
       - 'plugin/.claude-plugin/plugin.json'
       - 'plugin/plugin.json'
       - 'plugin/.codex-plugin/plugin.json'
+      - '.claude-plugin/plugin.json'
   workflow_dispatch:
 
 concurrency:
@@ -59,7 +60,7 @@ jobs:
           if ! [[ "$CANON" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
             echo "::error::version '$CANON' is not semver"; exit 1
           fi
-          for f in plugin/plugin.json plugin/.codex-plugin/plugin.json; do
+          for f in plugin/plugin.json plugin/.codex-plugin/plugin.json .claude-plugin/plugin.json; do
             V=$(jq -r '.version' "$f")
             if [ "$V" != "$CANON" ]; then
               echo "::error file=$f::version drift: $f=$V but canonical=$CANON"; exit 1
