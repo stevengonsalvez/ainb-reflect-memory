@@ -136,6 +136,97 @@ reflect lands mid-field — on par with Memobase / Zep, above Mem0 — while the
 
 ---
 
+## Why build, not adopt
+
+reflect didn't start as a from-scratch idea. We evaluated the agent-memory field at depth — four
+systems read line-by-line (Hindsight, ByteRover, agentmemory, claude-mem), plus Mem0, Honcho and
+OpenViking — and deliberately chose to **port the best retrieval ideas into a local-first engine**
+rather than adopt any one wholesale ([epic + per-feature source permalinks](https://github.com/stevengonsalvez/agents-in-a-box/discussions/227)).
+Here's the reasoning.
+
+### The landscape
+
+| Tool | What it stores | Extra LLM/embed key? | Runs as | First-class coding signals | License |
+|---|---|---|---|---|---|
+| **reflect** | **selective** learnings; markdown = source of truth | **No** — reuses the agent's own model + local embeddings | **local files** (sqlite + graphml); optional shared Postgres | **Yes** — corrections, tests, tool-loops, git, todos, permissions, contradictions, skill-refresh | MIT |
+| [Hindsight](https://github.com/vectorize-io/hindsight) | LLM-extracted facts + mental models | Yes for writes¹ | local daemon → Docker (FastAPI+Postgres) → cloud | No — extracted from prose; skill-capture is a [logged bug](https://github.com/vectorize-io/hindsight/discussions/1643) | MIT |
+| [Mem0](https://github.com/mem0ai/mem0) | LLM-extracted facts | **Yes** — OpenAI by default at ingest | library → Docker (Postgres+Neo4j); graph = Pro $249/mo | No — hooks, but no correction/git/test capture | Apache-2.0 + SaaS |
+| [ByteRover](https://github.com/campfirein/byterover-cli) | curated markdown tree | curation makes its own LLM calls | local files + node daemon; optional cloud sync | No — curation is agent-*directed*, not passive | Elastic 2.0 (not OSS) |
+| [claude-mem](https://github.com/thedotmack/claude-mem) | every tool call → compressed observations | **No** — reuses Claude auth + local embeddings | always-on Bun daemon + optional ChromaDB | No — probabilistic Haiku extraction | Apache-2.0 |
+| [agentmemory](https://github.com/rohitg00/agentmemory) | **fire-hose** — every tool call, verbatim | optional (value degrades without it) | always-on Rust daemon (4 ports) | No — raw events; little structure without LLM | Apache-2.0 |
+| [Honcho](https://github.com/plastic-labs/honcho) | user/peer models (theory-of-mind) | Yes (self-host); cloud is per-token | Postgres + Redis + deriver worker; or cloud | No — built for end-user personalization, not coding | AGPL-3.0 |
+| [OpenViking](https://github.com/volcengine/OpenViking) | LLM-extracted memories/skills (tiered) | **Yes** — OpenAI/Volcengine by default | Rust+Go+C++ server, always-on | No — git/test/skill not first-class | AGPL-3.0 |
+
+¹ Hindsight's `retain` needs an LLM. Its "reuse your Claude subscription" loopback (`claude-code`
+provider) is documented as **personal-use-only per Anthropic's terms** — so it can't be the shipped
+default for a tool other people install.
+
+### The four things that decided it
+
+1. **Storing whole sessions is noisy and grows without bound.** claude-mem and agentmemory capture
+   every tool call; even the fact-extractors accumulate (Mem0 has a [dedup gap](https://github.com/mem0ai/mem0/issues/4896),
+   agentmemory hits an O(N²) forget ceiling). reflect captures **selectively** — only signal-bearing
+   moments become learnings — with TTL, dedup and contradiction-handling built in. The markdown notes
+   stay the source of truth; the derived index is disposable.
+
+2. **A separate LLM + infra is operational weight, often cloud-bound.** Hindsight, Mem0, OpenViking and
+   Honcho want a running server (Postgres / Redis / a Rust or Bun daemon / a vector DB) and a model
+   provider. reflect runs from **local files** (sqlite + graphml) with no server; Postgres is opt-in,
+   only when you *want* a shared cross-machine store.
+
+3. **Your coding agent already has a model — memory shouldn't need a second subscription.** Mem0,
+   OpenViking, Honcho (self-host) and Hindsight (for writes) make you configure and pay for a *second*
+   provider key just for memory. reflect **reuses the agent's own model** (`claude -p`) for capture and a
+   **local embedding model** for recall — no extra key, no second subscription, and no ToS loophole.
+   *(Honest caveat: claude-mem also reuses Claude's auth — it ties reflect on this one axis.)*
+
+4. **None of them capture coding signals as first-class events.** Corrections, test pass/fail,
+   tool-loops, git commit/revert, todo completions, permission replies, cross-turn contradictions — every
+   other tool hopes an LLM extracts these from the transcript prose (Hindsight literally files skill
+   capture as a *bug*). reflect routes them as **typed signals** at hook time (`SG1`–`SG8`) and
+   auto-refreshes the skills they affect (`R13`/`R14`). This is the wedge nothing else fills.
+
+Beyond those: reflect is **cross-harness** (Codex writes, a later Claude session reads), keeps a
+**reviewable markdown source of truth** with clean git diffs (volatile signals live in a DB sidecar),
+and ships under a **permissive MIT** license — where ByteRover is Elastic-2.0 and Honcho/OpenViking are
+AGPL.
+
+### The strongest adopt case — Hindsight — and why we still ported
+
+Hindsight is the best "just adopt it" candidate: MIT, production-grade, multi-strategy retrieval
+(RRF + cross-encoder + graph + temporal), a 94.6% LongMemEval result, and ~48 integrations. Adopting it
+would have bought a more mature retrieval stack and a bigger ecosystem than building.
+
+We ported instead because the things that make reflect *fit a coding workflow* are exactly the things
+Hindsight's architecture can't give without its baggage: zero-extra-key capture (Hindsight needs an LLM
+for `retain`, or the personal-use-only loopback), local-first with no mandatory server, and **typed
+signal capture** (Hindsight extracts from prose). Crucially, Hindsight's retrieval *ideas* aren't
+locked away — the [57-port effort](https://github.com/stevengonsalvez/agents-in-a-box/discussions/227)
+brought the graph-expansion arm, RRF fusion, cross-encoder rerank and temporal arm into reflect's
+recall layer ([recall reference](https://stevengonsalvez.github.io/agents-in-a-box/knowledge/reflect-memory/recall/)).
+The result: **Hindsight's retrieval brains, a local-first body, plus the signal capture Hindsight
+doesn't do** — with the honest caveats spelled out in the critique below.
+
+### Critique: should we have just adopted Hindsight?
+
+We ran an adversarial critique against our own decision. Verdict: **proceed, with eyes open.**
+
+- **Where adopting would have been smarter.** Retrieval is now *ours* to maintain — a ~3k-line recall
+  engine (cross-encoder, MMR, RRF, temporal, calibration) that Hindsight amortizes across a team and
+  62 releases. reflect lands mid-field on benchmarks; Hindsight sits higher. The re-implemented
+  retrieval layer is the least differentiated, highest-maintenance part of the build.
+- **Where reflect's wedge genuinely holds.** No-extra-key capture (Hindsight's reuse-your-sub loopback
+  is ToS personal-use-only — it can't ship that) and **first-class typed signals** (Hindsight extracts
+  from prose; its skill capture is a *logged bug*). These are durable and architectural, not NIH.
+- **The discipline it implies.** Own the moat (capture + signals + local-first + cross-harness), keep
+  the commodity (retrieval) behind a seam so a stronger backend could be swapped in later. Build what's
+  unique; stay swappable on what isn't.
+
+Full treatment — all eight systems, the four deciding axes, and the build-vs-adopt reasoning — in the
+[explainer](https://explainers.stevengonsalvez.com/agent-memory-landscape/).
+
+---
+
 ## Cross-harness — Claude Code · Codex · Copilot
 
 One engine, one knowledge base, three harnesses. A correction captured in Claude
