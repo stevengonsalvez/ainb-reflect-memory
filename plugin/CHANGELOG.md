@@ -4,6 +4,29 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.0.2] — 2026-06-22 — Hooks register on whole-repo install; recall healed
+
+Patch. After the standalone-repo restructure, **no reflect lifecycle hooks
+fired** in real Claude sessions (recall, drain, mini-learning, reflect-enqueue,
+pre-compact). Skills still loaded via auto-discovery, masking it.
+
+### Fixed
+- **Hooks not registered.** The marketplace installs reflect as a whole-repo
+  clone, so `CLAUDE_PLUGIN_ROOT` resolves to the repo/version-root, and Claude
+  reads hooks only from `<root>/.claude-plugin/plugin.json` — which didn't exist
+  at the root (the hooks manifest was nested under `plugin/`). Added a root
+  `.claude-plugin/plugin.json` declaring all skills + hooks with
+  `${CLAUDE_PLUGIN_ROOT}/plugin/...` paths so the lifecycle hooks register and
+  fire. Verified in real tmux sessions across 3 repos (all 5 hooks fire; recall
+  injects matching learnings).
+- **Recall starved by empty shards.** `resolve_kb_root` now falls back to the
+  global KB when a per-project/branch shard has no docs/index (sharding design
+  unchanged; `RECALL_GLOBAL` still an override).
+- **Cold model-load timeout.** Recall hooks pin `HF_HUB_OFFLINE`/
+  `TRANSFORMERS_OFFLINE` (models cached locally) and use a configurable
+  `REFLECT_RECALL_TIMEOUT` (default 30s) so the ~16s cold load no longer blows
+  the old 10s timeout and return empty.
+
 ## [5.0.1] — 2026-06-20 — Hook hardening: force `uv --script`
 
 Patch. All lifecycle hooks now invoke `uv run --script` instead of `uv run`,
