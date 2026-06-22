@@ -1,5 +1,5 @@
 ---
-name: reflect:errors-ack
+name: errors-ack
 description: |
   Triage and acknowledge entries in the reflect errors sink
   (~/.reflect/errors.json). Invoked from the statusline ⚠N badge when

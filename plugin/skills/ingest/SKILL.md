@@ -1,5 +1,5 @@
 ---
-name: reflect:ingest
+name: ingest
 description: |
   The global knowledge indexer. Harvests ALL memory sources across all tools
   (Claude, Codex, Copilot, Gemini) and all project types into the unified
