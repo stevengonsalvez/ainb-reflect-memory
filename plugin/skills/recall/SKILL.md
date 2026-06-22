@@ -1,5 +1,5 @@
 ---
-name: reflect:recall
+name: recall
 description: |
   Retrieve relevant prior learnings from the global knowledge base. Hybrid
   vector + graph search over 170+ indexed learnings, reranked by confidence,

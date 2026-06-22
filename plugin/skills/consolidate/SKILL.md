@@ -1,5 +1,5 @@
 ---
-name: reflect:consolidate
+name: consolidate
 description: |
   Project-level memory consolidation. Merges orphaned worktree memory
   directories into a single .agents/MEMORY.md for the current project.
