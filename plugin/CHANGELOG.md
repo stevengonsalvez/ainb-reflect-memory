@@ -4,6 +4,21 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.0.3] — 2026-06-22 — Slash commands resolve (drop double `reflect:` prefix)
+
+Patch. Manual reflect slash commands were unreachable: the statusline badge
+and docs said `/reflect:errors-ack`, but the command registered as
+`/reflect:reflect-errors-ack` → "Unknown command".
+
+### Fixed
+- Skill `name:` fields carried a redundant `reflect:` prefix (e.g.
+  `name: reflect:errors-ack`). Claude namespaces plugin skills as
+  `reflect:<name>`, so the prefix doubled to `reflect:reflect-errors-ack`.
+  Dropped the prefix on all 7 affected skills (recall, ingest, consolidate,
+  cost, errors-ack, export, slots) → they now resolve as the documented
+  `/reflect:<name>` (matches the statusline badge). Verified via
+  `claude plugin details` (no `reflect:reflect-*` remain).
+
 ## [5.0.2] — 2026-06-22 — Hooks register on whole-repo install; recall healed
 
 Patch. After the standalone-repo restructure, **no reflect lifecycle hooks
