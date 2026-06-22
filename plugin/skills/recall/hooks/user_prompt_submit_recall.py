@@ -242,7 +242,10 @@ def save_session_injected(session_id: str, injected: set[str]) -> None:
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 # Cold model load is ~11-16s; the old 10s starved every uncached recall.
-_RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
+try:
+    _RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
+except ValueError:
+    _RECALL_TIMEOUT = 30
 UV_BIN = shutil.which("uv")
 
 
