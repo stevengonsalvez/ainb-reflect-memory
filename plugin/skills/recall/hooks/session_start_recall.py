@@ -591,7 +591,7 @@ def skills_tier_probe(query: str, tags: list[str], recall: Path) -> dict | None:
             ],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_RECALL_TIMEOUT,
             check=False,
         )
     except (subprocess.TimeoutExpired, OSError):
@@ -659,7 +659,7 @@ def run_lower_tier_recall(query: str, tags: list[str], recall: Path) -> str:
             ],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=_RECALL_TIMEOUT,
             check=False,
             env=dict(os.environ),  # A6: inherit RECALL_BRANCH set by the caller
         )
@@ -731,6 +731,17 @@ def emit(additional_context: str) -> NoReturn:
 # Resolve `uv` once at module load. SessionStart hooks often run with a
 # trimmed PATH (launchd, IDE subprocesses), so a late lookup can fail even
 # when `uv` is installed. None → fall through to empty emit.
+# Cold sentence-transformers / cross-encoder load does HF network round-trips
+# (~16s) that blow the recall subprocess timeout. The models are cached
+# locally, so pin offline for the model load this hook triggers (setdefault
+# lets a caller override). Propagates to the recall.py + reflect subprocesses.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# Cold model load is ~11-16s; the old 10s starved every uncached recall.
+try:
+    _RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
+except ValueError:
+    _RECALL_TIMEOUT = 30
 UV_BIN = shutil.which("uv")
 
 
