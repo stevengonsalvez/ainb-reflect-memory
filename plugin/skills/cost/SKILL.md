@@ -1,5 +1,5 @@
 ---
-name: reflect:cost
+name: cost
 description: |
   Report reflect drain spend over a time window — tokens split by cached
   (cache_read), uncached writes (cache_creation), and io (input+output), with a
