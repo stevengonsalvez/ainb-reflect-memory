@@ -12,11 +12,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/session_start_recall.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/skills/recall/hooks/session_start_recall.py"
           },
           {
             "type": "command",
-            "command": "(nohup ${CLAUDE_PLUGIN_ROOT}/hooks/reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1",
+            "command": "(nohup ${CLAUDE_PLUGIN_ROOT}/plugin/hooks/reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1",
             "timeout": 5
           }
         ]
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/skills/recall/hooks/user_prompt_submit_recall.py"
           }
         ]
       }
@@ -39,7 +39,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/notification_reflect.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/hooks/notification_reflect.py"
           }
         ]
       }
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/hooks/posttooluse_minilearning.py"
           }
         ]
       }
@@ -61,7 +61,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/stop_reflect.py"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/hooks/stop_reflect.py"
           }
         ]
       }
@@ -72,10 +72,19 @@
         "hooks": [
           {
             "type": "command",
-            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/plugin/hooks/precompact_reflect.py --auto --verbose"
           }
         ]
       }
     ]
-  }
+  },
+  "skills": [
+    "./plugin/skills/reflect/",
+    "./plugin/skills/recall/",
+    "./plugin/skills/ingest/",
+    "./plugin/skills/consolidate/",
+    "./plugin/skills/reflect-status/",
+    "./plugin/skills/errors-ack/",
+    "./plugin/skills/cost/"
+  ]
 }
