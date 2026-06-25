@@ -254,7 +254,7 @@ python plugin/adapters/copilot/copilot_adapter.py install
 | Capability | Claude Code | Codex CLI (0.129+) | GitHub Copilot |
 |---|:--:|:--:|:--:|
 | Plugin runtime | ✅ native | ❌ adapter copies skills | ❌ adapter copies skills |
-| Lifecycle hooks (SessionStart / PreCompact / Stop / PostToolUse) | ✅ | ✅ via `~/.codex/hooks.json` | ✅ via `~/.copilot/hooks/reflect.json` |
+| Lifecycle hooks (recall, queue, policy, subagent, error) | ✅ | ✅ via `~/.codex/hooks.json` | ✅ via `~/.copilot/hooks/reflect.json` |
 | **Auto-recall** at session start | ✅ | ✅ | ✅ (`additionalContext`) |
 | **Per-prompt** recall surfacing | ✅ `UserPromptSubmit` | ✅ | ⚠️ **manual `/recall`** — Copilot ignores `userPromptSubmitted` output |
 | Auto-capture on compact | ✅ | ✅ | ✅ |

@@ -143,6 +143,38 @@ _STOP_REFLECT_TEMPLATE = (
     _HARNESS_ENV
     + "uv run {home_tool_dir}/skills/reflect/hooks/stop_reflect.py"
 )
+_NOTIFICATION_REFLECT_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/notification_reflect.py"
+)
+_PRETOOLUSE_CONTEXT_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/pretooluse_context.py"
+)
+_PERMISSION_REQUEST_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/permission_request_reflect.py"
+)
+_POSTTOOLUSE_FAILURE_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/posttoolusefailure_minilearning.py"
+)
+_SUBAGENT_START_RECALL_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/subagent_start_recall.py"
+)
+_SUBAGENT_STOP_REFLECT_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/subagent_stop_reflect.py"
+)
+_SESSION_END_REFLECT_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/session_end_reflect.py"
+)
+_ERROR_OCCURRED_REFLECT_TEMPLATE = (
+    _HARNESS_ENV
+    + "uv run {home_tool_dir}/skills/reflect/hooks/error_occurred_reflect.py"
+)
 
 # Timeout (seconds) on the detached drain so Copilot never blocks long on
 # session start; mirrors the codex ``timeout: 5`` on its drain entry.
@@ -177,6 +209,38 @@ def _render_stop_reflect_command(copilot_dir: Path) -> str:
     return _render(_STOP_REFLECT_TEMPLATE, copilot_dir)
 
 
+def _render_notification_reflect_command(copilot_dir: Path) -> str:
+    return _render(_NOTIFICATION_REFLECT_TEMPLATE, copilot_dir)
+
+
+def _render_pretooluse_context_command(copilot_dir: Path) -> str:
+    return _render(_PRETOOLUSE_CONTEXT_TEMPLATE, copilot_dir)
+
+
+def _render_permission_request_command(copilot_dir: Path) -> str:
+    return _render(_PERMISSION_REQUEST_TEMPLATE, copilot_dir)
+
+
+def _render_posttooluse_failure_command(copilot_dir: Path) -> str:
+    return _render(_POSTTOOLUSE_FAILURE_TEMPLATE, copilot_dir)
+
+
+def _render_subagent_start_recall_command(copilot_dir: Path) -> str:
+    return _render(_SUBAGENT_START_RECALL_TEMPLATE, copilot_dir)
+
+
+def _render_subagent_stop_reflect_command(copilot_dir: Path) -> str:
+    return _render(_SUBAGENT_STOP_REFLECT_TEMPLATE, copilot_dir)
+
+
+def _render_session_end_reflect_command(copilot_dir: Path) -> str:
+    return _render(_SESSION_END_REFLECT_TEMPLATE, copilot_dir)
+
+
+def _render_error_occurred_reflect_command(copilot_dir: Path) -> str:
+    return _render(_ERROR_OCCURRED_REFLECT_TEMPLATE, copilot_dir)
+
+
 def _command_entry(command: str, *, timeout_sec: Optional[int] = None) -> dict:
     """Build one copilot-native hook entry.
 
@@ -201,6 +265,14 @@ def _build_hooks_config(copilot_dir: Path, *, with_bg_drain: bool) -> dict:
       * PostToolUse mini-learning                 → ``postToolUse``
       * Stop reflect-enqueue                      → ``agentStop``
       * UserPromptSubmit recall                   → ``userPromptSubmitted``
+      * Notification permission watcher           → ``notification``
+      * PreToolUse policy context                 → ``preToolUse``
+      * PermissionRequest policy watcher          → ``permissionRequest``
+      * PostToolUseFailure mini-learning          → ``postToolUseFailure``
+      * SubagentStart recall                      → ``subagentStart``
+      * SubagentStop reflect-enqueue              → ``subagentStop``
+      * SessionEnd final queue                    → ``sessionEnd``
+      * errorOccurred breadcrumb                  → ``errorOccurred``
     """
     session_start = [_command_entry(_render_recall_hook_command(copilot_dir))]
     if with_bg_drain:
@@ -228,6 +300,46 @@ def _build_hooks_config(copilot_dir: Path, *, with_bg_drain: bool) -> dict:
             "userPromptSubmitted": [
                 _command_entry(
                     _render_user_prompt_recall_command(copilot_dir)
+                )
+            ],
+            "notification": [
+                _command_entry(
+                    _render_notification_reflect_command(copilot_dir)
+                )
+            ],
+            "preToolUse": [
+                _command_entry(
+                    _render_pretooluse_context_command(copilot_dir)
+                )
+            ],
+            "permissionRequest": [
+                _command_entry(
+                    _render_permission_request_command(copilot_dir)
+                )
+            ],
+            "postToolUseFailure": [
+                _command_entry(
+                    _render_posttooluse_failure_command(copilot_dir)
+                )
+            ],
+            "subagentStart": [
+                _command_entry(
+                    _render_subagent_start_recall_command(copilot_dir)
+                )
+            ],
+            "subagentStop": [
+                _command_entry(
+                    _render_subagent_stop_reflect_command(copilot_dir)
+                )
+            ],
+            "sessionEnd": [
+                _command_entry(
+                    _render_session_end_reflect_command(copilot_dir)
+                )
+            ],
+            "errorOccurred": [
+                _command_entry(
+                    _render_error_occurred_reflect_command(copilot_dir)
                 )
             ],
         },
@@ -363,6 +475,14 @@ class CopilotAdapter(AdapterBase):
             describe_extra.append("  - postToolUse: mini-learning")
             describe_extra.append("  - agentStop: reflect-enqueue")
             describe_extra.append("  - userPromptSubmitted: recall")
+            describe_extra.append("  - notification: permission watcher")
+            describe_extra.append("  - preToolUse: policy context")
+            describe_extra.append("  - permissionRequest: permission policy")
+            describe_extra.append("  - postToolUseFailure: mini-learning")
+            describe_extra.append("  - subagentStart: recall")
+            describe_extra.append("  - subagentStop: reflect-enqueue")
+            describe_extra.append("  - sessionEnd: reflect-enqueue")
+            describe_extra.append("  - errorOccurred: breadcrumb")
         plan.extras["describe_extra"] = describe_extra
 
     def execute_extra(

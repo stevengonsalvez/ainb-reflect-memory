@@ -125,6 +125,21 @@ _POSTTOOLUSE_MINILEARNING_TEMPLATE = (
 _STOP_REFLECT_TEMPLATE = (
     "uv run {home_tool_dir}/skills/reflect/hooks/stop_reflect.py"
 )
+_PRETOOLUSE_CONTEXT_TEMPLATE = (
+    "uv run {home_tool_dir}/skills/reflect/hooks/pretooluse_context.py"
+)
+_PERMISSION_REQUEST_TEMPLATE = (
+    "uv run {home_tool_dir}/skills/reflect/hooks/permission_request_reflect.py"
+)
+_POSTCOMPACT_BOOKKEEPING_TEMPLATE = (
+    "uv run {home_tool_dir}/skills/reflect/hooks/postcompact_bookkeeping.py"
+)
+_SUBAGENT_START_RECALL_TEMPLATE = (
+    "uv run {home_tool_dir}/skills/reflect/hooks/subagent_start_recall.py"
+)
+_SUBAGENT_STOP_REFLECT_TEMPLATE = (
+    "uv run {home_tool_dir}/skills/reflect/hooks/subagent_stop_reflect.py"
+)
 
 
 def _render(template: str, codex_dir: Path) -> str:
@@ -155,6 +170,26 @@ def _render_stop_reflect_command(codex_dir: Path) -> str:
     return _render(_STOP_REFLECT_TEMPLATE, codex_dir)
 
 
+def _render_pretooluse_context_command(codex_dir: Path) -> str:
+    return _render(_PRETOOLUSE_CONTEXT_TEMPLATE, codex_dir)
+
+
+def _render_permission_request_command(codex_dir: Path) -> str:
+    return _render(_PERMISSION_REQUEST_TEMPLATE, codex_dir)
+
+
+def _render_postcompact_bookkeeping_command(codex_dir: Path) -> str:
+    return _render(_POSTCOMPACT_BOOKKEEPING_TEMPLATE, codex_dir)
+
+
+def _render_subagent_start_recall_command(codex_dir: Path) -> str:
+    return _render(_SUBAGENT_START_RECALL_TEMPLATE, codex_dir)
+
+
+def _render_subagent_stop_reflect_command(codex_dir: Path) -> str:
+    return _render(_SUBAGENT_STOP_REFLECT_TEMPLATE, codex_dir)
+
+
 # Legacy literals that older buggy installs may have persisted (template
 # placeholder never substituted). Match them on re-install / uninstall so
 # we self-heal.
@@ -174,6 +209,21 @@ _LEGACY_POSTTOOLUSE_MINILEARNING_COMMAND = _POSTTOOLUSE_MINILEARNING_TEMPLATE.re
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
 )
 _LEGACY_STOP_REFLECT_COMMAND = _STOP_REFLECT_TEMPLATE.replace(
+    "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
+)
+_LEGACY_PRETOOLUSE_CONTEXT_COMMAND = _PRETOOLUSE_CONTEXT_TEMPLATE.replace(
+    "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
+)
+_LEGACY_PERMISSION_REQUEST_COMMAND = _PERMISSION_REQUEST_TEMPLATE.replace(
+    "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
+)
+_LEGACY_POSTCOMPACT_BOOKKEEPING_COMMAND = _POSTCOMPACT_BOOKKEEPING_TEMPLATE.replace(
+    "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
+)
+_LEGACY_SUBAGENT_START_RECALL_COMMAND = _SUBAGENT_START_RECALL_TEMPLATE.replace(
+    "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
+)
+_LEGACY_SUBAGENT_STOP_REFLECT_COMMAND = _SUBAGENT_STOP_REFLECT_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
 )
 
@@ -314,6 +364,21 @@ class CodexAdapter(AdapterBase):
             describe_extra.append(
                 f"hook: add Stop reflect-enqueue entry to {hooks_path}"
             )
+            describe_extra.append(
+                f"hook: add PreToolUse policy-context entry to {hooks_path}"
+            )
+            describe_extra.append(
+                f"hook: add PermissionRequest reflect-policy entry to {hooks_path}"
+            )
+            describe_extra.append(
+                f"hook: add PostCompact bookkeeping entry to {hooks_path}"
+            )
+            describe_extra.append(
+                f"hook: add SubagentStart recall entry to {hooks_path}"
+            )
+            describe_extra.append(
+                f"hook: add SubagentStop reflect-enqueue entry to {hooks_path}"
+            )
         plan.extras["describe_extra"] = describe_extra
 
     def execute_extra(
@@ -401,6 +466,26 @@ class CodexAdapter(AdapterBase):
             "Stop": [
                 _render_stop_reflect_command(codex_dir),
                 _LEGACY_STOP_REFLECT_COMMAND,
+            ],
+            "PreToolUse": [
+                _render_pretooluse_context_command(codex_dir),
+                _LEGACY_PRETOOLUSE_CONTEXT_COMMAND,
+            ],
+            "PermissionRequest": [
+                _render_permission_request_command(codex_dir),
+                _LEGACY_PERMISSION_REQUEST_COMMAND,
+            ],
+            "PostCompact": [
+                _render_postcompact_bookkeeping_command(codex_dir),
+                _LEGACY_POSTCOMPACT_BOOKKEEPING_COMMAND,
+            ],
+            "SubagentStart": [
+                _render_subagent_start_recall_command(codex_dir),
+                _LEGACY_SUBAGENT_START_RECALL_COMMAND,
+            ],
+            "SubagentStop": [
+                _render_subagent_stop_reflect_command(codex_dir),
+                _LEGACY_SUBAGENT_STOP_REFLECT_COMMAND,
             ],
         }
         changed = False
@@ -523,9 +608,63 @@ class CodexAdapter(AdapterBase):
             }],
             legacy_commands=[_LEGACY_STOP_REFLECT_COMMAND],
         )
+        changed_pretool = merge_hook_commands(
+            current,
+            event="PreToolUse",
+            commands=[{
+                "type": "command",
+                "command": _render_pretooluse_context_command(codex_dir),
+            }],
+            legacy_commands=[_LEGACY_PRETOOLUSE_CONTEXT_COMMAND],
+        )
+        changed_permission = merge_hook_commands(
+            current,
+            event="PermissionRequest",
+            commands=[{
+                "type": "command",
+                "command": _render_permission_request_command(codex_dir),
+            }],
+            legacy_commands=[_LEGACY_PERMISSION_REQUEST_COMMAND],
+        )
+        changed_postcompact = merge_hook_commands(
+            current,
+            event="PostCompact",
+            commands=[{
+                "type": "command",
+                "command": _render_postcompact_bookkeeping_command(codex_dir),
+            }],
+            legacy_commands=[_LEGACY_POSTCOMPACT_BOOKKEEPING_COMMAND],
+        )
+        changed_subagent_start = merge_hook_commands(
+            current,
+            event="SubagentStart",
+            commands=[{
+                "type": "command",
+                "command": _render_subagent_start_recall_command(codex_dir),
+            }],
+            legacy_commands=[_LEGACY_SUBAGENT_START_RECALL_COMMAND],
+        )
+        changed_subagent_stop = merge_hook_commands(
+            current,
+            event="SubagentStop",
+            commands=[{
+                "type": "command",
+                "command": _render_subagent_stop_reflect_command(codex_dir),
+            }],
+            legacy_commands=[_LEGACY_SUBAGENT_STOP_REFLECT_COMMAND],
+        )
 
         any_changed = any([
-            changed_ss, changed_pc, changed_ups, changed_ptu, changed_stop,
+            changed_ss,
+            changed_pc,
+            changed_ups,
+            changed_ptu,
+            changed_stop,
+            changed_pretool,
+            changed_permission,
+            changed_postcompact,
+            changed_subagent_start,
+            changed_subagent_stop,
         ])
         if any_changed:
             hooks_path.parent.mkdir(parents=True, exist_ok=True)
@@ -543,6 +682,16 @@ class CodexAdapter(AdapterBase):
                 actions.append(f"merged PostToolUse mini-learning hook into {hooks_path}")
             if changed_stop:
                 actions.append(f"merged Stop reflect-enqueue hook into {hooks_path}")
+            if changed_pretool:
+                actions.append(f"merged PreToolUse policy-context hook into {hooks_path}")
+            if changed_permission:
+                actions.append(f"merged PermissionRequest reflect-policy hook into {hooks_path}")
+            if changed_postcompact:
+                actions.append(f"merged PostCompact bookkeeping hook into {hooks_path}")
+            if changed_subagent_start:
+                actions.append(f"merged SubagentStart recall hook into {hooks_path}")
+            if changed_subagent_stop:
+                actions.append(f"merged SubagentStop reflect-enqueue hook into {hooks_path}")
         else:
             actions.append(f"reflect hooks already present in {hooks_path}")
         return actions

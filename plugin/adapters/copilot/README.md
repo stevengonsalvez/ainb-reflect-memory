@@ -12,12 +12,16 @@ not Claude-shaped:
 - `{"version": 1, "hooks": { "<event>": [ {"type":"command","command":"…","timeoutSec":N} ] }}`
 - FLAT per-event arrays (no `{matcher, hooks:[…]}` nesting), camelCase event
   names, `timeoutSec` (not `timeout`), top-level `version: 1`.
-- Events wired: `sessionStart` (recall + bg-drain), `preCompact`,
-  `postToolUse`, `agentStop`, `userPromptSubmitted`.
+- Events wired: `sessionStart` (recall + bg-drain),
+  `userPromptSubmitted`, `preToolUse`, `permissionRequest`, `postToolUse`,
+  `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`,
+  `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
 
 Caveats: Copilot **ignores `userPromptSubmitted` hook output**, so that hook
 fires for capture/dedupe but cannot surface recall — per-prompt recall stays
 manual via `/recall` (SessionStart auto-recall works via `additionalContext`).
+`postCompact` is intentionally not wired until Copilot exposes that event; on
+Claude/Codex it is bookkeeping only and never drains or recalls.
 The exact `sessionStart` `additionalContext` envelope is confirmed at build
 time against the live binary; the scripts gate their output shape on
 `REFLECT_HARNESS=copilot`.
