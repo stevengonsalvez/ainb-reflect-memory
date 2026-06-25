@@ -70,6 +70,17 @@ except ImportError:
     def scrub_secrets(text):  # type: ignore[no-redef]
         return text
 
+try:
+    from hook_input import get_session_id  # noqa: E402
+except ImportError:
+    def get_session_id(data, default=""):  # type: ignore[no-redef]
+        if not isinstance(data, dict):
+            return default
+        for key in ("session_id", "sessionId"):
+            if key in data:
+                return data[key]
+        return default
+
 
 def state_dir() -> Path:
     return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
@@ -127,7 +138,7 @@ def _main_body() -> None:
     if not isinstance(data, dict):
         return
 
-    session_id = str(data.get("session_id", "") or "").strip()
+    session_id = str(get_session_id(data) or "").strip()
     if not session_id:
         return  # Nothing to arm — no session_id to key against.
 

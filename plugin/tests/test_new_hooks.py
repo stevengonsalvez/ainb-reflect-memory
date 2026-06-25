@@ -306,6 +306,6 @@ def test_user_prompt_recall_writes_dedupe_state_only_on_real_inject(tmp_path):
         "session_id": "sess-nohits",
         "prompt": "longer prompt that meets the minimum char floor here",
     })
-    _run(USER_PROMPT_HOOK, payload, tmp_path)
-    # No graphrag → no hits → no state file written.
+    _run(USER_PROMPT_HOOK, payload, tmp_path, extra_env={"PATH": ""})
+    # No uv/recall subprocess → no hits → no state file written.
     assert not (tmp_path / "session-injected" / "sess-nohits.json").exists()

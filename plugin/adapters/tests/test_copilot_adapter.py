@@ -41,7 +41,7 @@ def test_find_plugin_root_resolves_to_reflect_dir():
     root = copilot_adapter.find_plugin_root()
     assert (root / "skills").is_dir()
     assert (root / "adapters").is_dir()
-    assert root.name == "reflect"
+    assert (root / "hooks").is_dir()
 
 
 def test_dry_run_reports_actions_without_touching_home(tmp_path):
@@ -76,7 +76,7 @@ def test_install_writes_pointer_files_under_dot_copilot(tmp_path):
 
     body = recall.read_text(encoding="utf-8")
     assert copilot_adapter.POINTER_MANAGED_BY in body
-    assert "name: reflect:recall" in body
+    assert "name: recall" in body
     # Adapter must not have leaked into Claude/Codex dirs.
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
@@ -122,6 +122,14 @@ def test_install_deploys_new_hook_scripts_on_disk(tmp_path):
         copilot_dir / "skills" / "recall" / "hooks" / "user_prompt_submit_recall.py",
         copilot_dir / "skills" / "reflect" / "hooks" / "posttooluse_minilearning.py",
         copilot_dir / "skills" / "reflect" / "hooks" / "stop_reflect.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "notification_reflect.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "pretooluse_context.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "permission_request_reflect.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "posttoolusefailure_minilearning.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "subagent_start_recall.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "subagent_stop_reflect.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "session_end_reflect.py",
+        copilot_dir / "skills" / "reflect" / "hooks" / "error_occurred_reflect.py",
         # The cross-harness stdin helper must land too (under the umbrella).
         copilot_dir / "skills" / "reflect" / "scripts" / "hook_input.py",
     ]
@@ -153,6 +161,14 @@ def test_install_writes_reflect_json_with_all_six_hooks(tmp_path):
     assert copilot_adapter._render_posttooluse_minilearning_command(copilot_dir) in cmds("postToolUse")
     assert copilot_adapter._render_stop_reflect_command(copilot_dir) in cmds("agentStop")
     assert copilot_adapter._render_user_prompt_recall_command(copilot_dir) in cmds("userPromptSubmitted")
+    assert copilot_adapter._render_notification_reflect_command(copilot_dir) in cmds("notification")
+    assert copilot_adapter._render_pretooluse_context_command(copilot_dir) in cmds("preToolUse")
+    assert copilot_adapter._render_permission_request_command(copilot_dir) in cmds("permissionRequest")
+    assert copilot_adapter._render_posttooluse_failure_command(copilot_dir) in cmds("postToolUseFailure")
+    assert copilot_adapter._render_subagent_start_recall_command(copilot_dir) in cmds("subagentStart")
+    assert copilot_adapter._render_subagent_stop_reflect_command(copilot_dir) in cmds("subagentStop")
+    assert copilot_adapter._render_session_end_reflect_command(copilot_dir) in cmds("sessionEnd")
+    assert copilot_adapter._render_error_occurred_reflect_command(copilot_dir) in cmds("errorOccurred")
 
     # No surviving template placeholders in the persisted file.
     text = hooks_path.read_text()
@@ -178,9 +194,15 @@ def test_reflect_json_is_copilot_native_not_claude_shaped(tmp_path):
     events = set(cfg["hooks"].keys())
     assert events == {
         "sessionStart", "preCompact", "postToolUse",
-        "agentStop", "userPromptSubmitted",
+        "agentStop", "userPromptSubmitted", "notification",
+        "preToolUse", "permissionRequest", "postToolUseFailure",
+        "subagentStart", "subagentStop", "sessionEnd", "errorOccurred",
     }
-    for pascal in ("SessionStart", "PreCompact", "PostToolUse", "Stop", "UserPromptSubmit"):
+    for pascal in (
+        "SessionStart", "PreCompact", "PostToolUse", "Stop",
+        "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+        "SubagentStart", "SubagentStop", "SessionEnd",
+    ):
         assert pascal not in cfg["hooks"]
 
     for event, entries in cfg["hooks"].items():
@@ -214,7 +236,12 @@ def test_recall_commands_set_reflect_harness_env(tmp_path):
     )
     cfg = json.loads(_hooks_path(tmp_path).read_text())
 
-    for event in ("preCompact", "postToolUse", "agentStop", "userPromptSubmitted"):
+    for event in (
+        "preCompact", "postToolUse", "agentStop", "userPromptSubmitted",
+        "notification", "preToolUse", "permissionRequest",
+        "postToolUseFailure", "subagentStart", "subagentStop",
+        "sessionEnd", "errorOccurred",
+    ):
         for entry in cfg["hooks"][event]:
             assert entry["command"].startswith("REFLECT_HARNESS=copilot uv run "), entry
 
@@ -267,7 +294,12 @@ def test_install_idempotent_reflect_json(tmp_path):
     assert ss_cmds.count(copilot_adapter._render_recall_hook_command(copilot_dir)) == 1
     assert ss_cmds.count(copilot_adapter._render_drain_hook_command(copilot_dir)) == 1
     # Exactly one entry under each single-command event.
-    for event in ("preCompact", "postToolUse", "agentStop", "userPromptSubmitted"):
+    for event in (
+        "preCompact", "postToolUse", "agentStop", "userPromptSubmitted",
+        "notification", "preToolUse", "permissionRequest",
+        "postToolUseFailure", "subagentStart", "subagentStop",
+        "sessionEnd", "errorOccurred",
+    ):
         assert len(cfg["hooks"][event]) == 1, event
 
 

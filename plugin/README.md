@@ -286,7 +286,7 @@ verify.
 ### One-step (recommended, via ainb)
 
 ```bash
-# 1. plugin: SessionStart/UserPromptSubmit/Stop/PreCompact hooks + skills
+# 1. plugin: recall, queue, policy, subagent, and error hooks + skills
 claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
 claude plugin install reflect@ainb-reflect-memory
 

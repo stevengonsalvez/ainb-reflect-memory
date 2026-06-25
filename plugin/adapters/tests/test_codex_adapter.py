@@ -27,7 +27,7 @@ def test_find_plugin_root_resolves_to_reflect_dir():
     root = codex_adapter.find_plugin_root()
     assert (root / "skills").is_dir()
     assert (root / "adapters").is_dir()
-    assert root.name == "reflect"
+    assert (root / "hooks").is_dir()
 
 
 def test_dry_run_reports_actions_without_touching_home(tmp_path):
@@ -59,7 +59,7 @@ def test_install_writes_pointer_files_under_dot_codex(tmp_path):
 
     body = recall.read_text(encoding="utf-8")
     assert codex_adapter.POINTER_MANAGED_BY in body
-    assert "name: reflect:recall" in body
+    assert "name: recall" in body
     # Codex uses hooks.json, not settings.json
     assert not (tmp_path / ".codex" / "settings.json").exists()
     # And it must not have leaked into a Claude dir.
@@ -157,6 +157,30 @@ def test_install_writes_new_hooks_for_3_6_0(tmp_path):
     assert codex_adapter._render_stop_reflect_command(codex_dir) in stop_cmds
 
 
+def test_install_writes_codex_parity_hooks(tmp_path):
+    """Codex hook parity adds policy, compaction, and subagent lifecycle hooks."""
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+
+    cfg = json.loads((tmp_path / ".codex" / "hooks.json").read_text())
+    codex_dir = tmp_path / ".codex"
+
+    def cmds(event: str) -> list[str]:
+        return [
+            h["command"]
+            for entry in cfg["hooks"][event]
+            for h in entry["hooks"]
+        ]
+
+    assert codex_adapter._render_pretooluse_context_command(codex_dir) in cmds("PreToolUse")
+    assert codex_adapter._render_permission_request_command(codex_dir) in cmds("PermissionRequest")
+    assert codex_adapter._render_postcompact_bookkeeping_command(codex_dir) in cmds("PostCompact")
+    assert codex_adapter._render_subagent_start_recall_command(codex_dir) in cmds("SubagentStart")
+    assert codex_adapter._render_subagent_stop_reflect_command(codex_dir) in cmds("SubagentStop")
+
+
 def test_install_deploys_new_hook_scripts_on_disk(tmp_path):
     """The three new hook script files must physically exist under
     ~/.codex/skills/ — otherwise the hook commands in hooks.json
@@ -170,6 +194,11 @@ def test_install_deploys_new_hook_scripts_on_disk(tmp_path):
         codex_dir / "skills" / "recall" / "hooks" / "user_prompt_submit_recall.py",
         codex_dir / "skills" / "reflect" / "hooks" / "posttooluse_minilearning.py",
         codex_dir / "skills" / "reflect" / "hooks" / "stop_reflect.py",
+        codex_dir / "skills" / "reflect" / "hooks" / "pretooluse_context.py",
+        codex_dir / "skills" / "reflect" / "hooks" / "permission_request_reflect.py",
+        codex_dir / "skills" / "reflect" / "hooks" / "postcompact_bookkeeping.py",
+        codex_dir / "skills" / "reflect" / "hooks" / "subagent_start_recall.py",
+        codex_dir / "skills" / "reflect" / "hooks" / "subagent_stop_reflect.py",
     ]
     for path in expected:
         assert path.exists(), f"missing on disk: {path}"
@@ -209,6 +238,11 @@ def test_uninstall_removes_new_hooks_too(tmp_path):
         "UserPromptSubmit": ("echo other-ups", codex_adapter._render_user_prompt_recall_command),
         "PostToolUse":      ("echo other-ptu", codex_adapter._render_posttooluse_minilearning_command),
         "Stop":             ("echo other-stop", codex_adapter._render_stop_reflect_command),
+        "PreToolUse":        (None, codex_adapter._render_pretooluse_context_command),
+        "PermissionRequest": (None, codex_adapter._render_permission_request_command),
+        "PostCompact":      (None, codex_adapter._render_postcompact_bookkeeping_command),
+        "SubagentStart":    (None, codex_adapter._render_subagent_start_recall_command),
+        "SubagentStop":     (None, codex_adapter._render_subagent_stop_reflect_command),
     }
     for event, (other_cmd, render_fn) in spec.items():
         cmds = [
@@ -216,7 +250,8 @@ def test_uninstall_removes_new_hooks_too(tmp_path):
             for entry in cfg.get("hooks", {}).get(event, [])
             for h in entry["hooks"]
         ]
-        assert other_cmd in cmds, f"unrelated {event} hook lost! cmds={cmds}"
+        if other_cmd is not None:
+            assert other_cmd in cmds, f"unrelated {event} hook lost! cmds={cmds}"
         # Reflect entry should be gone
         assert render_fn(codex_dir) not in cmds
 

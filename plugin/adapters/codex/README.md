@@ -3,15 +3,22 @@
 Installs the reflect plugin into Codex CLI's `~/.codex/` layout, mirroring
 what `/plugin install reflect@agents-in-a-box` does for Claude Code.
 
-Codex 0.129+ grew first-class hook parity with Claude (SessionStart,
-PreCompact, PostCompact, PreToolUse, PostToolUse, PermissionRequest,
-UserPromptSubmit, Stop). The adapter wires both default reflect hooks:
+Codex 0.129+ has first-class hook parity with Claude for the reflect lifecycle.
+The adapter wires the current reflect hook matrix:
 
 | Event | Hook | Effect |
 |-------|------|--------|
 | `SessionStart` | `recall/hooks/session_start_recall.py` | Inject top-3 relevant learnings into context |
 | `SessionStart` | `reflect/hooks/reflect-drain-bg.sh` | Background-drain queued reflections (shells out to `claude -p`) |
-| `PreCompact`   | `reflect/hooks/precompact_reflect.py --auto --verbose` | Capture learnings before context compaction |
+| `UserPromptSubmit` | `recall/hooks/user_prompt_submit_recall.py` | Prompt-specific recall before the model acts |
+| `PreToolUse` | `reflect/hooks/pretooluse_context.py` | Deterministic policy/context lookup before risky tools |
+| `PermissionRequest` | `reflect/hooks/permission_request_reflect.py` | Permission-pattern lookup and watcher arming |
+| `PostToolUse` | `reflect/hooks/posttooluse_minilearning.py` | Mini-learning watcher arming |
+| `PreCompact` | `reflect/hooks/precompact_reflect.py --auto --verbose` | Silent queue producer before compaction |
+| `PostCompact` | `reflect/hooks/postcompact_bookkeeping.py` | Bookkeeping only; no recall, queue, or drain |
+| `SubagentStart` | `reflect/hooks/subagent_start_recall.py` | Subagent-scoped recall injection |
+| `SubagentStop` | `reflect/hooks/subagent_stop_reflect.py` | Queue subagent transcript for later drain |
+| `Stop` | `reflect/hooks/stop_reflect.py` | Slot update plus session queue producer |
 
 Hooks land in `~/.codex/hooks.json` (codex's analogue of Claude's
 `~/.claude/settings.json` hooks block — same nested matcher/hooks/command
@@ -32,11 +39,11 @@ python codex_adapter.py uninstall            # remove only adapter-managed entri
 
 ```
 ~/.codex/
-├── hooks.json                       # SessionStart + PreCompact entries (merged)
+├── hooks.json                       # Reflect-managed lifecycle entries (merged)
 └── skills/
     ├── reflect/
     │   ├── SKILL.md                 # full plugin content + managed_by sentinel
-    │   ├── hooks/                   # plugin-level hooks (drain, precompact)
+    │   ├── hooks/                   # plugin-level hooks (drain, queues, policy, subagents)
     │   ├── scripts/                 # plugin-level scripts
     │   ├── assets/
     │   ├── references/
