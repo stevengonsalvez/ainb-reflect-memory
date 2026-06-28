@@ -31,6 +31,10 @@ nano_graphrag_cache/
 uv.lock
 logs/
 
+# Local agent/session scratch
+.codex/session/
+.agents/goals/
+
 # Editors / OS
 .DS_Store
 .idea/

@@ -151,7 +151,11 @@ def test_synthesis_uses_tag_overlap():
 def test_launchd_plists_are_valid():
     import plistlib
     launchd = PLUGIN_ROOT / "launchd"
-    for name in ("com.reflect.drain.plist", "com.reflect.synthesis.plist"):
+    for name in (
+        "com.reflect.drain.plist",
+        "com.reflect.maintenance.plist",
+        "com.reflect.synthesis.plist",
+    ):
         p = launchd / name
         assert p.exists(), f"missing {name}"
         with open(p, "rb") as fh:

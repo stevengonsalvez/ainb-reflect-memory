@@ -68,7 +68,13 @@ except Exception:  # pragma: no cover - import guard
 _MAX_SCAN_CHARS = 600_000
 
 # Outcomes in drain-cost.jsonl that mean "don't process again".
-_TERMINAL_OUTCOMES_PREFIX = ("ok", "stale", "poison", "dry_run")
+_TERMINAL_OUTCOMES_PREFIX = (
+    "ok",
+    "stale",
+    "poison",
+    "dry_run",
+    "partial_max_turns",
+)
 
 
 @dataclass
