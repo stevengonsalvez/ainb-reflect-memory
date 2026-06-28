@@ -205,6 +205,22 @@ def _seed_queue(state_dir: Path) -> Path:
     return transcript
 
 
+def _seed_two_entry_queue(state_dir: Path) -> tuple[Path, Path]:
+    state_dir.mkdir(parents=True, exist_ok=True)
+    first = state_dir / "first-transcript.jsonl"
+    second = state_dir / "second-transcript.jsonl"
+    first.write_text("{}\n")
+    second.write_text("{}\n")
+    queue = state_dir / "pending_reflections.jsonl"
+    queue.write_text(
+        '{"ts":"t","session_id":"s1","transcript_path":"%s",'
+        '"trigger":"stop","cwd":"/"}\n'
+        '{"ts":"t","session_id":"s2","transcript_path":"%s",'
+        '"trigger":"stop","cwd":"/"}\n' % (first, second)
+    )
+    return first, second
+
+
 def _make_stub_claude(tmp_path: Path, outputs: list[str]) -> Path:
     """Stub `claude` that emits outputs[n] on its n-th invocation (last repeats)."""
     counter = tmp_path / "stub-calls"
@@ -223,6 +239,13 @@ def _make_stub_claude(tmp_path: Path, outputs: list[str]) -> Path:
         'idx=$n; if [ "$idx" -ge "$last" ]; then idx=$((last - 1)); fi\n'
         'cat "$P/$idx.out"\n'
     )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+    return stub
+
+
+def _make_exit_stub(tmp_path: Path, code: int) -> Path:
+    stub = tmp_path / "stub-claude-exit"
+    stub.write_text(f"#!/usr/bin/env bash\nexit {code}\n")
     stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
     return stub
 
@@ -250,6 +273,69 @@ def _cost_events(state_dir: Path) -> list[dict]:
     if not f.exists():
         return []
     return [json.loads(l) for l in f.read_text().splitlines() if l.strip()]
+
+
+def test_drain_max_turns_is_terminal_partial(tmp_path):
+    state = tmp_path / "state"
+    _seed_queue(state)
+    max_turns = json.dumps({
+        "type": "result",
+        "subtype": "success",
+        "is_error": False,
+        "terminal_reason": "max_turns",
+        "result": "Captured partial learnings before turn cap.",
+        "total_cost_usd": 0.25,
+        "num_turns": 8,
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    })
+    stub = _make_stub_claude(tmp_path, [max_turns])
+
+    _run_drain(state, stub)
+
+    assert (state / "pending_reflections.jsonl").read_text().strip() == ""
+    events = _cost_events(state)
+    assert events[-1]["outcome"] == "partial_max_turns"
+    assert events[-1]["turns"] == 8
+
+
+def test_drain_timeout_no_output_quarantines_after_first_timeout(tmp_path):
+    state = tmp_path / "state"
+    _seed_queue(state)
+    stub = _make_exit_stub(tmp_path, 124)
+
+    _run_drain(state, stub)
+
+    assert (state / "pending_reflections.jsonl").read_text().strip() == ""
+    assert (state / "poison-reflections.jsonl").read_text().strip()
+    events = _cost_events(state)
+    assert events[-1]["outcome"] == "poison_timeout_exit_124"
+    assert "TIMEOUT quarantine" in (state / "drain.log").read_text()
+
+
+def test_retryable_failure_rotates_to_queue_tail(tmp_path):
+    state = tmp_path / "state"
+    first, second = _seed_two_entry_queue(state)
+    error = json.dumps({
+        "type": "result",
+        "subtype": "error",
+        "is_error": True,
+        "terminal_reason": "error",
+        "result": "transient writer error",
+        "total_cost_usd": 0.01,
+        "num_turns": 1,
+        "usage": {"input_tokens": 1, "output_tokens": 1},
+    })
+    stub = _make_stub_claude(tmp_path, [error])
+
+    _run_drain(state, stub, REFLECT_DRAIN_MAX="1")
+
+    queued = [
+        json.loads(line)["transcript_path"]
+        for line in (state / "pending_reflections.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    assert queued == [str(second), str(first)]
+    assert "retry_tail=1" in (state / "drain.log").read_text()
 
 
 def test_drain_respawns_after_three_consecutive_prose_outputs(tmp_path):
