@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd template: Reflect maintenance watchdog.
+
+  This does not run ingest or consolidate. It checks drain/ingest health and
+  appends statusline-visible errors to ~/.reflect/errors.json via
+  reflect errors append.
+
+  INSTALL (replace {{PLUGIN_ROOT}} with the absolute reflect plugin path):
+    sed "s|{{PLUGIN_ROOT}}|$PLUGIN_ROOT|g" \
+      com.reflect.maintenance.plist > ~/Library/LaunchAgents/com.reflect.maintenance.plist
+    launchctl load ~/Library/LaunchAgents/com.reflect.maintenance.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.reflect.maintenance</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>{{PLUGIN_ROOT}}/hooks/reflect-maintenance-watch.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/reflect-maintenance-launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/reflect-maintenance-launchd.err</string>
+</dict>
+</plist>

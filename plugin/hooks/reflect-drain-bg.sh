@@ -40,6 +40,8 @@
 # REFLECT_STATE_DIR           State dir.                               Default: ~/.reflect
 # REFLECT_DRAIN_CLAUDE_BIN    Path to claude binary.                  Default: claude (PATH)
 # REFLECT_DRAIN_TIMEOUT       Per-entry claude -p wall-clock cap (s). Default: 180
+# REFLECT_DRAIN_TIMEOUT_RETRIES  Timeout/no-output retries before quarantine.
+#                                                                    Default: 1
 # REFLECT_DRAIN_MAX_TURNS     Per-entry claude -p turn budget.        Default: 8
 # REFLECT_DRAIN_TOKEN_MAX     Poison a transcript whose run reports   Default: 2000000
 #                             more than this many total tokens.
@@ -71,6 +73,23 @@ if [[ "${REFLECT_DISABLED:-0}" == "1" ]]; then
     exit 0
 fi
 
+# Codex installs a physical copy under ~/.codex/skills. That copy can survive
+# plugin upgrades and keep running stale drain logic from a hook path that still
+# looks current. When invoked from the Codex copy, delegate to the newest Claude
+# plugin-cache copy if present; repo/test executions and the plugin-cache copy
+# itself run in place.
+SELF_REAL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
+CODEX_COPY="${HOME}/.codex/skills/reflect/hooks/reflect-drain-bg.sh"
+if [[ "${REFLECT_DRAIN_NO_DELEGATE:-0}" != "1" && "$SELF_REAL" == "$CODEX_COPY" ]]; then
+    LATEST_PLUGIN_DRAIN=$(ls -1dt "$HOME/.claude/plugins/cache/agents-in-a-box/reflect"/*/plugin/hooks/reflect-drain-bg.sh 2>/dev/null | head -1 || true)
+    if [[ -n "$LATEST_PLUGIN_DRAIN" && -x "$LATEST_PLUGIN_DRAIN" ]]; then
+        LATEST_REAL="$(cd "$(dirname "$LATEST_PLUGIN_DRAIN")" && pwd -P)/$(basename "$LATEST_PLUGIN_DRAIN")"
+        if [[ "$LATEST_REAL" != "$SELF_REAL" && "$LATEST_REAL" -nt "$SELF_REAL" ]]; then
+            exec env REFLECT_DRAIN_NO_DELEGATE=1 "$LATEST_REAL" "$@"
+        fi
+    fi
+fi
+
 # ── Config ────────────────────────────────────────────────────────────────────
 STATE_DIR="${REFLECT_STATE_DIR:-$HOME/.reflect}"
 QUEUE_FILE="${STATE_DIR}/pending_reflections.jsonl"
@@ -89,6 +108,7 @@ LOG_MAX_BYTES="${REFLECT_DRAIN_LOG_MAX_BYTES:-10485760}"
 DRY_RUN="${REFLECT_DRAIN_DRY_RUN:-0}"
 CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
 ENTRY_TIMEOUT="${REFLECT_DRAIN_TIMEOUT:-180}"
+TIMEOUT_RETRIES="${REFLECT_DRAIN_TIMEOUT_RETRIES:-1}"
 MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-8}"
 TOKEN_MAX="${REFLECT_DRAIN_TOKEN_MAX:-2000000}"
 DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-sonnet}"
@@ -667,9 +687,17 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
 
     # Fatal subprocess errors (signal, timeout, process couldn't start) — no JSON.
     if [[ -z "$out_json" ]]; then
-        log "    claude -p produced no output (exit=$exit_code); likely timeout or auth issue"
+        local retries_after
+        retries_after=$(bump_retry_count "$transcript")
+        log "    claude -p produced no output (exit=$exit_code); retry=${retries_after}/${TIMEOUT_RETRIES}"
         emit_error error drain_no_output "claude -p produced no output (exit=$exit_code)" "$transcript"
-        bump_retry_count "$transcript" >/dev/null
+        if [[ "$exit_code" == "124" && "$TIMEOUT_RETRIES" =~ ^[0-9]+$ && "$TIMEOUT_RETRIES" -gt 0 && "$retries_after" -ge "$TIMEOUT_RETRIES" ]]; then
+            log "    TIMEOUT quarantine: no-output timeout exhausted; archiving transcript"
+            emit_error warn drain_timeout_exhausted "timeout/no-output exhausted after ${retries_after} attempt(s)" "$transcript"
+            printf '%s\n' "$entry_json" >> "$POISON_FILE"
+            record_cost_event 1 "$transcript" "poison_timeout_exit_${exit_code}" 0 0 0 "" 0 0 0 0 "$writer_class"
+            return 2
+        fi
         record_cost_event 1 "$transcript" "fail_no_output_exit_${exit_code}" 0 0 0 "" 0 0 0 0 "$writer_class"
         return 1
     fi
@@ -687,20 +715,14 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
     fi
 
     # max_turns: claude probably did useful work — write_flow may have already
-    # written learnings to disk. Treat as "made progress" and remove from queue
-    # to avoid re-spending cost; the retry counter still bumps so repeated
-    # max_turns on the same transcript eventually poisons it.
+    # written learnings to disk. Treat as terminal partial progress and remove
+    # from queue immediately; retrying the same giant session just re-spends
+    # budget and blocks younger entries.
     if [[ "$terminal_reason" == "max_turns" ]]; then
-        local retries_after
-        retries_after=$(bump_retry_count "$transcript")
-        log "    partial: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens} retries=${retries_after}"
+        log "    partial terminal: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens}; removing from queue"
+        emit_error warn drain_max_turns_partial "max_turns after ${num_turns} turns; treated as terminal partial progress" "$transcript"
         record_cost_event 1 "$transcript" "partial_max_turns" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
-        # If we've hit max_turns repeatedly, give up and drop from queue.
-        if [[ "$retries_after" -ge "$MAX_RETRIES" ]]; then
-            emit_error warn drain_max_turns_exhausted "max_turns hit $MAX_RETRIES times" "$transcript"
-            return 2
-        fi
-        return 1  # leave in queue for another shot with fresh budget
+        return 2
     fi
 
     if [[ "$is_error" == "True" || "$is_error" == "true" ]]; then
@@ -807,10 +829,11 @@ main() {
     log "today_count=$already_today headroom=$headroom run_max=$run_max"
 
     # Read up to $run_max non-empty lines from the queue.
-    local processed_list_file
+    local processed_list_file failed_queue_file
     processed_list_file=$(mktemp)
+    failed_queue_file=$(mktemp)
     # shellcheck disable=SC2064
-    trap "release_lock; rm -f $processed_list_file" EXIT INT TERM
+    trap "release_lock; rm -f $processed_list_file $failed_queue_file" EXIT INT TERM
 
     local count=0
     local ok=0 fail=0 perm=0
@@ -845,8 +868,12 @@ main() {
                 printf '%s\n' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("transcript_path",""))' >> "$processed_list_file"
                 ;;
             *)
-                # Retryable failure — leave in queue.
+                # Retryable failure — remove from its current position and
+                # append to the tail after the rewrite. This prevents one bad
+                # transcript from head-of-line blocking the whole drain queue.
                 fail=$((fail + 1))
+                printf '%s\n' "$line" >> "$failed_queue_file"
+                printf '%s\n' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("transcript_path",""))' >> "$processed_list_file"
                 ;;
         esac
     done < "$QUEUE_FILE"
@@ -854,10 +881,13 @@ main() {
     if [[ -s "$processed_list_file" ]]; then
         local kept
         kept=$(rewrite_queue "$processed_list_file")
+        if [[ -s "$failed_queue_file" ]]; then
+            cat "$failed_queue_file" >> "$QUEUE_FILE"
+        fi
         log "queue rewritten: kept=$kept entries"
     fi
 
-    log "summary: processed=$count ok=$ok perm_skip=$perm retryable_fail=$fail"
+    log "summary: processed=$count ok=$ok perm_skip=$perm retryable_fail=$fail retry_tail=$fail"
 
     # Reindex if anything succeeded. Never in DRY_RUN (a dry run must have no
     # side effects beyond logging) or when explicitly skipped (tests).
