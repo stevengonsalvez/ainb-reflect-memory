@@ -94,6 +94,29 @@ def test_install_syncs_recall_hooks_and_scripts(tmp_path):
     assert drain.exists()
 
 
+def test_install_refreshes_existing_drain_copy(tmp_path):
+    """A reinstall must overwrite stale Codex drain code in-place.
+
+    hooks.json points at ~/.codex/skills/reflect/hooks/reflect-drain-bg.sh, so
+    preventing stale drain behavior depends on refreshing that physical copy.
+    """
+    drain = (
+        tmp_path / ".codex" / "skills" / "reflect" / "hooks"
+        / "reflect-drain-bg.sh"
+    )
+    drain.parent.mkdir(parents=True)
+    drain.write_text("#!/usr/bin/env bash\necho stale-drain\n", encoding="utf-8")
+
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+
+    text = drain.read_text(encoding="utf-8")
+    assert "stale-drain" not in text
+    assert "REFLECT_DRAIN_NO_DELEGATE" in text
+
+
 def test_install_writes_hooks_json_with_all_three_entries(tmp_path):
     """Default install wires SessionStart-recall, SessionStart-drain, and
     PreCompact-reflect into ~/.codex/hooks.json."""

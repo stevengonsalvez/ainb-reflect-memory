@@ -4,6 +4,27 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.0.4] — 2026-06-28 — Drain watchdog and timeout unjam
+
+Patch. Background drain could appear jammed when heavyweight `/reflect`
+writer calls timed out or hit `max_turns`; stale harness-installed hook copies
+could also keep retrying terminal entries after source was fixed.
+
+### Fixed
+- Timeout/no-output drain calls are quarantined after the configured timeout
+  retry budget instead of staying at the head of the queue.
+- `terminal_reason=max_turns` is treated as terminal partial progress and
+  removed from the queue, preventing repeated re-spend on giant sessions.
+- Retryable failures rotate to the queue tail so one bad transcript cannot
+  block younger entries.
+- Codex installs overwrite stale physical copies of the drain hook.
+
+### Added
+- `reflect-maintenance-watch.sh` and `com.reflect.maintenance.plist` surface
+  stale ingest, stale drain locks, long-running drains, and missing launchd
+  timers through `reflect errors`, which the statusline ERR row already reads.
+- Structural tests for the maintenance launchd template and watchdog behavior.
+
 ## [5.0.3] — 2026-06-22 — Slash commands resolve (drop double `reflect:` prefix)
 
 Patch. Manual reflect slash commands were unreachable: the statusline badge
