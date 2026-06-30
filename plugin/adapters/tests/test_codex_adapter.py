@@ -27,7 +27,7 @@ def test_find_plugin_root_resolves_to_reflect_dir():
     root = codex_adapter.find_plugin_root()
     assert (root / "skills").is_dir()
     assert (root / "adapters").is_dir()
-    assert root.name == "reflect"
+    assert root.name == "plugin"
 
 
 def test_dry_run_reports_actions_without_touching_home(tmp_path):
@@ -59,7 +59,7 @@ def test_install_writes_pointer_files_under_dot_codex(tmp_path):
 
     body = recall.read_text(encoding="utf-8")
     assert codex_adapter.POINTER_MANAGED_BY in body
-    assert "name: reflect:recall" in body
+    assert "name: recall" in body
     # Codex uses hooks.json, not settings.json
     assert not (tmp_path / ".codex" / "settings.json").exists()
     # And it must not have leaked into a Claude dir.

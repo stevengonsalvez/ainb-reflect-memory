@@ -32,7 +32,7 @@ def test_find_plugin_root_resolves_to_reflect_dir():
     root = claude_adapter.find_plugin_root()
     assert (root / "skills").is_dir()
     assert (root / "adapters").is_dir()
-    assert root.name == "reflect"
+    assert root.name == "plugin"
 
 
 def test_dry_run_reports_actions_without_touching_home(tmp_path):
@@ -66,8 +66,8 @@ def test_install_writes_pointer_files_and_hook(tmp_path):
 
     recall_body = recall.read_text(encoding="utf-8")
     assert claude_adapter.POINTER_MANAGED_BY in recall_body
-    # Name preserved from upstream frontmatter (reflect:recall).
-    assert "name: reflect:recall" in recall_body
+    # Name preserved from upstream frontmatter (recall).
+    assert "name: recall" in recall_body
 
     # Hook merged into settings.json
     settings_text = (tmp_path / ".claude" / "settings.json").read_text()
