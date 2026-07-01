@@ -18,10 +18,34 @@
         "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py"
       }
     ],
+    "notification": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/notification_reflect.py"
+      }
+    ],
+    "preToolUse": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/pretooluse_context.py"
+      }
+    ],
+    "permissionRequest": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/permission_request_reflect.py"
+      }
+    ],
     "postToolUse": [
       {
         "type": "command",
         "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/posttooluse_minilearning.py"
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/posttoolusefailure_minilearning.py"
       }
     ],
     "agentStop": [
@@ -34,6 +58,30 @@
       {
         "type": "command",
         "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose"
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/subagent_start_recall.py"
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/subagent_stop_reflect.py"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/session_end_reflect.py"
+      }
+    ],
+    "errorOccurred": [
+      {
+        "type": "command",
+        "command": "REFLECT_HARNESS=copilot uv run --script ${PLUGIN_ROOT}/hooks/error_occurred_reflect.py"
       }
     ]
   }

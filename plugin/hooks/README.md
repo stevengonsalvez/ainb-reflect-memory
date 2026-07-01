@@ -1,20 +1,32 @@
 # Reflect Hooks Integration
 
-This directory contains hooks for integrating the reflect skill with Claude Code's hook system.
+This directory contains hooks for integrating the reflect skill with Claude Code,
+Codex CLI, and GitHub Copilot hook systems.
 
 ## Available Hooks
 
-The `reflect` plugin wires six Claude Code lifecycle events via `.claude-plugin/plugin.json`. Most hook scripts live in this directory; the two `recall` hooks live under `../skills/recall/hooks/`.
+The `reflect` plugin wires lifecycle events via `.claude-plugin/plugin.json`,
+`codex-hooks.json`, `copilot-hooks.json`, and the Codex/Copilot adapters. Most
+hook scripts live in this directory; the two `recall` hooks live under
+`../skills/recall/hooks/`.
 
-| Event | Script | Purpose |
-|-------|--------|---------|
-| `SessionStart` | `../skills/recall/hooks/session_start_recall.py` | Hybrid-search the KB and auto-inject the top learnings into the new session |
-| `SessionStart` | `reflect-drain-bg.sh` | Background-drain the queued reflections from prior sessions (spawned detached; sole queue consumer as of v4.0.0) |
-| `UserPromptSubmit` | `../skills/recall/hooks/user_prompt_submit_recall.py` | Recall against the submitted prompt before the turn runs |
-| `Notification` | `notification_reflect.py` | Arm permission-decision capture when a permission prompt fires (SG8) |
-| `PostToolUse` | `posttooluse_minilearning.py` | Arm low-cost mini-learning capture after each tool call |
-| `Stop` | `stop_reflect.py` | Gate + enqueue short-session reflection when the agent turn ends |
-| `PreCompact` | `precompact_reflect.py --auto --verbose` | Gate + queue the transcript for the bg-drain cascade before context compaction |
+| Event | Script | Behavior |
+|-------|--------|----------|
+| `SessionStart` / `sessionStart` | `../skills/recall/hooks/session_start_recall.py` | Ambient startup recall injection |
+| `SessionStart` / `sessionStart` | `reflect-drain-bg.sh` | Detached background drain; sole `/reflect` runner |
+| `UserPromptSubmit` / `userPromptSubmitted` | `../skills/recall/hooks/user_prompt_submit_recall.py` | Prompt-specific recall injection before the model acts |
+| `PreToolUse` / `preToolUse` | `pretooluse_context.py` | Bounded policy/context lookup before risky tool calls |
+| `PermissionRequest` / `permissionRequest` | `permission_request_reflect.py` | Permission-pattern lookup and watcher arming |
+| `PostToolUse` / `postToolUse` | `posttooluse_minilearning.py` | Mini-learning watcher arming after tool output |
+| `PostToolUseFailure` / `postToolUseFailure` | `posttoolusefailure_minilearning.py` | Failure-shaped mini-learning watcher arming |
+| `Notification` / `notification` | `notification_reflect.py` | Permission-decision watcher arming |
+| `PreCompact` / `preCompact` | `precompact_reflect.py --auto --verbose` | Silent queue producer before compaction |
+| `PostCompact` / `postCompact` | `postcompact_bookkeeping.py` | Bookkeeping only; no recall, queue, or drain |
+| `SubagentStart` / `subagentStart` | `subagent_start_recall.py` | Subagent-scoped recall injection |
+| `SubagentStop` / `subagentStop` | `subagent_stop_reflect.py` | Queue subagent transcript for later drain |
+| `Stop` / `agentStop` | `stop_reflect.py` | Slot update plus session queue producer |
+| `SessionEnd` / `sessionEnd` | `session_end_reflect.py` | Final queue producer and cleanup |
+| `errorOccurred` | `error_occurred_reflect.py` | Error breadcrumb sink |
 
 This README documents `precompact_reflect.py` in detail below; the other scripts are wired automatically by the plugin and need no manual install.
 
@@ -23,12 +35,23 @@ This README documents `precompact_reflect.py` in detail below; the other scripts
 > background drainer (`reflect-drain-bg.sh`) is the sole consumer of the
 > pending-reflections queue.
 
-### Producer/consumer model — these hooks QUEUE, they don't reflect
+### Behavior contract
 
-The producer hooks (`precompact_reflect.py --auto`, `stop_reflect.py`) are shell
-commands and **cannot run an LLM**, so they never perform reflection
-synchronously. They run a $0 enqueue **gate** (`../scripts/reflect_gate.py`) over
-the transcript's dialogue and append it to
+| Category | Hooks | Contract |
+|---|---|---|
+| Recall injectors | `SessionStart`, `UserPromptSubmit`, `SubagentStart`, bounded `PreToolUse` | Emit `additionalContext` only before the model/tool action |
+| Signal armers | `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `errorOccurred` | Write cheap breadcrumbs/watchers; do not run `/reflect` |
+| Queue producers | `PreCompact`, `Stop`, `SessionEnd`, `SubagentStop` | Append deduped work to `~/.reflect/pending_reflections.jsonl`; do not run `/reflect` |
+| Drain consumer | detached `SessionStart` `reflect-drain-bg.sh` | Only component allowed to run `/reflect` from hooks |
+| Bookkeeping | `PostCompact` | Reset/log only; no injection, no queue append, no drain |
+
+### Producer/consumer model - these hooks QUEUE, they don't reflect
+
+The producer hooks (`precompact_reflect.py --auto`, `stop_reflect.py`,
+`session_end_reflect.py`, and `subagent_stop_reflect.py`) are shell commands and
+**cannot run an LLM**, so they never perform reflection synchronously. They run
+a $0 enqueue **gate** (`../scripts/reflect_gate.py`) over the transcript's
+dialogue where available and append deduped work to
 `~/.reflect/pending_reflections.jsonl` only if it's worth model spend:
 
 - reflect-on-reflect transcript → **skip** (no net-new learnings)
