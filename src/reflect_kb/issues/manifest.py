@@ -112,5 +112,9 @@ def gather_transcripts(
         return []
 
     refs = list(by_path.values())
-    # Newest last in append order → take the tail as "most recent".
-    return refs[-limit:] if limit and limit > 0 else refs
+    # Newest last in append order → take the tail as "most recent". ``limit==0``
+    # must mean "return none", not "unlimited" — ``refs[-0:]`` is a no-op slice
+    # that returns everything, so 0 needs its own branch.
+    if limit == 0:
+        return []
+    return refs[-limit:] if limit > 0 else refs
