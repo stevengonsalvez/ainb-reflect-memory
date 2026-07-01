@@ -287,8 +287,10 @@ def test_ledger_saved_incrementally_after_each_file(tmp_path):
     fps = {e["fingerprint"] for e in saved["filed_issues"]}
     from reflect_kb.issues.dedupe import fingerprint
 
-    # Ledger records the fingerprint of the decorated (prefixed) title.
-    assert fingerprint("reflect: First brand new finding") in fps
+    # Ledger records the RAW (undecorated) fingerprint — it must match what
+    # partition_candidates() compares against on the next run, before any
+    # provenance prefix is stamped on.
+    assert fingerprint("First brand new finding") in fps
 
 
 def test_empty_queue_returns_clean_result(tmp_path):
