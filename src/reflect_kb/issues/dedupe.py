@@ -168,12 +168,18 @@ def record_filed(
     gh_issue_number: Optional[int] = None,
     gh_url: Optional[str] = None,
     status: str = "open",
+    fingerprint: Optional[str] = None,
 ) -> dict:
-    """Append a filed-issue record to ``ledger`` (in-place) and return it."""
+    """Append a filed-issue record to ``ledger`` (in-place) and return it.
+
+    ``fingerprint`` overrides ``candidate.fingerprint`` when the ledger key
+    must be computed from a different (e.g. undecorated) title than the one
+    displayed/filed — see ``pipeline.run_issues``.
+    """
     ledger.setdefault("version", _LEDGER_VERSION)
     ledger.setdefault("filed_issues", []).append(
         {
-            "fingerprint": candidate.fingerprint,
+            "fingerprint": fingerprint if fingerprint is not None else candidate.fingerprint,
             "title": candidate.title,
             "gh_issue_number": gh_issue_number,
             "gh_url": gh_url,

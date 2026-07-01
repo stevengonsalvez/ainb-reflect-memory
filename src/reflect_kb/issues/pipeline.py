@@ -152,9 +152,12 @@ def _decorate(
     """Stamp provenance onto a candidate: ``reflect:`` title prefix + label.
 
     Idempotent — a title that already starts with the prefix (case-insensitive)
-    is left as-is, and the label is only added once. Applied BEFORE dedupe so
-    the fingerprint (``slugify(title)``) is computed on the final, prefixed
-    title — keeping it consistent with previously-filed ``reflect: ...`` issues.
+    is left as-is, and the label is only added once. Applied to the KEEPERS
+    AFTER dedupe, not before: ``fingerprint()`` truncates to 60 chars, and
+    stamping every candidate with the same fixed prefix first would burn a
+    constant slice of that budget on every title, shrinking the discriminating
+    window for all of them and risking false in-batch collisions. Dedupe
+    instead compares raw (undecorated) titles — see ``run_issues``.
     """
     title = cand.title
     if title_prefix and not title.lower().startswith(title_prefix.strip().lower()):
@@ -168,6 +171,15 @@ def _decorate(
         labels=labels,
         source_citation=cand.source_citation,
     )
+
+
+def _strip_prefix(title: str, title_prefix: str) -> str:
+    """Inverse of ``_decorate``'s title stamping — used to normalize titles
+    fetched from GitHub (which already carry the prefix) back to raw form
+    before comparing them against undecorated candidates during dedupe."""
+    if title_prefix and title.lower().startswith(title_prefix.strip().lower()):
+        return title[len(title_prefix.strip()) :].lstrip()
+    return title
 
 
 def _ensure_label(label: str, repo: Optional[str], gh_runner: Runner) -> None:
@@ -298,20 +310,27 @@ def run_issues(
     result.analyze_reason = reason
     result.candidates = len(candidates)
     if not candidates:
-        result.notes.append(f"analyzer produced no candidates (reason: {reason})")
+        if reason == "ok":
+            result.notes.append("analyzer found no actionable findings in this batch")
+        else:
+            result.notes.append(f"analyzer failed (reason: {reason}) — no candidates produced")
         return result
 
     # 4. Sanitize EVERY candidate again (defence in depth) before it can leave,
     #    aggregating each candidate's residual-audit flags onto the run result.
+    #    Provenance (title prefix + label) is NOT stamped yet — dedupe below
+    #    needs the raw title so fingerprint()'s 60-char truncation isn't eaten
+    #    into by a constant prefix shared by every candidate.
     safe_candidates: list[CandidateIssue] = []
     for c in candidates:
         safe, audit = _sanitize_candidate(c, maps)
-        # Stamp provenance (reflect: prefix + label) BEFORE dedupe so the
-        # fingerprint matches previously-filed `reflect: ...` issues.
-        safe_candidates.append(_decorate(safe, title_prefix, label))
+        safe_candidates.append(safe)
         result.audit.extend(audit)
 
-    # 5. Dedupe: in-batch → local ledger → existing GitHub issues.
+    # 5. Dedupe: in-batch → local ledger → existing GitHub issues. Compared on
+    #    raw (undecorated) titles; existing GitHub titles already carry the
+    #    provenance prefix from previous runs, so it's stripped here to keep
+    #    both sides on the same raw-title basis.
     ledger = dedupe_mod.load_ledger(ledger_path)
     if fetch_titles is not None:
         existing = fetch_titles()
@@ -321,12 +340,16 @@ def run_issues(
         existing = dedupe_mod.fetch_existing_titles(repo, runner=gh_run)
     else:
         existing = dedupe_mod.fetch_existing_titles(repo, runner=gh_run)
+    existing = [_strip_prefix(t, title_prefix) for t in existing]
 
     decisions = dedupe_mod.partition_candidates(
         safe_candidates, ledger=ledger, existing_titles=existing
     )
-    keepers = [d.candidate for d in decisions if d.keep]
+    raw_keepers = [d.candidate for d in decisions if d.keep]
     result.skipped = [d for d in decisions if not d.keep]
+
+    # Stamp provenance now, only on survivors, for filing/preview/ledger.
+    keepers = [_decorate(c, title_prefix, label) for c in raw_keepers]
 
     # 6. File (or preview).
     if dry_run:
@@ -338,23 +361,32 @@ def run_issues(
         )
         return result
 
+    if keepers and repo is None:
+        result.notes.append(
+            "no --repo/[issues].repo set — filing to whatever repo `gh` resolves "
+            "from the current working directory"
+        )
+
     # Ensure the provenance label exists so it survives _filter_labels (an
     # unknown label would otherwise be dropped). Best-effort, once per run.
     if keepers and label:
         _ensure_label(label, repo, gh_run)
 
-    for cand in keepers:
+    for raw_cand, cand in zip(raw_keepers, keepers):
         try:
             filed = _file_one(cand, repo, gh_run)
         except (subprocess.CalledProcessError, FileNotFoundError, OSError) as exc:
             result.notes.append(f"gh issue create failed for '{cand.title}': {exc}")
             continue
         result.filed.append(filed)
+        # Ledger key is the RAW (undecorated) fingerprint — matches what
+        # partition_candidates() compares against on the next run.
         dedupe_mod.record_filed(
             ledger,
             cand,
             gh_issue_number=filed.gh_issue_number,
             gh_url=filed.gh_url,
+            fingerprint=raw_cand.fingerprint,
         )
         # Persist incrementally — the atomic save runs after EACH successful
         # file, not once at the end. A crash after `gh issue create` succeeds
