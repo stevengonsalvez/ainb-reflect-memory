@@ -17,13 +17,14 @@ not Claude-shaped:
   `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`,
   `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
 
-Caveats: Copilot **ignores `userPromptSubmitted` hook output**, so that hook
-fires for capture/dedupe but cannot surface recall — per-prompt recall stays
-manual via `/recall` (SessionStart auto-recall works via `additionalContext`).
+Copilot per-prompt recall is automatic on current CLI builds. Verified on
+GitHub Copilot CLI 1.0.66: `userPromptSubmitted` hook `additionalContext` is
+included in model-visible `transformedContent`. If an older build drops that
+output, `/recall` remains the manual fallback.
 `postCompact` is intentionally not wired until Copilot exposes that event; on
 Claude/Codex it is bookkeeping only and never drains or recalls.
-The exact `sessionStart` `additionalContext` envelope is confirmed at build
-time against the live binary; the scripts gate their output shape on
+The `sessionStart` and `userPromptSubmitted` `additionalContext` envelopes are
+confirmed against the live binary; the scripts gate their output shape on
 `REFLECT_HARNESS=copilot`.
 
 ## Usage
