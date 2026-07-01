@@ -1,6 +1,6 @@
 """Read-only loader for ``reflect.toml``.
 
-The reflect ecosystem ships a ``reflect.toml`` (under ``plugins/reflect/``) that
+The reflect ecosystem ships a ``reflect.toml`` (under ``plugin/``) that
 documents tunables for several modes. Historically the ``reflect issues`` CLI
 hard-coded its click defaults and never consulted that file, so the documented
 ``[issues]`` block (``repo`` / ``limit`` / ``model``) was inert.
@@ -11,7 +11,7 @@ order (first hit wins):
 1. ``$REFLECT_CONFIG`` — explicit path override.
 2. ``$REFLECT_STATE_DIR/reflect.toml`` — alongside the queue/ledger/db.
 3. ``~/.reflect/reflect.toml`` — the default state dir.
-4. The repo-bundled ``plugins/reflect/reflect.toml`` (best-effort, by walking up
+4. The repo-bundled ``plugin/reflect.toml`` (best-effort, by walking up
    from this file) so an editable checkout works without extra setup.
 
 The loader is tolerant: a missing or malformed file yields ``{}`` rather than
@@ -42,11 +42,11 @@ def _candidate_paths() -> list[Path]:
 
     candidates.append(Path.home() / ".reflect" / _CONFIG_NAME)
 
-    # Walk up from this file looking for plugins/reflect/reflect.toml so an
-    # editable repo checkout picks up the bundled defaults.
+    # Walk up from this file looking for plugin/reflect.toml so an editable
+    # repo checkout picks up the bundled defaults.
     here = Path(__file__).resolve()
     for parent in here.parents:
-        bundled = parent / "plugins" / "reflect" / _CONFIG_NAME
+        bundled = parent / "plugin" / _CONFIG_NAME
         if bundled.exists():
             candidates.append(bundled)
             break
