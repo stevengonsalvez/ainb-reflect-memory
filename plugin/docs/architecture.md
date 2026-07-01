@@ -423,15 +423,14 @@ LLM. That handoff is the auto-drain (5.5).
 ### 5.5 Closed-Loop Auto-Drain (SessionStart → background `claude -p`)
 
 The drain is what actually closes the capture loop. It fires whenever
-**any** new Claude Code session starts on the host, runs in the
+**any** supported harness starts a new session on the host, runs in the
 background (detached, non-blocking), and walks the queue with headless
-`claude -p`. Same script is wired into the Codex and Copilot adapters
-once they grow session-init hook parity (see `TODO(closed-loop)` in
-`adapters/{codex,copilot}/{tool}_adapter.py`).
+`claude -p`. The same script is wired into Claude, Codex, and Copilot
+session-start hooks/adapters.
 
 ```mermaid
 sequenceDiagram
-    participant CC as New Claude session
+    participant CC as New harness session
     participant H as SessionStart hook (detached)
     participant DRN as reflect-drain-bg.sh
     participant LCK as ~/.reflect/drain.lock
@@ -528,8 +527,8 @@ sequenceDiagram
   twice).
 - **Cross-tool universal**: the drain script reads the shared
   `~/.reflect/pending_reflections.jsonl`. Any tool's session-init hook
-  can fire it. Today only the Claude adapter wires it; Codex and Copilot
-  adapters carry `TODO(closed-loop)` markers for parity.
+  can fire it. Claude, Codex, and Copilot all wire the detached
+  session-start drain.
 
 **Configuration surface**:
 
@@ -769,7 +768,7 @@ All three harnesses now have lifecycle hook systems, and each adapter wires refl
 - **Codex CLI** — `codex_adapter.py` deploys full skill content into `~/.codex/skills/` and merges reflect-managed hooks into `~/.codex/hooks.json`: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, and `Stop`.
 - **GitHub Copilot CLI** — `copilot_adapter.py` deploys full skill content into `~/.copilot/skills/` and writes ONE copilot-native drop-in `~/.copilot/hooks/reflect.json` (`version:1`, flat per-event arrays, camelCase events, `timeoutSec`). It wires `sessionStart`, `userPromptSubmitted`, `preToolUse`, `permissionRequest`, `postToolUse`, `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`, `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
 
-Divergences worth knowing: Copilot **ignores `userPromptSubmitted` hook output**, so per-prompt auto-recall is not possible there — only manual `/recall` (SessionStart auto-recall still works via `additionalContext`). Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
+Divergences worth knowing: Copilot per-prompt auto-recall works on current CLI builds; `userPromptSubmitted` hook `additionalContext` is surfaced into model-visible prompt context (validated on GitHub Copilot CLI 1.0.66). Older builds may still need manual `/recall` as a fallback. Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
 
 Reflect keeps `/reflect` execution centralized: lookup hooks inject context only before model/tool action, queue hooks append deduped work only, and `PostCompact` is bookkeeping only. The detached `SessionStart` drain remains the sole hook path that runs `/reflect`.
 
