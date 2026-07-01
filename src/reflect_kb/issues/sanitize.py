@@ -23,6 +23,7 @@ What it strips (in order)
    * GitLab PATs ``glpat-…``        → ``<REDACTED:gitlab_token>``
    * Google API keys ``AIza…``      → ``<REDACTED:google_api_key>``
    * npm tokens ``npm_…``           → ``<REDACTED:npm_token>``
+   * Stripe keys ``sk_live_…`` / ``rk_test_…`` → ``<REDACTED:stripe_key>``
    * Slack webhooks ``hooks.slack.com/services/…`` → ``<REDACTED:slack_webhook>``
    * ``Authorization: Bearer <tok>`` → ``Bearer <REDACTED:bearer_token>``
    * Generic ``KEY=value`` where KEY *contains* {token, key, secret, password,
@@ -86,6 +87,13 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "slack_webhook",
     ),
     (re.compile(r"\bAKIA[0-9A-Z]{16}\b"), "<REDACTED:aws_key>", "aws_key"),
+    # Stripe secret/restricted API keys (sk_live_…, rk_test_…). No generic-keyword
+    # anchor, so without this prefix rule a bare live key leaks unredacted.
+    (
+        re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{20,}\b"),
+        "<REDACTED:stripe_key>",
+        "stripe_key",
+    ),
     (
         re.compile(r"\b\d{8,12}:[A-Za-z0-9_\-]{30,}\b"),
         "<REDACTED:telegram_token>",
@@ -126,18 +134,29 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # char, so a strict ``\b(key)\b`` boundary fails on ``AWS_SECRET_ACCESS_KEY``,
 # ``GITLAB_TOKEN``, ``GOOGLE_API_KEY``, ``NPM_TOKEN`` — the keyword sits between
 # word chars, never on a boundary, so the whole assignment passes through
-# unredacted. Surrounding ``\w*`` lets the keyword match anywhere inside the
-# identifier; group 1 captures the FULL env-var name so it's preserved verbatim
-# and only the value is stripped.
+# unredacted. But matching the keyword as a bare substring with NO boundary at
+# all over-matches plain English words that happen to contain it — ``author``,
+# ``monkey``, ``keyboard`` — as false-positive "secrets". The keyword must
+# instead sit at an identifier *sub-token* boundary: either non-letter-bounded
+# (``AWS_SECRET_ACCESS_KEY`` — underscores either side) or a camelCase
+# transition (``apiKey``, ``authToken`` — a capitalized keyword immediately
+# after a lowercase letter). Surrounding ``\w*`` still lets the keyword match
+# anywhere inside the identifier; group 1 captures the FULL env-var name so
+# it's preserved verbatim and only the value is stripped.
 _GENERIC_SECRET_RE = re.compile(
-    r"\b(\w*(?:token|key|secret|password|passwd|api[_-]?key|auth(?:orization)?)\w*)"
+    r"\b(\w*(?:"
+    r"(?i:(?<![A-Za-z])(?:token|key|secret|password|passwd|api[_-]?key|auth(?:orization)?)(?![A-Za-z]))"
+    r"|(?<=[a-z])(?:Token|Key|Secret|Password|Passwd|ApiKey|Auth|Authorization)(?![a-z])"
+    r")\w*)"
     r"(\s*[:=]\s*)"
-    r"(['\"]?)(?!<REDACTED:)([^\s'\"]{12,})\3",
-    re.IGNORECASE,
+    r"(['\"]?)(?!<REDACTED:)([^\s'\"]{12,})\3"
 )
 
 _EMAIL_RE = re.compile(r"\b[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}\b")
-_IPV4_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+# Octet-range-bound (0-255 each) so version-ish strings like "999.1.2.3" or a
+# package version "12.345.6.7" aren't mistaken for an IPv4 address.
+_OCTET = r"(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)"
+_IPV4_RE = re.compile(rf"\b(?:{_OCTET}\.){{3}}{_OCTET}\b")
 _UUID_RE = re.compile(
     r"\b[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-"
     r"[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\b"
