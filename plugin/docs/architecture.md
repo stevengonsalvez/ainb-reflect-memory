@@ -423,15 +423,14 @@ LLM. That handoff is the auto-drain (5.5).
 ### 5.5 Closed-Loop Auto-Drain (SessionStart → background `claude -p`)
 
 The drain is what actually closes the capture loop. It fires whenever
-**any** new Claude Code session starts on the host, runs in the
+**any** supported harness starts a new session on the host, runs in the
 background (detached, non-blocking), and walks the queue with headless
-`claude -p`. Same script is wired into the Codex and Copilot adapters
-once they grow session-init hook parity (see `TODO(closed-loop)` in
-`adapters/{codex,copilot}/{tool}_adapter.py`).
+`claude -p`. The same script is wired into Claude, Codex, and Copilot
+session-start hooks/adapters.
 
 ```mermaid
 sequenceDiagram
-    participant CC as New Claude session
+    participant CC as New harness session
     participant H as SessionStart hook (detached)
     participant DRN as reflect-drain-bg.sh
     participant LCK as ~/.reflect/drain.lock
@@ -528,8 +527,8 @@ sequenceDiagram
   twice).
 - **Cross-tool universal**: the drain script reads the shared
   `~/.reflect/pending_reflections.jsonl`. Any tool's session-init hook
-  can fire it. Today only the Claude adapter wires it; Codex and Copilot
-  adapters carry `TODO(closed-loop)` markers for parity.
+  can fire it. Claude, Codex, and Copilot all wire the detached
+  session-start drain.
 
 **Configuration surface**:
 
@@ -612,7 +611,7 @@ Without this section, all dashboard commands exit 0 with "dashboard not configur
 
 ### `~/.claude/settings.json` — hooks (managed by Claude adapter)
 
-As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.json`; installing the plugin auto-wires all five lifecycle hooks (no manual settings.json editing required). The wired entries are:
+As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.json`; installing the plugin auto-wires the lifecycle hooks (no manual settings.json editing required). The core entries are:
 
 ```json
 {
@@ -624,6 +623,12 @@ As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.js
     "UserPromptSubmit":[{ "matcher": "", "hooks": [
       { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/skills/recall/hooks/user_prompt_submit_recall.py" }
     ]}],
+    "PreToolUse":      [{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse_context.py" }
+    ]}],
+    "PermissionRequest":[{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/permission_request_reflect.py" }
+    ]}],
     "PostToolUse":     [{ "matcher": "", "hooks": [
       { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/posttooluse_minilearning.py" }
     ]}],
@@ -632,6 +637,18 @@ As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.js
     ]}],
     "PreCompact":      [{ "matcher": "", "hooks": [
       { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/precompact_reflect.py --auto --verbose" }
+    ]}],
+    "PostCompact":     [{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/postcompact_bookkeeping.py" }
+    ]}],
+    "SubagentStart":   [{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_start_recall.py" }
+    ]}],
+    "SubagentStop":    [{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop_reflect.py" }
+    ]}],
+    "SessionEnd":      [{ "matcher": "", "hooks": [
+      { "type": "command", "command": "uv run ${CLAUDE_PLUGIN_ROOT}/hooks/session_end_reflect.py" }
     ]}]
   }
 }
@@ -747,11 +764,13 @@ Every pointer contains a `managed_by:` YAML field unique to its harness (`reflec
 
 All three harnesses now have lifecycle hook systems, and each adapter wires reflect into its own:
 
-- **Claude Code** — `claude_adapter.py` merges a `SessionStart` hook into `~/.claude/settings.json` (or steps aside when the plugin runtime owns it via `plugin.json` autowire).
-- **Codex CLI** (hooks since ~0.114) — `codex_adapter.py` deploys full skill content into `~/.codex/skills/` and merges 6 hooks (SessionStart recall + bg-drain, PreCompact, UserPromptSubmit, PostToolUse, Stop) into `~/.codex/hooks.json`. Codex shares Claude's snake_case stdin and `additionalContext` support, so the hook scripts run unchanged.
-- **GitHub Copilot CLI** (hooks GA Feb 2026) — `copilot_adapter.py` deploys full skill content into `~/.copilot/skills/` and writes ONE copilot-native drop-in `~/.copilot/hooks/reflect.json` (`version:1`, flat per-event arrays, camelCase events `sessionStart`/`preCompact`/`postToolUse`/`agentStop`/`userPromptSubmitted`, `timeoutSec`). Copilot's hook format and camelCase stdin differ from Claude/Codex, so the adapter emits the native shape and the hook scripts read stdin tolerantly (`hook_input.py`) and gate their output envelope on `REFLECT_HARNESS=copilot`.
+- **Claude Code** — plugin runtime autowires the full manifest from `.claude-plugin/plugin.json`.
+- **Codex CLI** — `codex_adapter.py` deploys full skill content into `~/.codex/skills/` and merges reflect-managed hooks into `~/.codex/hooks.json`: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, and `Stop`.
+- **GitHub Copilot CLI** — `copilot_adapter.py` deploys full skill content into `~/.copilot/skills/` and writes ONE copilot-native drop-in `~/.copilot/hooks/reflect.json` (`version:1`, flat per-event arrays, camelCase events, `timeoutSec`). It wires `sessionStart`, `userPromptSubmitted`, `preToolUse`, `permissionRequest`, `postToolUse`, `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`, `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
 
-Divergences worth knowing: Copilot **ignores `userPromptSubmitted` hook output**, so per-prompt auto-recall is not possible there — only manual `/recall` (SessionStart auto-recall still works via `additionalContext`). Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
+Divergences worth knowing: Copilot per-prompt auto-recall works on current CLI builds; `userPromptSubmitted` hook `additionalContext` is surfaced into model-visible prompt context (validated on GitHub Copilot CLI 1.0.66). Older builds may still need manual `/recall` as a fallback. Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
+
+Reflect keeps `/reflect` execution centralized: lookup hooks inject context only before model/tool action, queue hooks append deduped work only, and `PostCompact` is bookkeeping only. The detached `SessionStart` drain remains the sole hook path that runs `/reflect`.
 
 ### Upgrading pointer content
 

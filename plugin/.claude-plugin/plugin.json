@@ -44,6 +44,28 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/pretooluse_context.py"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/permission_request_reflect.py"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "",
@@ -55,6 +77,17 @@
         ]
       }
     ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/posttoolusefailure_minilearning.py"
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "matcher": "",
@@ -62,6 +95,50 @@
           {
             "type": "command",
             "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/stop_reflect.py"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/postcompact_bookkeeping.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_start_recall.py"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/subagent_stop_reflect.py"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --script ${CLAUDE_PLUGIN_ROOT}/hooks/session_end_reflect.py"
           }
         ]
       }

@@ -47,7 +47,7 @@ Verify with `reflect --version`.
 ### Quickstart
 
 ```bash
-reflect init                                    # one-time: create the KB at ~/.claude/global-learnings/
+reflect init                                    # one-time: create the KB (honors $GLOBAL_LEARNINGS_PATH)
 reflect add ./my-solution.md                    # capture a learning (optional --entities sidecar)
 reflect search "how did we fix the tokio panic" # hybrid GraphRAG + BM25 recall
 ```
@@ -81,9 +81,12 @@ reflect runs a **capture → index → recall** loop:
 
 ## Two ways to run: local or shared
 
-The markdown KB (`~/.claude/global-learnings/*.md`) is **always** the local
-source of truth, and **all LLM/embedding/clustering always stays client-side**.
-What changes between the two modes is only the *derived* vector + graph store.
+The markdown KB is **always** the local source of truth, and **all
+LLM/embedding/clustering always stays client-side**. The cross-harness plugin
+uses `~/.learnings/documents/` as its unified KB; the engine CLI also honors
+`$GLOBAL_LEARNINGS_PATH` and keeps older `~/.claude/global-learnings/` installs
+readable. What changes between the two modes is only the *derived* vector +
+graph store.
 
 | | **Mode 1 — Local** (default) | **Mode 2 — Shared** (Postgres) |
 |---|---|---|
@@ -96,7 +99,7 @@ What changes between the two modes is only the *derived* vector + graph store.
 another machine, sync the source notes and rebuild the index there:
 
 ```bash
-# on each machine, after syncing ~/.claude/global-learnings (e.g. via git):
+# on each machine, after syncing the markdown KB (e.g. ~/.learnings via git):
 reflect reindex            # re-embeds + rebuilds the local graph/vector store
 ```
 
@@ -251,12 +254,12 @@ python plugin/adapters/copilot/copilot_adapter.py install
 
 ### What each harness supports
 
-| Capability | Claude Code | Codex CLI (0.129+) | GitHub Copilot |
+| Capability | Claude Code | Codex CLI (hooks-enabled) | GitHub Copilot |
 |---|:--:|:--:|:--:|
 | Plugin runtime | ✅ native | ❌ adapter copies skills | ❌ adapter copies skills |
-| Lifecycle hooks (SessionStart / PreCompact / Stop / PostToolUse) | ✅ | ✅ via `~/.codex/hooks.json` | ✅ via `~/.copilot/hooks/reflect.json` |
+| Lifecycle hooks (recall, queue, policy, subagent, error) | ✅ | ✅ via `~/.codex/hooks.json` | ✅ via `~/.copilot/hooks/reflect.json` |
 | **Auto-recall** at session start | ✅ | ✅ | ✅ (`additionalContext`) |
-| **Per-prompt** recall surfacing | ✅ `UserPromptSubmit` | ✅ | ⚠️ **manual `/recall`** — Copilot ignores `userPromptSubmitted` output |
+| **Per-prompt** recall surfacing | ✅ `UserPromptSubmit` | ✅ | ✅ `userPromptSubmitted` |
 | Auto-capture on compact | ✅ | ✅ | ✅ |
 
 ### Caveats to know
@@ -266,14 +269,17 @@ python plugin/adapters/copilot/copilot_adapter.py install
   a transcript into a learning. It's not a *new* key — it reuses your Claude
   auth — but `claude` must be installed. Without it, capture won't drain → run
   `/reflect` manually in-session.
-- **Copilot per-prompt recall is manual.** SessionStart auto-recall works, but
-  Copilot drops `userPromptSubmitted` hook output, so mid-session recall is `/recall`.
-- **Older Codex (< 0.129)** had no hooks — if you're on an old build, install
+- **Copilot per-prompt recall is automatic on current CLI builds.** Verified on
+  GitHub Copilot CLI 1.0.66: `userPromptSubmitted` hook output is surfaced into
+  model-visible prompt context. If an older build drops that output, `/recall`
+  remains the manual fallback.
+- **Older Codex builds without hooks** should install
   with `--no-hooks` and drive `/reflect` + `/recall` manually each session.
 
 All harnesses' memory flows through one ingest pipeline into one store
-(`~/.claude/global-learnings/documents/`; `~/.learnings/` is the legacy alias),
-dual-indexed into the graph + vector stores (local or shared Postgres).
+(`~/.learnings/documents/` for the plugin flow; `$GLOBAL_LEARNINGS_PATH` for
+explicit engine CLI overrides), dual-indexed into the graph + vector stores
+(local or shared Postgres).
 
 ---
 
@@ -283,9 +289,9 @@ The same topology as the diagram above, component by component:
 
 | Layer | Component | What it is | Where |
 |---|---|---|---|
-| Harness | **lifecycle hooks** | fire capture/recall on SessionStart, PreCompact, Stop, PostToolUse | `plugin/` (+ `plugin/adapters/` for Codex/Copilot) |
+| Harness | **lifecycle hooks** | fire recall, queue, policy, subagent, and error hooks across supported agent events | `plugin/` (+ `plugin/adapters/` for Codex/Copilot) |
 | Engine | **reflect CLI** (`reflect-kb`) | capture → index → recall orchestrator | `src/reflect_kb/` |
-| Source of truth | **markdown KB** | the learning notes — local, always | `~/.claude/global-learnings/*.md` |
+| Source of truth | **markdown KB** | the learning notes — local, always | `~/.learnings/documents/*.md` or `$GLOBAL_LEARNINGS_PATH/documents/` |
 | Local store | **QMD** | BM25 lexical index | `~/.cache/qmd/index.sqlite` |
 | Local store | **nano-graphrag** | semantic vectors + entity graph | hnswlib + `.graphml` (per machine) |
 | Shared store | **Postgres** (opt-in) | pgvector + graph + KV, RLS, tenant-scoped | `src/reflect_kb/postgres/` + `supabase/migrations/` |

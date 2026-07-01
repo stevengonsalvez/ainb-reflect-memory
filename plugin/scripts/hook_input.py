@@ -90,3 +90,46 @@ def get_tool_response(data: Mapping[str, Any], default: Any = None) -> Any:
 def get_cwd(data: Mapping[str, Any], default: str = "") -> str:
     """Working directory: ``cwd`` is shared across all three harnesses."""
     return _first_present(data, ("cwd",), default)
+
+
+def get_turn_id(data: Mapping[str, Any], default: str = "") -> str:
+    """Turn id: ``turn_id`` → ``turnId``."""
+    return _first_present(data, ("turn_id", "turnId"), default)
+
+
+def get_prompt(data: Mapping[str, Any], default: str = "") -> str:
+    """User prompt text across prompt-submission payload variants."""
+    return _first_present(data, ("prompt", "user_prompt", "userPrompt"), default)
+
+
+def get_tool_input(data: Mapping[str, Any], default: Any = None) -> Any:
+    """Tool input/arguments payload."""
+    if default is None:
+        default = {}
+    return _first_present(data, ("tool_input", "toolInput", "input"), default)
+
+
+def get_agent_id(data: Mapping[str, Any], default: str = "") -> str:
+    """Subagent identifier across harnesses."""
+    return _first_present(
+        data, ("agent_id", "agentId", "subagent_id", "subagentId"), default
+    )
+
+
+def get_agent_type(data: Mapping[str, Any], default: str = "") -> str:
+    """Subagent type/profile across harnesses."""
+    return _first_present(
+        data, ("agent_type", "agentType", "subagent_type", "subagentType"), default
+    )
+
+
+def get_agent_transcript_path(data: Mapping[str, Any], default: str = "") -> str:
+    """Subagent transcript path."""
+    return _first_present(
+        data, ("agent_transcript_path", "agentTranscriptPath"), default
+    )
+
+
+def get_parent_session_id(data: Mapping[str, Any], default: str = "") -> str:
+    """Parent session id, when distinct from the active session id."""
+    return _first_present(data, ("parent_session_id", "parentSessionId"), default)
