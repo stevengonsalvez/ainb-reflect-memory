@@ -152,10 +152,32 @@ class ClaudeAdapter(AdapterBase):
     ) -> None:
         plan.extras["with_hooks"] = with_hooks
         plan.extras["settings_path"] = plan.target_harness_dir / "settings.json"
+
+        # When Claude Code's plugin runtime owns reflect (installed via
+        # ``/plugin install reflect@agents-in-a-box``), it already surfaces the
+        # skills namespaced as ``reflect:<name>`` straight from the plugin
+        # cache. Copying them flat into ``~/.claude/skills/<name>/`` would
+        # register a SECOND, un-namespaceable personal skill that shadows the
+        # plugin's ``reflect:<name>`` — the exact regression this guard
+        # prevents. So under a plugin runtime we drop the skill-copy entirely
+        # and let the plugin be the sole source. (Uninstall still runs
+        # unconditionally to sweep out copies written by older adapter runs.)
+        describe_extra: list[str] = []
+        if plan.pointers and self._plugin_runtime_owns_reflect(plan.target_harness_dir):
+            skipped = len(plan.pointers)
+            plan.pointers = []
+            plan.extras["skipped_skill_copy"] = True
+            describe_extra.append(
+                f"skill-copy: skipped {skipped} skill(s) — plugin runtime owns "
+                f"reflect; skills resolve as reflect:<name> from the plugin cache"
+            )
+
         if with_hooks:
-            plan.extras["describe_extra"] = [
+            describe_extra.append(
                 f"hook: add SessionStart recall entry to {plan.extras['settings_path']}",
-            ]
+            )
+        if describe_extra:
+            plan.extras["describe_extra"] = describe_extra
 
     def execute_extra(
         self, plan: InstallPlan, *, with_hooks: bool = True, **kwargs: Any,
