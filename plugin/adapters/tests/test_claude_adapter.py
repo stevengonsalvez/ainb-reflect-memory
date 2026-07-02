@@ -149,10 +149,13 @@ def _seed_plugin_runtime_install(tmp_path):
     }))
 
 
-def test_install_skips_settings_when_plugin_runtime_owns_it(tmp_path):
-    """When ``/plugin install reflect`` has already wired the SessionStart
-    hook via plugin.json autowire, the adapter must NOT add its own
-    duplicate entry — that creates a stale-code dupe-firing surface."""
+def test_install_skips_skills_and_settings_when_plugin_runtime_owns_it(tmp_path):
+    """When ``/plugin install reflect`` owns reflect, the adapter must copy
+    NOTHING: not the SessionStart hook (plugin.json autowires it — a dupe
+    entry is a stale-code dupe-firing surface) AND not the skills (the plugin
+    already surfaces them namespaced as ``reflect:<name>`` from its cache — a
+    flat ``~/.claude/skills/<name>`` copy registers a bare personal skill that
+    SHADOWS the namespaced one, which is the exact regression the gate fixes)."""
     _seed_plugin_runtime_install(tmp_path)
 
     result = subprocess.run(
@@ -160,19 +163,14 @@ def test_install_skips_settings_when_plugin_runtime_owns_it(tmp_path):
         check=True, capture_output=True, text=True,
     )
     assert "plugin runtime owns reflect hooks" in result.stdout
-    # Skills still installed
-    assert (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
-    # settings.json should NOT contain our SessionStart entry
-    settings_path = tmp_path / ".claude" / "settings.json"
-    if settings_path.exists():
-        cfg = json.loads(settings_path.read_text())
-        expected = claude_adapter._render_session_start_hook_command(tmp_path / ".claude")
-        commands = [
-            h["command"]
-            for entry in cfg.get("hooks", {}).get("SessionStart", [])
-            for h in entry["hooks"]
-        ]
-        assert expected not in commands
+    # Skills must NOT be flat-copied — no bare shadow of the namespaced skill.
+    assert not (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
+    assert not (tmp_path / ".claude" / "skills").exists()
+    # No pre-existing settings.json + plugin runtime → execute_extra skips the
+    # merge and writes nothing, so the file is never created. Assert its
+    # ABSENCE directly (a prior `if exists():` guard made this check vacuous —
+    # the negative-assert body never ran because the file doesn't exist).
+    assert not (tmp_path / ".claude" / "settings.json").exists()
 
 
 def test_install_cleans_up_legacy_entry_when_plugin_runtime_takes_over(tmp_path):
@@ -226,6 +224,10 @@ def test_install_still_wires_settings_when_plugin_runtime_absent(tmp_path):
     )
     assert "plugin runtime owns" not in result.stdout
 
+    # No plugin runtime → skills ARE flat-copied (this is the only path that
+    # surfaces them for a toolkit-only / dev install, so it must still work).
+    assert (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
+
     cfg = json.loads((tmp_path / ".claude" / "settings.json").read_text())
     commands = [
         h["command"]
@@ -234,6 +236,26 @@ def test_install_still_wires_settings_when_plugin_runtime_absent(tmp_path):
     ]
     expected = claude_adapter._render_session_start_hook_command(tmp_path / ".claude")
     assert expected in commands
+
+
+def test_dry_run_reports_skipped_skill_copy_under_plugin_runtime(tmp_path):
+    """The dry-run output must explain WHY no skills are written when the
+    plugin runtime owns reflect, so a user running --dry-run isn't left
+    wondering why the skill pointers vanished."""
+    _seed_plugin_runtime_install(tmp_path)
+
+    result = subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--dry-run", "--home", str(tmp_path)],
+        check=True, capture_output=True, text=True,
+    )
+    assert "skill-copy: skipped" in result.stdout
+    assert "plugin runtime owns reflect" in result.stdout
+    # And it must NOT advertise the SessionStart hook — under the plugin
+    # runtime the real install skips the settings.json merge, so dry-run and
+    # real install must agree that no hook is added.
+    assert "hook: add SessionStart" not in result.stdout
+    # A dry run must never touch the filesystem.
+    assert not (tmp_path / ".claude" / "skills").exists()
 
 
 def test_install_skips_settings_when_unrelated_plugin_runtime_installs_exist(tmp_path):
