@@ -153,26 +153,39 @@ class ClaudeAdapter(AdapterBase):
         plan.extras["with_hooks"] = with_hooks
         plan.extras["settings_path"] = plan.target_harness_dir / "settings.json"
 
-        # When Claude Code's plugin runtime owns reflect (installed via
-        # ``/plugin install reflect@agents-in-a-box``), it already surfaces the
-        # skills namespaced as ``reflect:<name>`` straight from the plugin
-        # cache. Copying them flat into ``~/.claude/skills/<name>/`` would
-        # register a SECOND, un-namespaceable personal skill that shadows the
-        # plugin's ``reflect:<name>`` — the exact regression this guard
-        # prevents. So under a plugin runtime we drop the skill-copy entirely
-        # and let the plugin be the sole source. (Uninstall still runs
-        # unconditionally to sweep out copies written by older adapter runs.)
+        # Resolve plugin-runtime ownership ONCE for the whole install. Both the
+        # skill-copy (below) and the SessionStart hook (execute_extra) step
+        # aside when Claude Code's plugin runtime owns reflect; probing it
+        # separately in each method re-reads installed_plugins.json twice and
+        # risks the two decisions disagreeing mid-run (TOCTOU) — skills skipped
+        # but a stale hook still written, or vice versa. Stash the single answer
+        # on the plan so execute_extra consumes it instead of re-probing.
+        owns = self._plugin_runtime_owns_reflect(plan.target_harness_dir)
+        plan.extras["plugin_runtime_owns_reflect"] = owns
+
+        # When the plugin runtime owns reflect (installed via ``/plugin install
+        # reflect@agents-in-a-box``), it already surfaces the skills namespaced
+        # as ``reflect:<name>`` straight from the plugin cache. Copying them
+        # flat into ``~/.claude/skills/<name>/`` would register a SECOND,
+        # un-namespaceable personal skill that shadows the plugin's
+        # ``reflect:<name>`` — the exact regression this guard prevents. So we
+        # drop the skill-copy entirely and let the plugin be the sole source.
+        # (Uninstall still runs unconditionally to sweep out copies written by
+        # older adapter runs.)
         describe_extra: list[str] = []
-        if plan.pointers and self._plugin_runtime_owns_reflect(plan.target_harness_dir):
+        if plan.pointers and owns:
             skipped = len(plan.pointers)
             plan.pointers = []
-            plan.extras["skipped_skill_copy"] = True
             describe_extra.append(
                 f"skill-copy: skipped {skipped} skill(s) — plugin runtime owns "
                 f"reflect; skills resolve as reflect:<name> from the plugin cache"
             )
 
-        if with_hooks:
+        # Only advertise the hook when execute_extra will actually write it.
+        # Under the plugin runtime execute_extra skips the settings.json merge,
+        # so a dry-run must not promise a SessionStart hook the real install
+        # won't add.
+        if with_hooks and not owns:
             describe_extra.append(
                 f"hook: add SessionStart recall entry to {plan.extras['settings_path']}",
             )
@@ -196,8 +209,10 @@ class ClaudeAdapter(AdapterBase):
         # SessionStart — typically a stale version of the same script. So
         # if the plugin runtime owns this, the adapter steps aside (and
         # also sweeps out any legacy duplicate we wrote on a prior run).
-        plugin_runtime_owns_it = self._plugin_runtime_owns_reflect(plan.target_harness_dir)
-        if plugin_runtime_owns_it:
+        # augment_plan already resolved ownership once and stashed it, so
+        # read that single answer rather than re-probing installed_plugins.json
+        # (a second read could disagree with the skill-copy gate mid-run).
+        if plan.extras["plugin_runtime_owns_reflect"]:
             try:
                 removed = self._remove_legacy_session_start_hook(settings_path)
             except RuntimeError as exc:
