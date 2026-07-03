@@ -25,9 +25,9 @@ ERRORS_JSON="$HOME/.reflect/errors.json"
 DRAIN_LOG="$HOME/.reflect/drain.log"
 CLOUD_LOG="$HOME/.cloud-coding/runs.jsonl"
 # Honour CLAUDE_CONFIG_DIR — sessions launched with an alternate config dir
-# write their JSONLs under <config-dir>/projects, not ~/.claude/projects.
-# Without this the session lookup silently finds nothing and every token
-# row (TOK/UNC/CHR/OUT/AGT/MEM) renders empty.
+# (e.g. ~/.claude-azure) write their JSONLs under <config-dir>/projects, not
+# ~/.claude/projects. Without this the session lookup silently finds nothing
+# and every token row renders empty.
 PROJECTS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 
 # ── Mtime helpers ────────────────────────────────────────────────────────────
@@ -254,9 +254,19 @@ def gather_tok():
     thrash_n = 0
     causes = {}
     seen_msg_ids = set()
+    # Include subagent transcripts (<session>/subagents/agent-*.jsonl) so
+    # delegated work's token burn shows up in the drill-down too.
+    tok_files = []
     if session_jsonl and os.path.isfile(session_jsonl):
+        tok_files.append(session_jsonl)
+        sub_dir = session_jsonl[:-6] + "/subagents" if session_jsonl.endswith(".jsonl") else ""
+        if sub_dir and os.path.isdir(sub_dir):
+            tok_files.extend(
+                os.path.join(sub_dir, f) for f in sorted(os.listdir(sub_dir)) if f.endswith(".jsonl")
+            )
+    for tok_file in tok_files:
         try:
-            with open(session_jsonl, 'r', errors='replace') as fh:
+            with open(tok_file, 'r', errors='replace') as fh:
                 prev_ts = None
                 prev_model = None
                 prev_tool_names = []  # tool_use names from last assistant turn
@@ -602,7 +612,19 @@ _gather_raw() {
   # SAME (response-level) usage block — same .message.id and .requestId across
   # rows. Counting per row inflates token totals N×. We emit .message.id as a
   # 4th tab-separated dedup key; the Python bucketer skips repeats per signal.
+  # Token rows sweep the main session JSONL PLUS subagent transcripts —
+  # Claude Code writes each spawned agent's turns to
+  # <project>/<session-id>/subagents/agent-*.jsonl with the same usage
+  # schema. Without them, subagent token burn is invisible in TOK/UNC/CHR/OUT.
   if [[ -n "$SESSION_JSONL" && -f "$SESSION_JSONL" ]]; then
+    local _tok_files=("$SESSION_JSONL")
+    local _sub_dir="${SESSION_JSONL%.jsonl}/subagents"
+    if [[ -d "$_sub_dir" ]]; then
+      local _sf
+      for _sf in "$_sub_dir"/*.jsonl; do
+        [[ -f "$_sf" ]] && _tok_files+=("$_sf")
+      done
+    fi
     jq -r 'select(.message.usage and .timestamp and .message.id)
       | .message.usage as $u
       | .timestamp as $t
@@ -624,7 +646,7 @@ _gather_raw() {
         "X\t" + $t + "\t" + ($rd |tostring) + "\t" + $mid,
         "O\t" + $t + "\t" + ($out|tostring) + "\t" + $mid,
         (if $thrash == 1 then "H\t" + $t + "\t1\t" + $mid else empty end)' \
-      "$SESSION_JSONL" 2>/dev/null
+      "${_tok_files[@]}" 2>/dev/null
     # A from same JSONL: subagent-spawn tool_use entries (Task = interactive
     # Claude Code; Agent = background-job harness). TaskCreate is the todo
     # tool, not a spawn — excluded.
