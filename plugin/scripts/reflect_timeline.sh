@@ -7,8 +7,12 @@ if [[ "${REFLECT_TIMELINE_DISABLE:-0}" == "1" ]]; then exit 0; fi
 set -uo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-CACHE_FILE="/tmp/claude-statusline-timeline-${USER}.txt"
-EXPLAIN_FILE="/tmp/reflect-timeline-explain-${USER}.txt"
+# Suffix cache files by config dir so parallel sessions on different
+# CLAUDE_CONFIG_DIRs (~/.claude vs an alternate profile dir) don't thrash
+# each other's cached render.
+_cfg_tag=$(printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" | tr '/.' '--')
+CACHE_FILE="/tmp/claude-statusline-timeline-${USER}${_cfg_tag}.txt"
+EXPLAIN_FILE="/tmp/reflect-timeline-explain-${USER}${_cfg_tag}.txt"
 CACHE_TTL=10
 WINDOW_SEC=7200       # 2h
 BUCKET_SEC=300        # 5min
@@ -20,7 +24,11 @@ INGEST_LOG="$HOME/.learnings/.memory-ingest-log.yaml"
 ERRORS_JSON="$HOME/.reflect/errors.json"
 DRAIN_LOG="$HOME/.reflect/drain.log"
 CLOUD_LOG="$HOME/.cloud-coding/runs.jsonl"
-PROJECTS_DIR="$HOME/.claude/projects"
+# Honour CLAUDE_CONFIG_DIR — sessions launched with an alternate config dir
+# write their JSONLs under <config-dir>/projects, not ~/.claude/projects.
+# Without this the session lookup silently finds nothing and every token
+# row (TOK/UNC/CHR/OUT/AGT/MEM) renders empty.
+PROJECTS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects"
 
 # ── Mtime helpers ────────────────────────────────────────────────────────────
 _mtime() {
