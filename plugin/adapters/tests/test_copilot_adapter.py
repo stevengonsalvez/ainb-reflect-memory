@@ -76,7 +76,7 @@ def test_install_writes_pointer_files_under_dot_copilot(tmp_path):
 
     body = recall.read_text(encoding="utf-8")
     assert copilot_adapter.POINTER_MANAGED_BY in body
-    assert "name: recall" in body
+    assert "name: reflect:recall" in body
     # Adapter must not have leaked into Claude/Codex dirs.
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()

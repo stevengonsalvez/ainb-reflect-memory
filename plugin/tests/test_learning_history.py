@@ -314,7 +314,7 @@ def test_cli_stats_includes_history_table(tmp_path):
 
 def test_status_skill_documents_update_history_view():
     skill = (
-        PLUGIN_ROOT / "skills" / "reflect-status" / "SKILL.md"
+        PLUGIN_ROOT / "skills" / "status" / "SKILL.md"
     ).read_text()
     assert "reflect_db.py history" in skill
     assert "learning_history" in skill
