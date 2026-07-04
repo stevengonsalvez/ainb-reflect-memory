@@ -59,7 +59,7 @@ def test_install_writes_pointer_files_under_dot_codex(tmp_path):
 
     body = recall.read_text(encoding="utf-8")
     assert codex_adapter.POINTER_MANAGED_BY in body
-    assert "name: recall" in body
+    assert "name: reflect:recall" in body
     # Codex uses hooks.json, not settings.json
     assert not (tmp_path / ".codex" / "settings.json").exists()
     # And it must not have leaked into a Claude dir.

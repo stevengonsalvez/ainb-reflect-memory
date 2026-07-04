@@ -1,5 +1,5 @@
 ---
-name: recall
+name: reflect:recall
 description: |
   Retrieve relevant prior learnings from the global knowledge base. Hybrid
   vector + graph search over 170+ indexed learnings, reranked by confidence,
@@ -120,6 +120,6 @@ and hydrate only what survives.
 ## Related
 
 - `/reflect:ingest` — populate the KB
-- `/reflect-status` — KB health, coverage, pending reviews
+- `/reflect:status` — KB health, coverage, pending reviews
 - SessionStart hook — auto-recall on project entry (see `hooks/settings-snippet.json`)
 - **[Retrieval, by example](../../docs/retrieval-features.md)** — every retrieval feature (graph arm, cross-encoder, MMR, temporal, OOD gate, bounded boosts, fuzzy cache, tiered inject, per-arm thresholds, sharding, affinity, staged recall, branch isolation) with a concrete example, why it matters, and what breaks without it.

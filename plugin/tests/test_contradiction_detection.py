@@ -2,7 +2,7 @@
 # ABOUTME: Pins the negation-stripped Jaccard detector, the add_learning
 # ABOUTME: post-write hook (older learning loses is_latest), the audit trail
 # ABOUTME: (sqlite event + events.jsonl mirror + S6 history snapshot), the
-# ABOUTME: schema migration/backfill, and the reflect-status surfacing.
+# ABOUTME: schema migration/backfill, and the reflect:status surfacing.
 """Port SG1: new learning writes demote recent contradicted learnings.
 
 Acceptance criteria pinned here:
@@ -27,7 +27,7 @@ import pytest
 HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 SCRIPTS = PLUGIN_ROOT / "scripts"
-STATUS_SKILL = PLUGIN_ROOT / "skills" / "reflect-status" / "SKILL.md"
+STATUS_SKILL = PLUGIN_ROOT / "skills" / "status" / "SKILL.md"
 sys.path.insert(0, str(SCRIPTS))
 
 import contradiction_detector  # noqa: E402

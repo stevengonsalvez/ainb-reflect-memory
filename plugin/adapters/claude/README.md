@@ -8,7 +8,7 @@ the forthcoming Codex and Copilot adapters (see spec §Phase 2).
 
 1. Copies the **full** plugin `SKILL.md` content to `~/.claude/skills/<name>/`
    for each skill exposed by this plugin (`reflect`, `recall`,
-   `reflect-status`, `consolidate`, `ingest`). Frontmatter is mutated to set
+   `reflect:status`, `consolidate`, `ingest`). Frontmatter is mutated to set
    `managed_by: reflect-kb/adapters/claude` so subsequent runs (or
    `uninstall`) can recognise the file as adapter-written. The rest of the
    SKILL.md (workflow guidance, examples, output-location rules) is
