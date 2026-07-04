@@ -209,8 +209,8 @@ _STOPWORDS = frozenset(
 # SG6: negative-recall knowledge-gap tracking. An empty final result set is
 # itself a signal — the KB has nothing about something an agent needed. Each
 # 0-result recall appends {ts, query, normalized, session_id} to
-# ~/.reflect/knowledge-gaps.jsonl; the reflect-status aggregator
-# (skills/reflect-status/scripts/knowledge_gaps.py) surfaces queries that
+# ~/.reflect/knowledge-gaps.jsonl; the reflect:status aggregator
+# (skills/status/scripts/knowledge_gaps.py) surfaces queries that
 # came up empty in >=2 distinct sessions as a curation backlog ("users keep
 # asking about X with no learnings"). Disable with RECALL_GAP_LOG=0 or the
 # --no-gap-log flag (the SessionStart hook passes the flag — its queries are

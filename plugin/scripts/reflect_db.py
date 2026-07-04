@@ -1877,7 +1877,7 @@ def get_update_counts(
 ) -> list[dict[str, Any]]:
     """Per-learning update counts from the history table (most-updated first).
 
-    Powers the reflect-status 'update count per learning' view. Titles
+    Powers the reflect:status 'update count per learning' view. Titles
     come from a LEFT JOIN so snapshots survive even if the learning row
     is later removed.
     """

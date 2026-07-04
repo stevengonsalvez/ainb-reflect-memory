@@ -1,5 +1,5 @@
 ---
-name: errors-ack
+name: reflect:errors-ack
 description: |
   Triage and acknowledge entries in the reflect errors sink
   (~/.reflect/errors.json). Invoked from the statusline ⚠N badge when
@@ -140,7 +140,7 @@ Acked M entries. Badge will clear within 10s.
 
 ## Related
 
-- `/reflect-status` — broader system health view
+- `/reflect:status` — broader system health view
 - `/reflect:recall` — search learnings (separate concern, not errors)
 - The errors sink itself: `~/.reflect/errors.json`
 - Statusline badge: `⚠N /reflect:errors-ack` (rendered red, only when
