@@ -1,5 +1,5 @@
 ---
-name: export
+name: reflect:export
 description: |
   Export or import the reflect knowledge base as a deterministic,
   git-friendly tarball — the learnings markdown corpus plus the reflect.db

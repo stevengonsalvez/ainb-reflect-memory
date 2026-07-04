@@ -52,7 +52,7 @@ python codex_adapter.py uninstall            # remove only adapter-managed entri
     │   ├── SKILL.md
     │   ├── hooks/                   # session_start_recall.py
     │   └── scripts/
-    ├── reflect-status/SKILL.md
+    ├── status/SKILL.md
     ├── consolidate/SKILL.md
     └── ingest/SKILL.md
 ```

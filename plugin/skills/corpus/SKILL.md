@@ -1,5 +1,5 @@
 ---
-name: corpus
+name: reflect:corpus
 description: >-
   Build a long-lived, filtered SLICE of the global learnings KB and answer a
   question-set over it ("ask the auth subsystem", "ask the migration log").

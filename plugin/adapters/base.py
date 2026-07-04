@@ -45,7 +45,7 @@ import yaml
 PLUGIN_SKILLS: tuple[str, ...] = (
     "reflect",
     "recall",
-    "reflect-status",
+    "status",
     "consolidate",
     "ingest",
 )

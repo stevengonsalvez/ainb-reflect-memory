@@ -42,7 +42,7 @@ flowchart TD
         SRC["recall"]
         SI["ingest"]
         SC["consolidate"]
-        SS["reflect-status"]
+        SS["status"]
     end
 
     subgraph Hooks["Lifecycle Hooks (plugin.json)"]
@@ -280,7 +280,7 @@ Live filesystem as of the time this document was written:
 │   └── SKILL.md
 ├── consolidate/
 │   └── SKILL.md
-└── reflect-status/
+└── status/
     └── SKILL.md
 
 ~/.codex/skills/                       # Codex skills (full SKILL.md content); hooks wired in ~/.codex/hooks.json
@@ -288,14 +288,14 @@ Live filesystem as of the time this document was written:
 ├── reflect/SKILL.md
 ├── ingest/SKILL.md
 ├── consolidate/SKILL.md
-└── reflect-status/SKILL.md
+└── status/SKILL.md
 
 ~/.copilot/skills/                     # Copilot skills (full SKILL.md content); hooks wired in ~/.copilot/hooks/reflect.json
 ├── recall/SKILL.md                    # managed_by: reflect-kb/adapters/copilot
 ├── reflect/SKILL.md
 ├── ingest/SKILL.md
 ├── consolidate/SKILL.md
-└── reflect-status/SKILL.md
+└── status/SKILL.md
 ```
 
 ---
@@ -749,7 +749,7 @@ plugins/reflect/
     ├── reflect/SKILL.md
     ├── ingest/SKILL.md
     ├── consolidate/SKILL.md
-    └── reflect-status/SKILL.md
+    └── status/SKILL.md
 
 ~/.claude/skills/recall/SKILL.md     → points to canonical, managed_by: reflect-kb/adapters/claude
 ~/.codex/skills/recall/SKILL.md      → points to canonical, managed_by: reflect-kb/adapters/codex

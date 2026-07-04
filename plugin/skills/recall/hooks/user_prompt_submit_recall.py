@@ -270,7 +270,7 @@ def query_recall(query: str, session_id: str = "") -> tuple[str, list[str]]:
     SG6: ``session_id`` is forwarded so a 0-result recall on a GENUINE user
     ask lands in ~/.reflect/knowledge-gaps.jsonl keyed by session — the
     cross-session repeat count is what promotes a gap into the
-    reflect-status curation backlog.
+    reflect:status curation backlog.
 
     The recall script emits markdown with learning IDs in ``[lrn-...]``
     style brackets; we extract those for the dedupe set. If we ever

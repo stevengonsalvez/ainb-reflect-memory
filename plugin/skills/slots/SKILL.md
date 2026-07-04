@@ -1,5 +1,5 @@
 ---
-name: slots
+name: reflect:slots
 description: |
   Read and edit the pinned memory slots — a fixed set of named, size-capped,
   agent-editable scratchpads (persona, user_preferences, tool_guidelines,

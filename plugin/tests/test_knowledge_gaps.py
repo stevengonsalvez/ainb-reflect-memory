@@ -1,6 +1,6 @@
 # ABOUTME: Regression tests for port SG6 — negative recall as knowledge-gap signal.
 # ABOUTME: Pins gap persistence on 0-result recalls, >=2-session repeat surfacing, normalized dedup.
-"""SG6 in recall.py + skills/reflect-status/scripts/knowledge_gaps.py.
+"""SG6 in recall.py + skills/status/scripts/knowledge_gaps.py.
 
 Acceptance criteria pinned here:
   1. 0-result queries persist — recall.py appends {ts, query, normalized,
@@ -27,7 +27,7 @@ HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 RECALL = PLUGIN_ROOT / "skills" / "recall" / "scripts" / "recall.py"
 GAPS_SCRIPT = (
-    PLUGIN_ROOT / "skills" / "reflect-status" / "scripts" / "knowledge_gaps.py"
+    PLUGIN_ROOT / "skills" / "status" / "scripts" / "knowledge_gaps.py"
 )
 sys.path.insert(0, str(RECALL.parent))
 sys.path.insert(0, str(GAPS_SCRIPT.parent))
