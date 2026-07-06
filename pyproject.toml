@@ -54,27 +54,26 @@ dev = [
     "respx>=0.21",
     "jsonschema>=4.20",
 ]
-# Full GraphRAG stack. `pip install .[graph]` will NOT resolve cleanly on
-# Python >=3.11 because nano-graphrag pulls graspologic -> hyppo -> numba ->
-# llvmlite (py<3.10 only). The supported flow is:
-#   pipx install .[graph] --pip-args="--no-deps" --include-deps
-# or
-#   pipx install .
-#   pipx inject reflect-kb nano-graphrag --pip-args="--no-deps"
-# (see README troubleshooting). Nix picks the full set up via `[graph]` and
-# patches nano-graphrag's deps in flake.nix.
+# Full GraphRAG stack. nano-graphrag pulls graspologic -> umap-learn ->
+# pynndescent -> numba -> llvmlite. Left unpinned, the resolver backtracks to
+# llvmlite 0.36.0 (py<3.10 wheels only), which fails to build on py>=3.11. The
+# floors below force wheel-having modern llvmlite/numba, so a plain
+# `uv tool install .[graph]` / `pip install .[graph]` resolves on py 3.11-3.14.
 graph = [
     "sentence-transformers>=2.2.0",
     "numpy>=1.24.0",
     "networkx>=3.0",
     "tiktoken>=0.5.0",
     "nano-vectordb",
-    # nano-graphrag import-time deps we satisfy manually (since we install it
-    # with --no-deps).
+    # nano-graphrag import-time deps.
     "openai>=1.0",
     "tenacity>=8.0",
     "hnswlib>=0.7.0",
     "xxhash>=3.0",
+    # Floors that keep the graspologic->numba->llvmlite chain on wheels for
+    # modern Python (unpinned backtracks to llvmlite 0.36.0, no wheels >py3.9).
+    "llvmlite>=0.44",
+    "numba>=0.61",
     "nano-graphrag",
 ]
 # Postgres backend (reflect_kb.postgres): the typed MemoryStore + the
