@@ -30,7 +30,12 @@ from reflect_kb import errors as _err
 
 console = Console(stderr=True)
 
-DEFAULT_REPO_PATH = Path.home() / ".claude" / "global-learnings"
+# Canonical KB root. Matches the plugin recall/ingest pipeline, which treats
+# ~/.learnings as authoritative (recall.py resolve_kb_root, corpus.documents_root).
+# Overridable via $GLOBAL_LEARNINGS_PATH (see get_repo_path). Previously
+# ~/.claude/global-learnings, which diverged from the plugin root so a bare
+# `reflect init` seeded an empty KB the recall pipeline never read.
+DEFAULT_REPO_PATH = Path.home() / ".learnings"
 DOCUMENTS_DIR = "documents"
 CACHE_DIR = "nano_graphrag_cache"
 
@@ -663,7 +668,7 @@ def generate_sidecars(force: bool):
 def init():
     """Initialize the global learnings repository.
 
-    Creates the directory structure at {{HOME_TOOL_DIR}}/global-learnings/
+    Creates the directory structure at ~/.learnings/
     and initializes a git repository.
     """
     repo = get_repo_path()
