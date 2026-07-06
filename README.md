@@ -36,13 +36,16 @@ The context window forgets the moment the session ends. reflect fixes that by **
 
 ## Install
 
-The engine lives at the repo root — install it with `uv` and the `[graph]` extra (pulls the full GraphRAG + vector stack):
+The engine lives at the repo root — install it with `uv` and the `[graph]` extra (pulls the full GraphRAG + vector stack). reflect embeds on the CPU, so pin the CPU torch build with `--torch-backend cpu` — it skips ~4GB of CUDA wheels the GPU build would drag in:
 
 ```bash
-uv tool install --upgrade 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+uv tool install --upgrade --torch-backend cpu \
+  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 ```
 
 Verify with `reflect --version`.
+
+> **On a GPU box that wants CUDA torch?** Drop `--torch-backend cpu` (or set it to `auto`). Everything else is identical.
 
 ### Quickstart
 

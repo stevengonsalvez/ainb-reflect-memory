@@ -330,14 +330,11 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # The reflect-kb CLI + full retrieval stack. The [graph] extra pulls:
 #   · qmd                   — BM25 / lexical retrieval
 #   · nano-graphrag         — GraphRAG (entity + community retrieval)
-#   · sentence-transformers — embeddings (~2GB incl. torch)
-uv tool install --force --upgrade \
+#   · sentence-transformers — embeddings (CPU torch, ~1.5GB)
+# reflect embeds on the CPU: --torch-backend cpu skips ~4GB of CUDA wheels.
+uv tool install --force --upgrade --torch-backend cpu \
   'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
-
-# If the install chokes on nano-graphrag (graspologic → numba → llvmlite wants
-# py<3.10), install the base then inject nano-graphrag without its deps:
-#   uv tool install --force reflect-kb
-#   uv tool run --from reflect-kb pip install --no-deps nano-graphrag
+# On a GPU box that wants CUDA torch, drop --torch-backend cpu (or use auto).
 
 # System tools the STATUSLINE needs (macOS; skip any you already have):
 #   · bash >=4   — the 4-row reflect timeline dashboard (macOS ships 3.2)
@@ -361,8 +358,8 @@ cd ainb-reflect-memory
 python3 plugin/adapters/codex/codex_adapter.py install
 python3 plugin/adapters/copilot/copilot_adapter.py install
 
-# same CLI prerequisite
-uv tool install --force --upgrade \
+# same CLI prerequisite (--torch-backend cpu skips ~4GB of CUDA wheels)
+uv tool install --force --upgrade --torch-backend cpu \
   'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 ```
 

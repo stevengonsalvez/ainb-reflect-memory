@@ -5,7 +5,7 @@
     "url": "https://github.com/stevengonsalvez"
   },
   "metadata": {
-    "description": "reflect \u2014 long-term memory for AI coding agents (GraphRAG + recall). Install the plugin with `claude plugin install reflect@ainb-reflect-memory`; the engine CLI installs via `uv tool install 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`.",
+    "description": "reflect \u2014 long-term memory for AI coding agents (GraphRAG + recall). Install the plugin with `claude plugin install reflect@ainb-reflect-memory`; the engine CLI installs via `uv tool install --torch-backend cpu 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'`.",
     "version": "1.0.0"
   },
   "plugins": [
