@@ -46,3 +46,6 @@ logs/
 .env
 .env.local
 .env.*.local
+.agents/plans/
+.tmux-dev-session.json
+reflect-serve-*.log
