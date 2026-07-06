@@ -4,6 +4,21 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.1.1] — 2026-07-06 — CPU torch install guidance
+
+Patch. Docs only. The `[graph]` extra pulls `sentence-transformers → torch`,
+which defaults to the CUDA build (~5GB of `nvidia-*` wheels) and fails on small
+disks with `No space left on device`. reflect embeds on the CPU, so every
+documented install command now pins `--torch-backend cpu` (~1.5GB).
+
+### Changed
+- Install hints across `plugin/README.md`, the two "reflect CLI missing"
+  messages in `reflect-drain-bg.sh`, and the `status`/`ingest` skill docs now
+  use `uv tool install --torch-backend cpu …`; a GPU escape-hatch note is added.
+- Dropped the obsolete `llvmlite`/`nano-graphrag --no-deps` workaround note —
+  the reflect-kb dep floors (`llvmlite>=0.44`, `numba>=0.61`) make plain
+  `[graph]` resolve on py3.11–3.14. No hook behavior changes (hint text only).
+
 ## [5.0.4] — 2026-06-28 — Drain watchdog and timeout unjam
 
 Patch. Background drain could appear jammed when heavyweight `/reflect`
