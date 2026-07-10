@@ -25,9 +25,10 @@ import os
 from pathlib import Path
 from typing import Sequence
 
-DEFAULT_CE_MODEL = os.environ.get(
-    "REFLECT_CE_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
-)
+# Model name lives in model_daemon (single source shared with the daemon
+# socket key and the daemon's own loader) and is re-exported for callers.
+from reflect_kb.model_daemon import DEFAULT_CE_MODEL
+
 DEFAULT_BATCH_SIZE = 20
 # CE models truncate at 512 tokens anyway; cap the payload so giant chunks
 # don't waste tokenizer time.
@@ -68,26 +69,41 @@ class CrossEncoderReranker:
 
     def _load(self):
         if self._model is None:
-            cache = models_dir()
-            cache.mkdir(parents=True, exist_ok=True)
-            # transformers/huggingface_hub compute their cache constants at
-            # IMPORT time, so the env vars must be in place before the
-            # sentence_transformers import below. setdefault: an explicit
-            # user-level HF_HOME wins over our default.
-            os.environ.setdefault("HF_HOME", str(cache))
-            os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache))
-            os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
-            from sentence_transformers import CrossEncoder
+            # In-process fallback path: ~3.5 GB RSS with torch — take the
+            # single-flight lock so parallel cold boots can't OOM the box.
+            # Held for the process lifetime on success (the RAM cap),
+            # released on load failure so a degraded process can't starve
+            # everyone else. The daemon fast path (score()) never gets here.
+            from reflect_kb.model_daemon import (
+                acquire_singleflight,
+                release_singleflight,
+            )
 
+            acquire_singleflight()
             try:
-                # Newer sentence-transformers accept an explicit cache dir.
-                self._model = CrossEncoder(
-                    self.model_name, cache_folder=str(cache)
-                )
-            except TypeError:
-                # Older builds (<=2.x) don't take cache_folder — they fall
-                # back to the HF_HOME / SENTENCE_TRANSFORMERS_HOME set above.
-                self._model = CrossEncoder(self.model_name)
+                cache = models_dir()
+                cache.mkdir(parents=True, exist_ok=True)
+                # transformers/huggingface_hub compute their cache constants
+                # at IMPORT time, so the env vars must be in place before the
+                # sentence_transformers import below. setdefault: an explicit
+                # user-level HF_HOME wins over our default.
+                os.environ.setdefault("HF_HOME", str(cache))
+                os.environ.setdefault("SENTENCE_TRANSFORMERS_HOME", str(cache))
+                os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+                from sentence_transformers import CrossEncoder
+
+                try:
+                    # Newer sentence-transformers take an explicit cache dir.
+                    self._model = CrossEncoder(
+                        self.model_name, cache_folder=str(cache)
+                    )
+                except TypeError:
+                    # Older builds (<=2.x) don't take cache_folder — they
+                    # fall back to the HF_* env vars set above.
+                    self._model = CrossEncoder(self.model_name)
+            except Exception:
+                release_singleflight()  # a failed load must not hold the cap
+                raise
         return self._model
 
     def score(self, query: str, texts: Sequence[str]) -> list[float]:
@@ -98,8 +114,18 @@ class CrossEncoderReranker:
         """
         if not texts:
             return []
+        capped = [text[:_MAX_CANDIDATE_CHARS] for text in texts]
+        # Persistent-daemon fast path: models already warm, ms round-trip.
+        # Only when scoring with the daemon's configured model — an explicit
+        # override (rerank --model) skips the daemon and loads in-process.
+        if self.model_name == DEFAULT_CE_MODEL:
+            from reflect_kb.model_daemon import daemon_rerank
+
+            scores = daemon_rerank(query, capped)
+            if scores is not None:
+                return [float(s) for s in scores]
         model = self._load()
-        pairs = [(query, text[:_MAX_CANDIDATE_CHARS]) for text in texts]
+        pairs = [(query, text) for text in capped]
         return [float(s) for s in model.predict(pairs, batch_size=self.batch_size)]
 
 
