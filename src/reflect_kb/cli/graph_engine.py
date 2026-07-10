@@ -31,7 +31,9 @@ logger = logging.getLogger(__name__)
 # (e.g. BAAI/bge-large-en-v1.5, 1024-d). The embedding dimension is derived
 # from the loaded model at index time, so any sentence-transformers model
 # works; a model swap requires a fresh reindex (vectors are dim-specific).
-EMBEDDING_MODEL_NAME = os.environ.get("REFLECT_EMBED_MODEL", "all-mpnet-base-v2")
+# The name lives in model_daemon (single source shared with the daemon key
+# and the daemon's own loader) and is re-exported here for callers.
+from reflect_kb.model_daemon import EMBEDDING_MODEL_NAME
 # Cap inputs so giant chunks don't waste tokenizer time (mirrors
 # cross_encoder._MAX_CANDIDATE_CHARS). 2000 chars ≈ 512 tokens, the window
 # of mpnet and the bge/gte/e5 family alike.
@@ -80,10 +82,37 @@ class LearningsGraphEngine:
 
         Loading torch + the model costs ~3.5 GB RSS — the single-flight lock
         serializes concurrent cold boots across reflect processes so parallel
-        session-start recalls can't stack up and OOM the box. The fast path
-        (model daemon, see reflect_kb.model_daemon) never reaches this."""
+        session-start recalls can't stack up and OOM the box. Held for the
+        process lifetime on success (that's the RAM cap), released on any
+        load failure so a degraded process can't starve everyone else. The
+        fast path (model daemon, see reflect_kb.model_daemon) never reaches
+        this."""
         if self._model is None:
-            from reflect_kb.model_daemon import acquire_singleflight
+            import importlib.util
+            import sys
+
+            # Already-imported (or test-injected) module counts as available;
+            # find_spec alone rejects spec-less fakes in sys.modules. A None
+            # entry means "explicitly absent" (import raises ImportError).
+            if "sentence_transformers" in sys.modules:
+                available = sys.modules["sentence_transformers"] is not None
+            else:
+                try:
+                    available = (
+                        importlib.util.find_spec("sentence_transformers")
+                        is not None
+                    )
+                except (ImportError, ValueError):
+                    available = False
+            if not available:  # slim build — fail before taking the lock
+                raise GraphEngineError(
+                    "sentence-transformers not installed. "
+                    "Run: uv pip install sentence-transformers"
+                )
+            from reflect_kb.model_daemon import (
+                acquire_singleflight,
+                release_singleflight,
+            )
 
             acquire_singleflight()
             try:
@@ -91,10 +120,14 @@ class LearningsGraphEngine:
 
                 self._model = SentenceTransformer(EMBEDDING_MODEL_NAME)
             except ImportError:
+                release_singleflight()  # a failed load must not hold the cap
                 raise GraphEngineError(
                     "sentence-transformers not installed. "
                     "Run: uv pip install sentence-transformers"
                 )
+            except Exception:
+                release_singleflight()
+                raise
         return self._model
 
     def embed_texts(self, texts: List[str]) -> List[List[float]]:
@@ -115,18 +148,20 @@ class LearningsGraphEngine:
             return []
         from reflect_kb.model_daemon import daemon_embed
 
-        vectors = daemon_embed(texts, truncate=True)
+        # Truncate client-side so the daemon needs no policy (and giant
+        # chunks don't cross the socket just to be sliced on arrival).
+        capped = [t[:_MAX_EMBED_CHARS] for t in texts]
+        vectors = daemon_embed(capped)
         if vectors is not None:
             return vectors
         model = self._load_embedding_model()
-        vectors = model.encode(
-            [t[:_MAX_EMBED_CHARS] for t in texts],
-            normalize_embeddings=True,
-        )
+        vectors = model.encode(capped, normalize_embeddings=True)
         return [[float(x) for x in vec] for vec in vectors]
 
     def _get_embedding_func(self):
         """Create nano-graphrag compatible async embedding function."""
+        import asyncio
+
         import numpy as np
         from nano_graphrag._utils import wrap_embedding_func_with_attrs
         from reflect_kb.model_daemon import daemon_embed
@@ -136,27 +171,36 @@ class LearningsGraphEngine:
         # Derive the embedding dimension from the loaded model so a swapped
         # REFLECT_EMBED_MODEL (e.g. bge-large = 1024-d) indexes correctly
         # instead of being forced into mpnet's 768. Prefer the daemon (one
-        # tiny embed call) so query-time search never loads the model here;
-        # fall back to the in-process model. The getter was renamed in newer
-        # sentence-transformers, so fall back across both names.
-        probe = daemon_embed(["x"], truncate=True)
-        if probe:
-            dim = len(probe[0])
-        else:
-            _m = engine._load_embedding_model()
-            _get_dim = getattr(_m, "get_sentence_embedding_dimension", None) or _m.get_embedding_dimension
-            dim = _get_dim()
+        # tiny embed call, cached per engine) so query-time search never
+        # loads the model here; fall back to the in-process model. The
+        # getter was renamed in newer sentence-transformers, so fall back
+        # across both names.
+        if getattr(self, "_embed_dim", None) is None:
+            probe = daemon_embed(["x"])
+            if probe:
+                self._embed_dim = len(probe[0])
+            else:
+                _m = engine._load_embedding_model()
+                _get_dim = getattr(_m, "get_sentence_embedding_dimension", None) or _m.get_embedding_dimension
+                self._embed_dim = _get_dim()
+        dim = self._embed_dim
 
         @wrap_embedding_func_with_attrs(embedding_dim=dim, max_token_size=8192)
         async def embedding_func(texts: list[str]) -> np.ndarray:
-            # nano-graphrag embeds without truncation — the daemon mirrors
-            # that (truncate=False) for socket/in-proc parity.
-            vecs = daemon_embed(list(texts), truncate=False)
+            # nano-graphrag runs this under asyncio.gather alongside LLM
+            # calls — the socket round-trip (and the in-proc encode) are
+            # blocking, so push them off the event loop.
+            vecs = await asyncio.to_thread(daemon_embed, list(texts))
             if vecs is not None:
-                return np.array(vecs)
+                # float32 like model.encode, so daemon-served and in-proc
+                # batches land in the index with the same dtype.
+                return np.array(vecs, dtype=np.float32)
             model = engine._load_embedding_model()
-            embeddings = model.encode(texts, normalize_embeddings=True)
-            return np.array(embeddings)
+            return np.array(
+                await asyncio.to_thread(
+                    lambda: model.encode(texts, normalize_embeddings=True)
+                )
+            )
 
         return embedding_func
 
