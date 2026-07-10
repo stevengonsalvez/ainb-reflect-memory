@@ -68,6 +68,12 @@ class CrossEncoderReranker:
 
     def _load(self):
         if self._model is None:
+            # In-process fallback path: ~3.5 GB RSS with torch — take the
+            # single-flight lock so parallel cold boots can't OOM the box.
+            # The daemon fast path (score() below) never reaches this.
+            from reflect_kb.model_daemon import acquire_singleflight
+
+            acquire_singleflight()
             cache = models_dir()
             cache.mkdir(parents=True, exist_ok=True)
             # transformers/huggingface_hub compute their cache constants at
@@ -98,6 +104,15 @@ class CrossEncoderReranker:
         """
         if not texts:
             return []
+        # Persistent-daemon fast path: models already warm, ms round-trip.
+        # Only when scoring with the daemon's configured model — an explicit
+        # override (rerank --model) skips the daemon and loads in-process.
+        if self.model_name == DEFAULT_CE_MODEL:
+            from reflect_kb.model_daemon import daemon_rerank
+
+            scores = daemon_rerank(query, list(texts))
+            if scores is not None:
+                return [float(s) for s in scores]
         model = self._load()
         pairs = [(query, text[:_MAX_CANDIDATE_CHARS]) for text in texts]
         return [float(s) for s in model.predict(pairs, batch_size=self.batch_size)]

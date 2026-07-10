@@ -76,8 +76,16 @@ class LearningsGraphEngine:
         self._workspace_id = workspace_id or os.environ.get("REFLECT_WORKSPACE_ID")
 
     def _load_embedding_model(self):
-        """Lazy-load the sentence transformer model."""
+        """Lazy-load the sentence transformer model (in-process fallback path).
+
+        Loading torch + the model costs ~3.5 GB RSS — the single-flight lock
+        serializes concurrent cold boots across reflect processes so parallel
+        session-start recalls can't stack up and OOM the box. The fast path
+        (model daemon, see reflect_kb.model_daemon) never reaches this."""
         if self._model is None:
+            from reflect_kb.model_daemon import acquire_singleflight
+
+            acquire_singleflight()
             try:
                 from sentence_transformers import SentenceTransformer
 
@@ -98,11 +106,18 @@ class LearningsGraphEngine:
         diversity step uses these so its similarity measure matches the
         index's embedding space.
 
-        Raises GraphEngineError when sentence-transformers is missing
-        (slim build) — callers degrade silently.
+        Tries the persistent model daemon first (models already warm, ms
+        round-trip); any daemon failure falls back to loading the model
+        in-process. Raises GraphEngineError when sentence-transformers is
+        missing (slim build) — callers degrade silently.
         """
         if not texts:
             return []
+        from reflect_kb.model_daemon import daemon_embed
+
+        vectors = daemon_embed(texts, truncate=True)
+        if vectors is not None:
+            return vectors
         model = self._load_embedding_model()
         vectors = model.encode(
             [t[:_MAX_EMBED_CHARS] for t in texts],
@@ -114,19 +129,31 @@ class LearningsGraphEngine:
         """Create nano-graphrag compatible async embedding function."""
         import numpy as np
         from nano_graphrag._utils import wrap_embedding_func_with_attrs
+        from reflect_kb.model_daemon import daemon_embed
 
         engine = self
 
         # Derive the embedding dimension from the loaded model so a swapped
         # REFLECT_EMBED_MODEL (e.g. bge-large = 1024-d) indexes correctly
-        # instead of being forced into mpnet's 768. The getter was renamed in
-        # newer sentence-transformers, so fall back across both names.
-        _m = engine._load_embedding_model()
-        _get_dim = getattr(_m, "get_sentence_embedding_dimension", None) or _m.get_embedding_dimension
-        dim = _get_dim()
+        # instead of being forced into mpnet's 768. Prefer the daemon (one
+        # tiny embed call) so query-time search never loads the model here;
+        # fall back to the in-process model. The getter was renamed in newer
+        # sentence-transformers, so fall back across both names.
+        probe = daemon_embed(["x"], truncate=True)
+        if probe:
+            dim = len(probe[0])
+        else:
+            _m = engine._load_embedding_model()
+            _get_dim = getattr(_m, "get_sentence_embedding_dimension", None) or _m.get_embedding_dimension
+            dim = _get_dim()
 
         @wrap_embedding_func_with_attrs(embedding_dim=dim, max_token_size=8192)
         async def embedding_func(texts: list[str]) -> np.ndarray:
+            # nano-graphrag embeds without truncation — the daemon mirrors
+            # that (truncate=False) for socket/in-proc parity.
+            vecs = daemon_embed(list(texts), truncate=False)
+            if vecs is not None:
+                return np.array(vecs)
             model = engine._load_embedding_model()
             embeddings = model.encode(texts, normalize_embeddings=True)
             return np.array(embeddings)
