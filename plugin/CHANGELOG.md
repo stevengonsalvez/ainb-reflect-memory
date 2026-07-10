@@ -4,6 +4,45 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.0] — 2026-07-10 — Persistent model daemon (recall RAM fix)
+
+Minor. Engine. Every `reflect search/embed/rerank` used to cold-boot torch
+and load both neural models per process (~3.5 GB RSS, 10–30 s); session-start
+recall fans several out at once across parallel sessions, OOM-ing 8 GB boxes.
+Models now load once in an auto-spawned unix-socket daemon; CLI calls are
+millisecond clients with a locked in-process fallback.
+
+### Added
+
+- `reflect_kb.model_daemon`: stdlib-only unix-socket daemon serving
+  embed/rerank, auto-spawned on first use, one per (user, model pair, TMPDIR).
+  Serial, spawn-race safe (spawn flock), exit unlink gated on socket-inode
+  ownership, busy is never mistaken for dead.
+- Env knobs: `REFLECT_NO_DAEMON=1` (always in-proc),
+  `REFLECT_IDLE_TIMEOUT` (daemon idle-exit seconds, default 1800, 0 = never),
+  `REFLECT_DAEMON_TIMEOUT` (client per-request seconds, default 120).
+- Single-flight flock caps concurrent in-process model loads at one when the
+  daemon is unavailable; released on load failure so a degraded process can't
+  starve the box.
+
+### Changed
+
+- Warm recall: embed/rerank round-trip ~0.2 s vs 7.5 s cold; 4 parallel
+  recalls share one ~0.2 GB-RSS daemon instead of 4 × 3.5 GB cold boots.
+- nano-graphrag's async embedding path no longer blocks the event loop
+  (socket/encode moved to a worker thread); daemon-served vectors are
+  float32 for dtype parity with in-process encoding.
+- Model-name defaults live in `model_daemon` as the single source shared by
+  the daemon key, client guard, and both loaders.
+
+No hook or skill interface changes. Upgrade the engine to activate:
+`uv tool install --upgrade --torch-backend cpu
+'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'` —
+Claude Code plugin updates via the marketplace ref; Codex / Copilot users
+re-run `python3 plugin/adapters/codex/codex_adapter.py install` /
+`python3 plugin/adapters/copilot/copilot_adapter.py install` from the updated
+checkout (hooks/skills unchanged this release, so re-running is optional).
+
 ## [5.1.1] — 2026-07-06 — CPU torch install guidance
 
 Patch. Docs only. The `[graph]` extra pulls `sentence-transformers → torch`,
