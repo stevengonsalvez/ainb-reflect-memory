@@ -73,14 +73,82 @@ def test_no_daemon_env_disables_client(monkeypatch):
     assert model_daemon.daemon_rerank("q", ["x"]) is None
 
 
-def test_client_returns_none_when_socket_dead(tmp_path, monkeypatch):
+def test_client_returns_none_when_no_daemon(tmp_path, monkeypatch):
     monkeypatch.setenv("TMPDIR", str(tmp_path))
-    # Stale socket file with no daemon behind it, and spawning disabled by
-    # pointing python at a broken interpreter path is overkill — instead
-    # assert the low-level request cleanly fails.
-    sp = model_daemon.socket_path()
-    sp.write_text("")  # not a socket at all
+    # No socket file at all — the low-level request cleanly fails.
     assert model_daemon._request({"op": "ping"}, timeout=1.0) is None
+
+
+def test_stale_socket_recovered(tmp_path, monkeypatch):
+    """A socket file with no listener behind it (crashed daemon) is unlinked
+    and replaced by a freshly spawned daemon."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("REFLECT_NO_DAEMON", raising=False)
+    monkeypatch.setenv("REFLECT_IDLE_TIMEOUT", "120")
+    sp = model_daemon.socket_path()
+    # Bind then close without unlinking — leaves a connection-refusing file.
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(str(sp))
+    s.close()
+    assert model_daemon._request({"op": "ping"}, timeout=1.0) is None
+    try:
+        assert model_daemon._ensure_daemon(), "stale socket not recovered"
+        assert model_daemon._request({"op": "ping"}, timeout=5.0)
+    finally:
+        model_daemon._request({"op": "shutdown"}, timeout=5.0)
+
+
+def test_exit_unlink_respects_ownership(tmp_path, monkeypatch):
+    """A daemon must not unlink a socket path it no longer owns — deleting a
+    successor's socket would orphan it."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("REFLECT_NO_DAEMON", raising=False)
+    monkeypatch.setenv("REFLECT_IDLE_TIMEOUT", "2")
+    assert model_daemon._ensure_daemon()
+    sp = model_daemon.socket_path()
+    # Simulate a takeover: replace the daemon's socket file at the same path.
+    sp.unlink()
+    replacement = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    replacement.bind(str(sp))
+    try:
+        deadline = time.monotonic() + 20  # daemon idles out at ~2-4s
+        while time.monotonic() < deadline and sp.exists():
+            if not model_daemon._connectable():
+                break  # replacement deleted → daemon unlinked wrongly
+            time.sleep(0.5)
+        assert sp.exists(), "exiting daemon unlinked a socket it didn't own"
+    finally:
+        replacement.close()
+        try:
+            sp.unlink()
+        except OSError:
+            pass
+
+
+def test_busy_daemon_not_replaced(tmp_path, monkeypatch):
+    """A connected-but-unresponsive daemon (e.g. mid cold model load, serial
+    loop busy) is BUSY, not dead: the client must time out and fall back —
+    never unlink the live socket or spawn a duplicate daemon."""
+    monkeypatch.setenv("TMPDIR", str(tmp_path))
+    monkeypatch.delenv("REFLECT_NO_DAEMON", raising=False)
+    monkeypatch.setenv("REFLECT_DAEMON_TIMEOUT", "1")
+    sp = model_daemon.socket_path()
+    busy = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    busy.bind(str(sp))
+    busy.listen(4)  # accepts connections into the backlog, never replies
+    ino_before = os.stat(sp).st_ino
+    try:
+        assert model_daemon.daemon_embed(["x"]) is None  # times out → fallback
+        assert sp.exists(), "client unlinked a live (busy) daemon's socket"
+        assert os.stat(sp).st_ino == ino_before, (
+            "busy daemon's socket was replaced by a duplicate spawn"
+        )
+    finally:
+        busy.close()
+        try:
+            sp.unlink()
+        except OSError:
+            pass
 
 
 def test_singleflight_serializes(tmp_path):
@@ -96,15 +164,19 @@ def test_singleflight_serializes(tmp_path):
     p1 = subprocess.Popen(
         [sys.executable, "-c", helper, "1.2"], stdout=subprocess.PIPE, text=True
     )
-    time.sleep(0.4)
-    t0 = time.time()
+    # Deterministic: wait until p1 REPORTS holding the lock (no fixed sleep —
+    # interpreter startup time on a loaded box must not skew the test).
+    acq1 = float(p1.stdout.readline().split()[1])
     p2 = subprocess.Popen(
         [sys.executable, "-c", helper, "0.0"], stdout=subprocess.PIPE, text=True
     )
     p1.wait(timeout=30)
     out2 = p2.communicate(timeout=30)[0]
-    acq2 = float(out2.split()[1])
-    assert acq2 - t0 > 0.6, "second process acquired the lock while first held it"
+    acq2 = float([l for l in out2.splitlines() if l.startswith("ACQ")][0].split()[1])
+    held_until = acq1 + 1.2  # p1 sleeps 1.2s after acquiring
+    assert acq2 >= held_until - 0.1, (
+        f"p2 acquired at {acq2:.3f}, while p1 held until {held_until:.3f}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +203,7 @@ def test_gate_warm_latency_and_parity(isolated_daemon_env):
     # GATE 3a (parity): daemon vectors == in-proc vectors.
     from sentence_transformers import SentenceTransformer
 
-    model = SentenceTransformer(model_daemon._model_names()[0])
+    model = SentenceTransformer(model_daemon.EMBEDDING_MODEL_NAME)
     local = model.encode(
         [t[:2000] for t in texts], normalize_embeddings=True
     )

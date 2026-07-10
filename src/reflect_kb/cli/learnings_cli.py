@@ -109,11 +109,7 @@ def get_all_documents() -> List[Dict[str, Any]]:
 
 
 def _get_graph_engine():
-    """Create a LearningsGraphEngine instance.
-
-    RAM safety lives below this layer: model calls go to the persistent
-    daemon when available (reflect_kb.model_daemon), and in-process model
-    loads take a single-flight flock so parallel cold boots can't OOM."""
+    """Create a LearningsGraphEngine instance."""
     from reflect_kb.cli.graph_engine import LearningsGraphEngine, GraphEngineError
 
     repo = get_repo_path()
