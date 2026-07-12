@@ -47,6 +47,13 @@ Verify with `reflect --version`.
 
 > **On a GPU box that wants CUDA torch?** Drop `--torch-backend cpu` (or set it to `auto`). Everything else is identical.
 
+> **`error: unexpected argument '--torch-backend'` (or a bare `Usage:` line)?** Your `uv` predates the flag (needs ≥ 0.6). Either `uv self update`, or use the env-var form — same effect:
+>
+> ```bash
+> UV_TORCH_BACKEND=cpu uv tool install --upgrade \
+>   'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+> ```
+
 ### Quickstart
 
 ```bash
