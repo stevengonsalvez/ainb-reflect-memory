@@ -213,7 +213,7 @@ class KnowledgeBase:
         if not terms:
             return []
         n_docs = max(len(self._docs), 1)
-        df = Counter()
+        df: Counter = Counter()
         doc_tokens: Dict[str, Counter] = {}
         for d in self._docs:
             toks = Counter(_tokenize(
@@ -282,7 +282,7 @@ class KnowledgeBase:
             if ks in nodes and kd in nodes and ks != kd:
                 edges.append({"s": ks, "t": kd, "w": weight, "kind": "relation"})
 
-        degree = Counter()
+        degree: Counter = Counter()
         for e in edges:
             degree[e["s"]] += 1
             degree[e["t"]] += 1
