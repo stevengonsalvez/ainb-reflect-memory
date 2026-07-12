@@ -335,6 +335,10 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 uv tool install --force --upgrade --torch-backend cpu \
   'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 # On a GPU box that wants CUDA torch, drop --torch-backend cpu (or use auto).
+# uv < 0.6 rejects --torch-backend with a bare "Usage:" error — either
+# `uv self update`, or use the env-var form (same effect):
+#   UV_TORCH_BACKEND=cpu uv tool install --force --upgrade \
+#     'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
 
 # System tools the STATUSLINE needs (macOS; skip any you already have):
 #   · bash >=4   — the 4-row reflect timeline dashboard (macOS ships 3.2)
