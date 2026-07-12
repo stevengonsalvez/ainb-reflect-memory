@@ -1,0 +1,13 @@
+document_id: fixture
+entities:
+- name: Supabase
+  type: technology
+  description: Supabase referenced in fixture note
+- name: JWT
+  type: concept
+  description: JWT referenced in fixture note
+relationships:
+- source: Supabase
+  target: JWT
+  description: Supabase relates_to JWT
+extracted_at: '2026-07-01T00:00:00'
