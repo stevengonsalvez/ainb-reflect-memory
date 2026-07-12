@@ -42,6 +42,15 @@ _NS = {"g": "http://graphml.graphdrawing.org/xmlns"}
 _CONF_WEIGHT = {"high": 1.0, "medium": 0.7, "low": 0.4}
 _RECENCY_HALF_LIFE_DAYS = 180.0
 
+_ARCHIVE_DIRNAME = "archived"
+_COMPRESS_QUEUE_FILE = "compress-queue.yaml"
+_COMPRESS_QUEUE_VERSION = 1
+_VALID_CONFIDENCE = ("high", "medium", "low")
+
+
+class MutationError(Exception):
+    """Raised when a curation mutation cannot be applied (bad id/value)."""
+
 
 def _norm_confidence(raw: Any) -> str:
     """Collapse the KB's mixed confidence encodings (strings and floats)."""
@@ -312,6 +321,165 @@ class KnowledgeBase:
             "with_sidecars": sum(1 for d in self._docs if d["entity_count"]),
         }
 
+    # ---------- curation (mutations, local backend only) ----------
+    #
+    # Mutations are file-first: the markdown note is the source of truth, and
+    # the browser's in-memory view reloads on directory mtime — so an archive
+    # or confidence edit is reflected immediately. The nano-graphrag cache used
+    # by `reflect search` is NOT rebuilt synchronously: the engine only supports
+    # a full-batch reindex (no incremental single-doc path — see the spec's open
+    # questions), and blocking a confidence toggle on a multi-minute rebuild is
+    # unacceptable. Callers get `graph_index_stale: true` so the UI can hint at
+    # running `reflect reindex`.
+
+    def _archive_dir(self) -> Path:
+        return self._repo / _ARCHIVE_DIRNAME
+
+    def _doc_paths(self, doc_id: str) -> Optional[tuple[Path, Optional[Path]]]:
+        """Return (md_path, sidecar_path|None) for a live doc, or None."""
+        self._ensure_loaded()
+        for d in self._docs:
+            if d["id"] == doc_id:
+                md = self._repo / DOCUMENTS_DIR / d["file"]
+                sidecar = md.parent / (md.stem + ".entities.yaml")
+                return md, (sidecar if sidecar.exists() else None)
+        return None
+
+    def archive(self, doc_id: str) -> Dict[str, Any]:
+        """Soft-archive: move note + sidecar out of documents/ into archived/."""
+        paths = self._doc_paths(doc_id)
+        if not paths:
+            raise MutationError(f"unknown memory: {doc_id}")
+        md, sidecar = paths
+        dest_dir = self._archive_dir()
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        md.replace(dest_dir / md.name)
+        if sidecar:
+            sidecar.replace(dest_dir / sidecar.name)
+        self._dequeue_from_compress(doc_id)
+        self._invalidate()
+        return {"ok": True, "id": doc_id, "archived": True, "graph_index_stale": True}
+
+    def restore(self, doc_id: str) -> Dict[str, Any]:
+        """Reverse an archive: move note + sidecar back into documents/."""
+        adir = self._archive_dir()
+        src = None
+        for p in adir.glob("*.md"):
+            try:
+                fm, _ = parse_frontmatter(p.read_text())
+            except Exception:
+                continue
+            if str(fm.get("id") or p.stem) == doc_id:
+                src = p
+                break
+        if src is None:
+            raise MutationError(f"not in archive: {doc_id}")
+        docs_dir = self._repo / DOCUMENTS_DIR
+        docs_dir.mkdir(parents=True, exist_ok=True)
+        src.replace(docs_dir / src.name)
+        sidecar = adir / (src.stem + ".entities.yaml")
+        if sidecar.exists():
+            sidecar.replace(docs_dir / sidecar.name)
+        self._invalidate()
+        return {"ok": True, "id": doc_id, "archived": False, "graph_index_stale": True}
+
+    def set_confidence(self, doc_id: str, value: str) -> Dict[str, Any]:
+        """Rewrite the frontmatter `confidence` field (minimal line-level edit)."""
+        value = str(value).strip().lower()
+        if value not in _VALID_CONFIDENCE:
+            raise MutationError(f"confidence must be one of {_VALID_CONFIDENCE}")
+        paths = self._doc_paths(doc_id)
+        if not paths:
+            raise MutationError(f"unknown memory: {doc_id}")
+        md = paths[0]
+        text = md.read_text()
+        if not text.startswith("---"):
+            raise MutationError("note has no frontmatter to edit")
+        head, fm_block, body = text.split("---", 2)
+        lines = fm_block.split("\n")
+        replaced = False
+        for i, line in enumerate(lines):
+            if re.match(r"\s*confidence\s*:", line):
+                lines[i] = f"confidence: {value}"
+                replaced = True
+                break
+        if not replaced:
+            insert_at = 1 if lines and lines[0] == "" else 0
+            lines.insert(insert_at, f"confidence: {value}")
+        md.write_text(head + "---" + "\n".join(lines) + "---" + body)
+        self._invalidate()
+        return {"ok": True, "id": doc_id, "confidence": value, "graph_index_stale": True}
+
+    def queue_compress(self, ids: List[str]) -> Dict[str, Any]:
+        """Mark a group of memories for compression by the /reflect consolidate skill."""
+        self._ensure_loaded()
+        live = {d["id"] for d in self._docs}
+        ids = [i for i in dict.fromkeys(ids) if i in live]
+        if len(ids) < 2:
+            raise MutationError("compress needs at least two live memories")
+        queue = self._read_compress_queue()
+        queue["groups"].append({
+            "ids": ids,
+            "queued_at": datetime.now(timezone.utc).isoformat(),
+            "status": "pending",
+        })
+        self._write_compress_queue(queue)
+        return {"ok": True, "queued": ids, "groups": len(queue["groups"])}
+
+    def archived(self) -> List[Dict[str, Any]]:
+        adir = self._archive_dir()
+        if not adir.exists():
+            return []
+        out = []
+        for p in sorted(adir.glob("*.md")):
+            try:
+                fm, body = parse_frontmatter(p.read_text())
+            except Exception:
+                continue
+            out.append({
+                "id": str(fm.get("id") or p.stem),
+                "title": _title(fm, body, p),
+                "confidence": _norm_confidence(fm.get("confidence")),
+                "type": _norm_type(fm),
+                "scope": str(fm.get("scope") or "unscoped"),
+            })
+        return out
+
+    def compress_queue(self) -> Dict[str, Any]:
+        return self._read_compress_queue()
+
+    def _read_compress_queue(self) -> Dict[str, Any]:
+        path = self._repo / _COMPRESS_QUEUE_FILE
+        if path.exists():
+            try:
+                data = yaml.safe_load(path.read_text()) or {}
+                data.setdefault("version", _COMPRESS_QUEUE_VERSION)
+                data.setdefault("groups", [])
+                return data
+            except Exception:
+                pass
+        return {"version": _COMPRESS_QUEUE_VERSION, "groups": []}
+
+    def _write_compress_queue(self, queue: Dict[str, Any]) -> None:
+        path = self._repo / _COMPRESS_QUEUE_FILE
+        path.write_text(yaml.safe_dump(queue, sort_keys=False))
+
+    def _dequeue_from_compress(self, doc_id: str) -> None:
+        """Drop an archived id from any pending compress group (spec edge case)."""
+        queue = self._read_compress_queue()
+        changed = False
+        for group in queue["groups"]:
+            if doc_id in group.get("ids", []):
+                group["ids"] = [i for i in group["ids"] if i != doc_id]
+                changed = True
+        queue["groups"] = [g for g in queue["groups"] if len(g.get("ids", [])) >= 2]
+        if changed:
+            self._write_compress_queue(queue)
+
+    def _invalidate(self) -> None:
+        with self._lock:
+            self._loaded_at = -1.0
+
     # ---------- internals ----------
 
     def _recall_score(self, d: Dict[str, Any], terms: Optional[List[str]] = None) -> float:
@@ -394,6 +562,16 @@ def make_handler(kb: KnowledgeBase):
         def _json(self, obj: Any, code: int = 200) -> None:
             self._send(code, json.dumps(obj, default=str).encode(), "application/json")
 
+        def _read_json_body(self) -> Any:
+            length = int(self.headers.get("Content-Length") or 0)
+            if not length:
+                return {}
+            raw = self.rfile.read(length)
+            try:
+                return json.loads(raw or b"{}")
+            except json.JSONDecodeError:
+                return {}
+
         def do_GET(self):  # noqa: N802 (stdlib naming)
             url = urlparse(self.path)
             parts = [unquote(p) for p in url.path.split("/") if p]
@@ -413,11 +591,42 @@ def make_handler(kb: KnowledgeBase):
                     self._json(self.server_kb.graph())
                 elif parts == ["api", "stats"]:
                     self._json(self.server_kb.stats())
+                elif parts == ["api", "archived"]:
+                    self._json(self.server_kb.archived())
+                elif parts == ["api", "compress-queue"]:
+                    self._json(self.server_kb.compress_queue())
                 else:
                     self._json({"error": "not found"}, 404)
             except BrokenPipeError:
                 pass
             except Exception as e:  # surface server faults as JSON, not silence
+                self._json({"error": str(e)}, 500)
+
+        def do_POST(self):  # noqa: N802 (stdlib naming)
+            url = urlparse(self.path)
+            parts = [unquote(p) for p in url.path.split("/") if p]
+            kb = self.server_kb
+            try:
+                body = self._read_json_body()
+                if parts[:2] == ["api", "memories"] and len(parts) == 4:
+                    doc_id, action = parts[2], parts[3]
+                    if action == "archive":
+                        self._json(kb.archive(doc_id))
+                    elif action == "restore":
+                        self._json(kb.restore(doc_id))
+                    elif action == "confidence":
+                        self._json(kb.set_confidence(doc_id, body.get("value", "")))
+                    else:
+                        self._json({"error": "unknown action"}, 404)
+                elif parts == ["api", "compress-queue"]:
+                    self._json(kb.queue_compress(body.get("ids", [])))
+                else:
+                    self._json({"error": "not found"}, 404)
+            except MutationError as e:
+                self._json({"error": str(e)}, 400)
+            except BrokenPipeError:
+                pass
+            except Exception as e:
                 self._json({"error": str(e)}, 500)
 
         server_kb = kb
