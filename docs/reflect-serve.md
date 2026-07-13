@@ -20,9 +20,11 @@ tailscale serve --bg --https 8942 http://127.0.0.1:8942
 
 - **Browse** — a faceted memory list (confidence · type · scope · tags/projects),
   sortable by newest, computed recall score, or title.
-- **Search** — lexical BM25 ranking; each result carries a match score and the
-  recall-parity score (confidence × recency × tag overlap), the same shape the
-  recall reranker uses. Full semantic search stays on the `reflect search` CLI.
+- **Search** — lexical BM25 ranking; each result carries a match score and a
+  browse-ordering score (confidence × recency × tag overlap). This is a browse
+  heuristic, **not** the recall reranker's score — the real reranker
+  deliberately dropped exp-decay recency. Full semantic search stays on the
+  `reflect search` CLI.
 - **Graph** — a two-layer force graph of memory and entity nodes; edge widths
   encode graphml relation weights. Toggle the entity layer, drag/pan/zoom, click
   a memory to open it.
@@ -41,7 +43,7 @@ Light and dark themes throughout.
 | Weightage | Where |
 |---|---|
 | Editable confidence | segmented control in the detail drawer |
-| Computed recall score | on every card and in the drawer |
+| Computed browse score | on every card and in the drawer |
 | Graph edge weights | edge width in the Graph view |
 | Recall usage stats | engine-op counts in the Stats view |
 
@@ -53,6 +55,16 @@ rebuilt synchronously — the engine only supports a full-batch reindex — so a
 archiving or editing confidence, run `reflect reindex` to refresh semantic search
 and the entity graph. The UI hints at this. Note bodies stay agent-authored;
 only metadata is editable here. Postgres backends are read-only in this release.
+
+Curation is guarded: the server rejects any request whose `Host` isn't loopback
+(defeats DNS-rebinding) and requires an `X-Reflect` header on mutations, so only
+this same-origin SPA can drive them. There is no auth — do not bind a public
+interface.
+
+Soft-archive moves the note into an `archived/` sibling directory. This is the
+browser's own reversible delete and is **separate** from the forget sweep's
+`.forgotten/` directory, which the sweep manages with its own database
+accounting. Archiving here does not run the sweep or touch its records.
 
 ## Memory list (light / dark)
 
