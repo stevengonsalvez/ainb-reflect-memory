@@ -183,6 +183,23 @@ Source: getwololo.dev/docs/agent-intelligence + 8 deep dives (reflection-loop, k
 | Typed-edge parity (owns/depends_on/caused/supersedes query shapes) | ownership/dependency queries may underperform wololo graph | Phase 3 audit |
 | Mid-session propagation | new learning reaches other live sessions only on next recall query, not push | accepted; gossip remains the push channel |
 
+## Validation Strategy (interviewed 2026-07-12, Stevie decisions)
+
+### Fleet validation environment — WHOLE-FLEET SHADOW DAY 1 (Stevie override of canary recommendation)
+All hermes agents on this machine run BANK injection + reflect shadow recall simultaneously from first deploy. Max telemetry volume; accepted blast radius on shim bugs. Mitigation: shim is fail-open (exit 0, empty context), hard wall-clock timeout, and a kill switch (`FLEET_MEMORY_BACKEND=bank` reverts fleet-wide instantly).
+
+### Regression guard for claude/codex adapters — ALL FOUR mechanisms
+1. **Golden recall snapshot diff** (CI, pre-merge): fixed golden query set (coding + personal), top-k snapshot committed as baseline; fail on rank-shift beyond threshold in claude/codex scopes.
+2. **Behavioral proof suite** (CI, every PR): extend tests/eval/behavioral/proofs/ with proof_F1_fleet_ingest_isolation, proof_F2_domain_boost_ranking, proof_F3_quarantine_enforced.
+3. **reflect-verify tmux smoke** (post-merge, this machine): drain clearing, ingest alive, claude + codex hook smoke.
+4. **Recall-followup-rate monitor**: baseline the reflect:cost followup rate before hermes ingest; alert if it degrades >5pp after.
+
+### Parity gate judge — auto thresholds + Stevie spot-check
+Gate = ALL of: hit@5 ≥ BANK on golden set · injected tokens ≤ 2000 · p95 shim latency < 150ms · 7 days whole-fleet shadow with zero hook errors · Stevie reviews a 20-prompt side-by-side (BANK vs reflect injection) diff report and approves the flip.
+
+### Blast-radius containment — QUARANTINE until parity
+Every fleet/hermes-ingested doc gets `quarantine: true` frontmatter. Claude/codex recall excludes quarantined docs; hermes shadow recall sees everything. Quarantine lifted per-kind (patterns → discoveries → corrections → journals) only after the golden-snapshot diff stays clean for that kind. Hermes work physically cannot regress claude/codex recall during build-out.
+
 ## Open Questions
 
 - [ ] Q1: Does Hermes expose session-end/compaction hook points beyond pre/post_llm_call? If yes, wire directly; if no, drain daemon confirmed.
