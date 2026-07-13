@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import { flowShot } from './helpers.mjs';
 
 // Flow: archive/restore. Soft-archive removes a memory from the browsable set
-// (and from recall); the Archived tab restores it. Net-neutral so the shared
-// fixture ends where it started.
+// and from the file-based recall corpus immediately; the cached graph index
+// still returns it until `reflect reindex`. The Archived tab restores it.
+// Net-neutral so the shared fixture ends where it started.
 test('archive a memory then restore it', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByTestId('card')).toHaveCount(7);
