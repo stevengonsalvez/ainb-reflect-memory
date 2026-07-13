@@ -1,16 +1,28 @@
 """reflect serve — local web browser for the knowledge base.
 
 Stdlib-only HTTP server (no fastapi/uvicorn in the base dependency set) that
-exposes the KB as a small JSON API plus a bundled single-file SPA. Read-only:
-mutations stay with the CLI/skills until the full serve milestone lands.
+exposes the KB as a small JSON API plus a bundled single-file SPA.
+
+Binds loopback and has NO authentication. Curation mutations (archive,
+confidence edit, compress-queue) are live and act on the LOCAL markdown KB,
+so every request is gated by a loopback Host-header check and POSTs require an
+`X-Reflect` header (both defend against a webpage in the user's browser driving
+the localhost server — see _guard). Do not expose this to a network until it
+grows real authz. Postgres backends are read-only.
 
 Endpoints:
-    GET /                      SPA (cli/serve_static/index.html)
-    GET /api/memories          all memories (frontmatter + derived fields)
-    GET /api/memories/<id>     one memory: body, entities, related memories
-    GET /api/search?q=...      lexical BM25-lite ranking over title/tags/body
-    GET /api/graph             two-layer graph: memory + entity nodes, weighted edges
-    GET /api/stats             KB counts + metrics.jsonl op aggregates
+    GET  /                              SPA (cli/serve_static/index.html)
+    GET  /api/memories                  all memories (frontmatter + derived fields)
+    GET  /api/memories/<id>             one memory: body, entities, related memories
+    GET  /api/search?q=...              lexical BM25-lite ranking over title/tags/body
+    GET  /api/graph                     two-layer graph: memory + entity nodes, weighted edges
+    GET  /api/stats                     KB counts + metrics.jsonl op aggregates
+    GET  /api/archived                  soft-archived notes (restore candidates)
+    GET  /api/compress-queue            groups queued for /reflect consolidation
+    POST /api/memories/<id>/archive     soft-archive a note
+    POST /api/memories/<id>/restore     restore an archived note
+    POST /api/memories/<id>/confidence  edit frontmatter confidence  {value}
+    POST /api/compress-queue            queue a group for compression  {ids}
 """
 
 from __future__ import annotations
@@ -102,12 +114,36 @@ def _tokenize(text: str) -> List[str]:
     return re.findall(r"[a-z0-9_./-]{2,}", text.lower())
 
 
+def _split_frontmatter(text: str) -> Optional[tuple[str, str]]:
+    """Split a note into (frontmatter_text, body) on `---` DELIMITER LINES.
+
+    Unlike ``str.split("---", 2)``, this only treats a line that is exactly
+    ``---`` as a delimiter, so a frontmatter *value* containing ``---`` (e.g.
+    ``title: cost --- benefit``) can't truncate the frontmatter and corrupt the
+    note on write-back. Returns None when there is no frontmatter block.
+    """
+    lines = text.split("\n")
+    if not lines or lines[0].strip() != "---":
+        return None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[1:i]), "\n".join(lines[i + 1:])
+    return None
+
+
 class KnowledgeBase:
-    """Read-only view over the learnings repo, cached by directory mtime."""
+    """Read + curation view over the learnings repo, cached by directory mtime.
+
+    Reads are cheap and reload on documents/ mtime. Curation mutations (archive,
+    confidence, compress-queue) are file-first and serialized under a mutation
+    lock; they do not rebuild the nano-graphrag cache (callers get
+    graph_index_stale). Local backend only.
+    """
 
     def __init__(self, repo: Optional[Path] = None):
         self._repo = repo or get_repo_path()
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()       # guards the cached read model
+        self._mut_lock = threading.Lock()   # serializes all disk mutations
         self._loaded_at: float = -1.0
         self._docs: List[Dict[str, Any]] = []
         self._bodies: Dict[str, str] = {}
@@ -189,7 +225,7 @@ class KnowledgeBase:
         out = []
         for d in self._docs:
             item = dict(d)
-            item["recall_score"] = round(self._recall_score(d), 3)
+            item["browse_score"] = round(self._browse_score(d), 3)
             out.append(item)
         return out
 
@@ -202,7 +238,7 @@ class KnowledgeBase:
                 item["entities"] = self._entities.get(doc_id, {}).get("entities", [])
                 item["relationships"] = self._entities.get(doc_id, {}).get("relationships", [])
                 item["related"] = self._related(d)
-                item["recall_score"] = round(self._recall_score(d), 3)
+                item["browse_score"] = round(self._browse_score(d), 3)
                 return item
         return None
 
@@ -242,7 +278,7 @@ class KnowledgeBase:
             if score > 0:
                 item = dict(d)
                 item["match_score"] = round(score, 3)
-                item["recall_score"] = round(self._recall_score(d, terms), 3)
+                item["browse_score"] = round(self._browse_score(d, terms), 3)
                 scored.append(item)
         scored.sort(key=lambda x: -x["match_score"])
         return scored[:limit]
@@ -258,7 +294,7 @@ class KnowledgeBase:
             nodes[nid] = {
                 "id": nid, "label": d["title"], "kind": "memory",
                 "confidence": d["confidence"], "type": d["type"],
-                "doc": d["id"], "score": self._recall_score(d),
+                "doc": d["id"], "score": self._browse_score(d),
             }
         entity_types: Dict[str, str] = {}
         for d in self._docs:
@@ -345,85 +381,112 @@ class KnowledgeBase:
                 return md, (sidecar if sidecar.exists() else None)
         return None
 
+    @staticmethod
+    def _atomic_write(path: Path, text: str) -> None:
+        """Write via a temp file + os.replace so a reader never sees a half file."""
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.write_text(text)
+        tmp.replace(path)
+
     def archive(self, doc_id: str) -> Dict[str, Any]:
-        """Soft-archive: move note + sidecar out of documents/ into archived/."""
-        paths = self._doc_paths(doc_id)
-        if not paths:
-            raise MutationError(f"unknown memory: {doc_id}")
-        md, sidecar = paths
-        dest_dir = self._archive_dir()
-        dest_dir.mkdir(parents=True, exist_ok=True)
-        md.replace(dest_dir / md.name)
-        if sidecar:
-            sidecar.replace(dest_dir / sidecar.name)
-        self._dequeue_from_compress(doc_id)
-        self._invalidate()
+        """Soft-archive: move note + sidecar out of documents/ into archived/.
+
+        The note leaves documents/, so the file-based recall corpus drops it at
+        once; the nano-graphrag cache used by `reflect search` graph/naive modes
+        still returns it until `reflect reindex` (graph_index_stale). This
+        archived/ dir is the browser's own soft-delete and is deliberately
+        separate from the forget sweep's `.forgotten/` (which the sweep tracks
+        with its own DB accounting) — see docs/reflect-serve.md.
+        """
+        with self._mut_lock:
+            paths = self._doc_paths(doc_id)
+            if not paths:
+                raise MutationError(f"unknown memory: {doc_id}")
+            md, sidecar = paths
+            dest_dir = self._archive_dir()
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            if (dest_dir / md.name).exists():
+                raise MutationError(f"archive already contains {md.name}")
+            md.replace(dest_dir / md.name)
+            if sidecar:
+                sidecar.replace(dest_dir / sidecar.name)
+            self._dequeue_from_compress(doc_id)
+            self._invalidate()
         return {"ok": True, "id": doc_id, "archived": True, "graph_index_stale": True}
 
     def restore(self, doc_id: str) -> Dict[str, Any]:
         """Reverse an archive: move note + sidecar back into documents/."""
-        adir = self._archive_dir()
-        src = None
-        for p in adir.glob("*.md"):
-            try:
-                fm, _ = parse_frontmatter(p.read_text())
-            except Exception:
-                continue
-            if str(fm.get("id") or p.stem) == doc_id:
-                src = p
-                break
-        if src is None:
-            raise MutationError(f"not in archive: {doc_id}")
-        docs_dir = self._repo / DOCUMENTS_DIR
-        docs_dir.mkdir(parents=True, exist_ok=True)
-        src.replace(docs_dir / src.name)
-        sidecar = adir / (src.stem + ".entities.yaml")
-        if sidecar.exists():
-            sidecar.replace(docs_dir / sidecar.name)
-        self._invalidate()
+        with self._mut_lock:
+            adir = self._archive_dir()
+            src = None
+            for p in adir.glob("*.md"):
+                try:
+                    fm, _ = parse_frontmatter(p.read_text())
+                except Exception:
+                    continue
+                if str(fm.get("id") or p.stem) == doc_id:
+                    src = p
+                    break
+            if src is None:
+                raise MutationError(f"not in archive: {doc_id}")
+            docs_dir = self._repo / DOCUMENTS_DIR
+            docs_dir.mkdir(parents=True, exist_ok=True)
+            if (docs_dir / src.name).exists():
+                raise MutationError(f"a live note already occupies {src.name}")
+            src.replace(docs_dir / src.name)
+            sidecar = adir / (src.stem + ".entities.yaml")
+            if sidecar.exists():
+                sidecar.replace(docs_dir / (src.stem + ".entities.yaml"))
+            self._invalidate()
         return {"ok": True, "id": doc_id, "archived": False, "graph_index_stale": True}
 
     def set_confidence(self, doc_id: str, value: str) -> Dict[str, Any]:
-        """Rewrite the frontmatter `confidence` field (minimal line-level edit)."""
+        """Rewrite the frontmatter `confidence` field.
+
+        Splits on real `---` delimiter LINES (not any `---` substring) so a
+        value containing `---` can't corrupt the note, and only matches a
+        column-0 `confidence:` so a nested/quoted value is left alone.
+        """
         value = str(value).strip().lower()
         if value not in _VALID_CONFIDENCE:
             raise MutationError(f"confidence must be one of {_VALID_CONFIDENCE}")
-        paths = self._doc_paths(doc_id)
-        if not paths:
-            raise MutationError(f"unknown memory: {doc_id}")
-        md = paths[0]
-        text = md.read_text()
-        if not text.startswith("---"):
-            raise MutationError("note has no frontmatter to edit")
-        head, fm_block, body = text.split("---", 2)
-        lines = fm_block.split("\n")
-        replaced = False
-        for i, line in enumerate(lines):
-            if re.match(r"\s*confidence\s*:", line):
-                lines[i] = f"confidence: {value}"
-                replaced = True
-                break
-        if not replaced:
-            insert_at = 1 if lines and lines[0] == "" else 0
-            lines.insert(insert_at, f"confidence: {value}")
-        md.write_text(head + "---" + "\n".join(lines) + "---" + body)
-        self._invalidate()
+        with self._mut_lock:
+            paths = self._doc_paths(doc_id)
+            if not paths:
+                raise MutationError(f"unknown memory: {doc_id}")
+            md = paths[0]
+            split = _split_frontmatter(md.read_text())
+            if split is None:
+                raise MutationError("note has no frontmatter to edit")
+            fm_text, body = split
+            lines = fm_text.split("\n")
+            replaced = False
+            for i, line in enumerate(lines):
+                if re.match(r"^confidence\s*:", line):
+                    lines[i] = f"confidence: {value}"
+                    replaced = True
+                    break
+            if not replaced:
+                lines.append(f"confidence: {value}")
+            self._atomic_write(md, "---\n" + "\n".join(lines) + "\n---\n" + body)
+            self._invalidate()
         return {"ok": True, "id": doc_id, "confidence": value, "graph_index_stale": True}
 
     def queue_compress(self, ids: List[str]) -> Dict[str, Any]:
         """Mark a group of memories for compression by the /reflect consolidate skill."""
-        self._ensure_loaded()
-        live = {d["id"] for d in self._docs}
-        ids = [i for i in dict.fromkeys(ids) if i in live]
-        if len(ids) < 2:
-            raise MutationError("compress needs at least two live memories")
-        queue = self._read_compress_queue()
-        queue["groups"].append({
-            "ids": ids,
-            "queued_at": datetime.now(timezone.utc).isoformat(),
-            "status": "pending",
-        })
-        self._write_compress_queue(queue)
+        with self._mut_lock:
+            self._ensure_loaded()
+            live = {d["id"] for d in self._docs}
+            ids = [i for i in dict.fromkeys(ids) if i in live]
+            if len(ids) < 2:
+                raise MutationError("compress needs at least two live memories")
+            queue = self._read_compress_queue()
+            queue["groups"].append({
+                "ids": ids,
+                "queued_at": datetime.now(timezone.utc).isoformat(),
+                "status": "pending",
+            })
+            self._write_compress_queue(queue)
         return {"ok": True, "queued": ids, "groups": len(queue["groups"])}
 
     def archived(self) -> List[Dict[str, Any]]:
@@ -450,19 +513,23 @@ class KnowledgeBase:
 
     def _read_compress_queue(self) -> Dict[str, Any]:
         path = self._repo / _COMPRESS_QUEUE_FILE
-        if path.exists():
-            try:
-                data = yaml.safe_load(path.read_text()) or {}
-                data.setdefault("version", _COMPRESS_QUEUE_VERSION)
-                data.setdefault("groups", [])
-                return data
-            except Exception:
-                pass
-        return {"version": _COMPRESS_QUEUE_VERSION, "groups": []}
+        if not path.exists():
+            return {"version": _COMPRESS_QUEUE_VERSION, "groups": []}
+        try:
+            data = yaml.safe_load(path.read_text())
+        except yaml.YAMLError as e:
+            # Fail loud rather than silently overwrite an existing-but-malformed
+            # queue on the next write.
+            raise MutationError(f"{_COMPRESS_QUEUE_FILE} is malformed: {e}")
+        if not isinstance(data, dict):
+            raise MutationError(f"{_COMPRESS_QUEUE_FILE} is not a mapping")
+        data.setdefault("version", _COMPRESS_QUEUE_VERSION)
+        data.setdefault("groups", [])
+        return data
 
     def _write_compress_queue(self, queue: Dict[str, Any]) -> None:
-        path = self._repo / _COMPRESS_QUEUE_FILE
-        path.write_text(yaml.safe_dump(queue, sort_keys=False))
+        self._atomic_write(self._repo / _COMPRESS_QUEUE_FILE,
+                           yaml.safe_dump(queue, sort_keys=False))
 
     def _dequeue_from_compress(self, doc_id: str) -> None:
         """Drop an archived id from any pending compress group (spec edge case)."""
@@ -482,8 +549,15 @@ class KnowledgeBase:
 
     # ---------- internals ----------
 
-    def _recall_score(self, d: Dict[str, Any], terms: Optional[List[str]] = None) -> float:
-        """confidence × recency × tag-overlap — mirrors the recall reranker shape."""
+    def _browse_score(self, d: Dict[str, Any], terms: Optional[List[str]] = None) -> float:
+        """A browse-ordering heuristic: confidence × recency × tag-overlap.
+
+        This is NOT the recall reranker's score. The real reranker (recall.py R8)
+        deliberately dropped exp-decay recency because it crushed year-old notes
+        to ~2%, replacing it with bounded ±10% boosts over a cross-encoder base.
+        This score keeps the simple exp-decay purely to order the browse list —
+        do not read it as "what recall would rank first".
+        """
         conf = _CONF_WEIGHT.get(d["confidence"], 0.55)
         try:
             age_days = (datetime.now(timezone.utc)
@@ -572,7 +646,27 @@ def make_handler(kb: KnowledgeBase):
             except json.JSONDecodeError:
                 return {}
 
+        def _guard(self, require_csrf: bool) -> bool:
+            """Loopback-only + anti-CSRF gate.
+
+            Rejects a mismatched Host (defeats DNS-rebinding: an attacker page on
+            evil.com resolving to 127.0.0.1 still sends `Host: evil.com`), and
+            requires an `X-Reflect` header on mutations. A cross-origin page can
+            only send that header via a fetch that triggers a CORS preflight,
+            which this server never approves — so a drive-by POST can't mutate.
+            """
+            host = (self.headers.get("Host") or "").rsplit(":", 1)[0].lower()
+            if host not in ("127.0.0.1", "localhost", "[::1]", "::1"):
+                self._json({"error": "forbidden: non-loopback Host"}, 403)
+                return False
+            if require_csrf and not self.headers.get("X-Reflect"):
+                self._json({"error": "forbidden: missing X-Reflect header"}, 403)
+                return False
+            return True
+
         def do_GET(self):  # noqa: N802 (stdlib naming)
+            if not self._guard(require_csrf=False):
+                return
             url = urlparse(self.path)
             parts = [unquote(p) for p in url.path.split("/") if p]
             try:
@@ -603,6 +697,8 @@ def make_handler(kb: KnowledgeBase):
                 self._json({"error": str(e)}, 500)
 
         def do_POST(self):  # noqa: N802 (stdlib naming)
+            if not self._guard(require_csrf=True):
+                return
             url = urlparse(self.path)
             parts = [unquote(p) for p in url.path.split("/") if p]
             kb = self.server_kb
