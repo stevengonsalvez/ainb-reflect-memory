@@ -1,0 +1,13 @@
+document_id: fixture
+entities:
+- name: Postgres
+  type: technology
+  description: Postgres referenced in fixture note
+- name: Flyway
+  type: technology
+  description: Flyway referenced in fixture note
+relationships:
+- source: Postgres
+  target: Flyway
+  description: Postgres relates_to Flyway
+extracted_at: '2026-07-01T00:00:00'

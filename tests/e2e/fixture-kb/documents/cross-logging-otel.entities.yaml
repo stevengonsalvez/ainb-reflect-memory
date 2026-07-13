@@ -1,0 +1,6 @@
+document_id: fixture
+entities:
+- name: OpenTelemetry
+  type: technology
+  description: OpenTelemetry referenced in fixture note
+extracted_at: '2026-07-01T00:00:00'

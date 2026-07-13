@@ -1,0 +1,14 @@
+{
+  "name": "reflect-serve-e2e",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Playwright end-to-end suite for the reflect serve memory browser",
+  "type": "module",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.58.0"
+  }
+}

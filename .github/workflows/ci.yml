@@ -80,6 +80,59 @@ jobs:
         run: uv run pytest -q tests --ignore=tests/eval
 
   # ---------------------------------------------------------------------------
+  # Playwright e2e for the `reflect serve` memory browser. The suite launches
+  # `reflect serve` against a FRESH copy of tests/e2e/fixture-kb (never the real
+  # ~/.learnings) and drives all six curation/browse flows plus weightage
+  # displays. serve.py uses only base deps (stdlib http + pyyaml), so the slim
+  # install is enough — no [graph] extra needed. Screenshots + results.json are
+  # uploaded as artifacts on every run.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: e2e (playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: 'pyproject.toml'
+
+      - name: install package into a uv venv (slim — serve needs only base deps)
+        run: |
+          uv venv --python 3.12
+          uv pip install -e '.[dev]'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install e2e deps
+        working-directory: tests/e2e
+        run: npm install
+
+      - name: install playwright chromium
+        working-directory: tests/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: run e2e suite (starts reflect serve against fixture copy)
+        working-directory: tests/e2e
+        env:
+          CI: 'true'
+        run: npx playwright test
+
+      - name: upload screenshots + results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-screenshots
+          path: |
+            tests/e2e/test-results/screenshots/
+            tests/e2e/test-results/results.json
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
   # Lightweight manifest validation. The Claude Code plugin ships its manifest
   # at BOTH plugin/.claude-plugin/plugin.json (the canonical Claude Code
   # location) and plugin/plugin.json (root mirror). Both must be valid JSON and

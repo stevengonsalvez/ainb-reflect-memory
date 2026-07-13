@@ -1,0 +1,6 @@
+document_id: fixture
+entities:
+- name: Redis
+  type: technology
+  description: Redis referenced in fixture note
+extracted_at: '2026-07-01T00:00:00'
