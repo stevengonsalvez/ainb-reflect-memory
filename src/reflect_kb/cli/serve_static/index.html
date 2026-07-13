@@ -301,7 +301,10 @@ $("#theme").onclick = () => {
 /* ---------- data ---------- */
 async function api(path) { const r = await fetch(path); return r.json(); }
 async function post(path, body) {
-  const r = await fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
+  // X-Reflect forces a CORS preflight for any cross-origin caller, which the
+  // server never approves — so only this same-origin SPA can drive mutations.
+  const r = await fetch(path, {method:"POST",
+    headers:{"Content-Type":"application/json", "X-Reflect":"1"},
     body: JSON.stringify(body||{})});
   return r.json();
 }
@@ -344,7 +347,7 @@ function renderFacets() {
       onclick="setFilter('${key}',${JSON.stringify(v).replace(/"/g,"&quot;")})">
       <span style="display:flex;align-items:center;min-width:0">
         ${dotColor?`<i class="dot" style="background:${dotColor(v)}"></i>`:""}
-        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${v}</span>
+        <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v)}</span>
       </span><span class="n">${n}</span>
     </button>`).join("");
   $("#facets").innerHTML =
@@ -372,16 +375,16 @@ function renderList() {
   let items = visibleMems().slice();
   if (!SEARCH_RESULTS) {
     if (sort==="date") items.sort((a,b)=>b.date.localeCompare(a.date));
-    if (sort==="score") items.sort((a,b)=>b.recall_score-a.recall_score);
+    if (sort==="score") items.sort((a,b)=>b.browse_score-a.browse_score);
     if (sort==="title") items.sort((a,b)=>a.title.localeCompare(b.title));
   }
   $("#count").textContent = `${items.length} memor${items.length===1?"y":"ies"}` +
     (SEARCH_RESULTS?` · ranked by match`:"");
   $("#list").innerHTML = items.length ? items.map(m => `
-    <div class="card ${SELECTED.has(m.id)?"selected":""}" data-testid="card" data-id="${m.id}"
-         onclick="cardClick('${m.id}', event)">
-      ${SELECT_MODE?`<input type="checkbox" class="check" data-testid="card-check" data-id="${m.id}"
-         ${SELECTED.has(m.id)?"checked":""} onclick="event.stopPropagation();toggleSelect('${m.id}')">`:""}
+    <div class="card ${SELECTED.has(m.id)?"selected":""}" data-testid="card" data-id="${esc(m.id)}"
+         onclick="cardClick(this, event)">
+      ${SELECT_MODE?`<input type="checkbox" class="check" data-testid="card-check" data-id="${esc(m.id)}"
+         ${SELECTED.has(m.id)?"checked":""} onclick="event.stopPropagation();toggleSelect(this.dataset.id)">`:""}
       <h3>${esc(m.title)}</h3>
       <div class="chips">
         <span class="chip conf" style="background:${CONF_COLOR[m.confidence]}">${m.confidence}</span>
@@ -392,14 +395,15 @@ function renderList() {
       </div>
       <div class="meta">
         <span>${m.date.slice(0,10)} · ${m.entity_count} entities · ${m.word_count}w</span>
-        <span class="score" data-testid="recall-score">${m.match_score!==undefined?`match <b>${m.match_score}</b> · `:""}recall <b>${m.recall_score}</b></span>
+        <span class="score" data-testid="browse-score">${m.match_score!==undefined?`match <b>${m.match_score}</b> · `:""}browse <b>${m.browse_score}</b></span>
       </div>
     </div>`).join("") : `<div class="empty">No memories match.</div>`;
 }
 $("#sort").onchange = renderList;
 
 /* ---------- select mode + compression queue ---------- */
-function cardClick(id, ev) {
+function cardClick(el, ev) {
+  const id = el.dataset.id;
   if (SELECT_MODE) { toggleSelect(id); return; }
   openDetail(id);
 }
@@ -468,7 +472,7 @@ function renderTimeline() {
   items.forEach(m => {
     const y = m.date.slice(0,4);
     if (y !== year) { year = y; html += `<div class="tl-year">${y}</div>`; }
-    html += `<div class="tl-row" data-testid="timeline-entry" data-id="${m.id}" onclick="openDetail('${m.id}')">
+    html += `<div class="tl-row" data-testid="timeline-entry" data-id="${esc(m.id)}" onclick="openDetail(this.dataset.id)">
       <span class="tl-date">${m.date.slice(0,10)}</span>
       <span class="tl-title">${esc(m.title)}
         <span class="chip conf" style="background:${CONF_COLOR[m.confidence]};margin-left:6px">${m.confidence}</span>
@@ -501,7 +505,7 @@ function renderSuperseded() {
     <div class="chain" data-testid="chain">
       ${chain.map((m,i)=>`
         ${i>0?`<span class="chain-arrow">←</span>`:""}
-        <span class="chain-node ${i>0?"stale":""}" data-id="${m.id}" onclick="openDetail('${m.id}')">
+        <span class="chain-node ${i>0?"stale":""}" data-id="${esc(m.id)}" onclick="openDetail(this.dataset.id)">
           ${esc(m.title)}
           <span class="chip conf" style="background:${CONF_COLOR[m.confidence]};margin-left:5px">${m.confidence}</span>
         </span>`).join("")}
@@ -513,11 +517,11 @@ function renderSuperseded() {
 async function renderArchived() {
   const rows = await api("/api/archived");
   $("#archived").innerHTML = rows.length ? rows.map(a => `
-    <div class="arch-row" data-testid="arch-row" data-id="${a.id}">
-      <span class="chip conf" style="background:${CONF_COLOR[a.confidence]}">${a.confidence}</span>
+    <div class="arch-row" data-testid="arch-row" data-id="${esc(a.id)}">
+      <span class="chip conf" style="background:${CONF_COLOR[a.confidence]}">${esc(a.confidence)}</span>
       <span class="t">${esc(a.title)}</span>
       <span class="chip">${esc(a.type)}</span>
-      <button class="btn" data-testid="restore-btn" data-id="${a.id}" onclick="restoreMemory('${a.id}')">Restore</button>
+      <button class="btn" data-testid="restore-btn" data-id="${esc(a.id)}" onclick="restoreMemory(this.dataset.id)">Restore</button>
     </div>`).join("") : `<div class="empty">Nothing archived.</div>`;
 }
 async function restoreMemory(id) {
@@ -538,7 +542,7 @@ async function openDetail(id) {
     <span class="chip conf" data-testid="detail-confidence" style="background:${CONF_COLOR[m.confidence]}">${m.confidence}</span>
     <span class="chip">${esc(m.type)}</span><span class="chip">${esc(m.scope)}</span>
     ${m.tags.map(t=>`<span class="chip tag">${esc(t)}</span>`).join("")}
-    <span class="chip" data-testid="detail-recall">recall ${m.recall_score}</span>`;
+    <span class="chip" data-testid="detail-browse">browse ${m.browse_score}</span>`;
   $("#d-curate").innerHTML = `
     <span style="color:var(--muted);font-size:12px">confidence</span>
     <span class="seg" data-testid="conf-seg">
@@ -556,7 +560,7 @@ async function openDetail(id) {
       ${m.agent?`<dt>agent</dt><dd>${esc(String(m.agent))}</dd>`:""}
     </dl>
     ${m.related.length?`<div class="section-label">Related memories</div>`+
-      m.related.map(r=>`<button class="rel" onclick="openDetail('${r.id}')">${esc(r.title)}
+      m.related.map(r=>`<button class="rel" data-id="${esc(r.id)}" onclick="openDetail(this.dataset.id)">${esc(r.title)}
         <span class="shared">${r.shared} shared</span></button>`).join(""):""}
     ${m.entities.length?`<div class="section-label">Entities</div>`+
       m.entities.map(e=>`<span class="ent"><b>${esc(e.name)}</b> · ${esc(e.type||"concept")}</span>`).join(""):""}
