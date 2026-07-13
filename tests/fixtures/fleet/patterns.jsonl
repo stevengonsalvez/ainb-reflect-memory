@@ -1,0 +1,4 @@
+{"id": "pat-1", "title": "Retry with jittered backoff", "description": "Wrap flaky network calls in exponential backoff with full jitter to avoid thundering-herd retries.", "rationale": "Fixed delays synchronize retries across clients and re-create the outage.", "tags": ["networking", "resilience"], "agent": "backend"}
+{"name": "Prefer domain types over primitives", "pattern": "Model IDs, temperatures, and money as distinct types so invariants are checked at compile time.", "tags": ["types", "coding"]}
+this is not valid json and must be skipped
+{"description": "Cache read-heavy lookups behind a 5-minute TTL keyed by user id.", "tags": ["performance"]}

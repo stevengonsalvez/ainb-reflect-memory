@@ -1,0 +1,1 @@
+{"title": "Prefer ast-grep for code search", "correction": "Use ast-grep for structural code queries instead of plain grep.", "tags": ["coding", "tooling"]}

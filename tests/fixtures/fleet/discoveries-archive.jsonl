@@ -1,0 +1,1 @@
+{"id": "disc-old-1", "agent": "backend", "ts": "2026-01-15T08:00:00+00:00", "problem": "Old auth token TTL was 24h.", "solution": "Shortened to 1h after a leak post-mortem; superseded by rotation.", "tags": ["security"], "confidence": 0.7}

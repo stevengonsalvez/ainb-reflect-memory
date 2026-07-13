@@ -959,11 +959,13 @@ def errors_append(severity, source, kind, message, context):
 from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group  # noqa: E402
 from reflect_kb.cli.issues_cli import issues_group as _issues_group  # noqa: E402
 from reflect_kb.cli.serve_cli import serve_command as _serve_command  # noqa: E402
+from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group  # noqa: E402
 
 cli.add_command(_metrics_group)
 cli.add_command(errors_group)
 cli.add_command(_issues_group)
 cli.add_command(_serve_command)
+cli.add_command(_fleet_group)
 
 
 if __name__ == "__main__":
