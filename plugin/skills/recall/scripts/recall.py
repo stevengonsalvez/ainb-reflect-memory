@@ -1970,12 +1970,10 @@ def recency_norm(archived_at: str | None, now: datetime) -> float:
         return 0.5
     try:
         ts = datetime.fromisoformat(archived_at.rstrip("Z"))
+        if ts.tzinfo is not None:
+            ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
         days_ago = (now - ts).total_seconds() / 86400.0
-    except (ValueError, TypeError):
-        # TypeError: aware-vs-naive datetime subtraction (one side has a
-        # +00:00 offset). ValueError: malformed ISO string. Either way,
-        # fall back to neutral rather than crashing the rerank over one
-        # bad archive header.
+    except ValueError:
         return 0.5
     return max(0.1, min(1.0, 1.0 - days_ago / RECENCY_WINDOW_DAYS))
 
