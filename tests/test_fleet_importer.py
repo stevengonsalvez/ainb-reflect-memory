@@ -59,6 +59,11 @@ def test_import_creates_files_with_full_frontmatter(kb_env):
     docs = _docs(kb_env["kb"])
     assert len(docs) == result.imported
 
+    # Every doc carries a stable identity (recall reads `name`; without it the
+    # Learning id degrades to "?"), and it equals the content-addressed filename.
+    for d in docs:
+        assert d["name"] == d["_path"].stem
+
     disc = next(d for d in docs if d["category"] == "fleet-discovery" and d["workflow_state"] == "open")
     assert disc["source_system"] == "fleet"
     assert disc["source_kind"] == "discoveries"

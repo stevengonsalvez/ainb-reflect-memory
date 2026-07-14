@@ -130,8 +130,13 @@ class _Doc:
     def content_hash(self) -> str:
         return _content_hash(self.title, self.body)
 
-    def render(self, occurrences: int) -> str:
+    def render(self, doc_id: str, occurrences: int) -> str:
         fm: dict[str, Any] = {
+            # Stable identity — recall reads `id`/`name` for the Learning id and
+            # falls back to "?" when neither is present (recall.py:689). `name`
+            # is the corpus convention; value is the content-addressed doc id
+            # (== filename stem), so promotion out of quarantine keeps identity.
+            "name": doc_id,
             "title": self.title,
             "category": self.category,
             "key_insight": self.key_insight,
@@ -428,7 +433,7 @@ def ingest(
                 _bump_occurrences(dest, occurrences)
                 result.deduped += 1
             else:
-                content = doc.render(occurrences)
+                content = doc.render(doc_id, occurrences)
                 dest.write_text(content, encoding="utf-8")
                 frontmatter, _ = parse_frontmatter(content)
                 _write_sidecar(dest, content, frontmatter or {})
