@@ -120,6 +120,10 @@ class CorpusFilter:
     project: str | None = None
     since: str | None = None  # ISO date (YYYY-MM-DD), inclusive lower bound
     until: str | None = None  # ISO date (YYYY-MM-DD), inclusive upper bound
+    # F3: quarantined (fleet-imported) learnings are excluded by default so a
+    # corpus over the KB mirrors the claude/codex recall scope; set True to
+    # admit them (the fleet shadow's view).
+    include_quarantined: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +132,7 @@ class CorpusFilter:
             "project": self.project,
             "since": self.since,
             "until": self.until,
+            "include_quarantined": self.include_quarantined,
         }
 
     @classmethod
@@ -138,10 +143,13 @@ class CorpusFilter:
             project=d.get("project"),
             since=d.get("since"),
             until=d.get("until"),
+            include_quarantined=bool(d.get("include_quarantined", False)),
         )
 
     def matches(self, fm: dict[str, Any], doc_date: date | None) -> bool:
         """True iff a learning's frontmatter + resolved date satisfy the filter."""
+        if not self.include_quarantined and _is_quarantined(fm):
+            return False
         if self.category is not None:
             if str(fm.get("category", "")).strip().lower() != self.category.strip().lower():
                 return False
@@ -171,6 +179,20 @@ def _tags_of(fm: dict[str, Any]) -> list[str]:
     return [str(t).strip() for t in raw]
 
 
+def _is_quarantined(fm: dict[str, Any]) -> bool:
+    """F3: whether a learning carries ``quarantine: true``.
+
+    Accepts the bool the fleet importer writes and the truthy strings a
+    hand-edited note might carry; anything else (including absent) is False.
+    """
+    raw = fm.get("quarantine")
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("true", "yes", "1")
+    return bool(raw)
+
+
 def _parse_date(value: str) -> date:
     """Parse an ISO date or datetime string to a ``date`` (date-only compare)."""
     s = str(value).strip().strip('"').rstrip("Z")
@@ -194,6 +216,13 @@ class CorpusEntry:
     created: str | None
     key_insight: str
     body: str
+    # F3: fleet importer frontmatter carried through so a corpus consumer can
+    # tell provenance/authority apart. Neutral defaults for non-fleet notes.
+    domain: str | None = None
+    quarantine: bool = False
+    authority: str | None = None
+    source_system: str | None = None
+    occurrences: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -205,6 +234,11 @@ class CorpusEntry:
             "created": self.created,
             "key_insight": self.key_insight,
             "body": self.body,
+            "domain": self.domain,
+            "quarantine": self.quarantine,
+            "authority": self.authority,
+            "source_system": self.source_system,
+            "occurrences": self.occurrences,
         }
 
 
@@ -248,7 +282,24 @@ def _entry_from_doc(fm: dict[str, Any], body: str, fallback_id: str) -> CorpusEn
         created=(str(fm.get("created")).strip().strip('"') if fm.get("created") else None),
         key_insight=str(fm.get("key_insight") or "").strip().strip('"'),
         body=body.strip(),
+        domain=(str(fm.get("domain")).strip().lower() if fm.get("domain") else None),
+        quarantine=_is_quarantined(fm),
+        authority=(str(fm.get("authority")).strip().lower()
+                   if fm.get("authority") else None),
+        source_system=(str(fm.get("source_system")).strip()
+                       if fm.get("source_system") else None),
+        occurrences=_coerce_int(fm.get("occurrences")),
     )
+
+
+def _coerce_int(raw: Any) -> int | None:
+    """Parse an integer frontmatter field; None when absent or malformed."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        return int(raw)
+    except (ValueError, TypeError):
+        return None
 
 
 def select_learnings(filt: CorpusFilter, docs_root: Path | None = None) -> list[CorpusEntry]:
@@ -311,6 +362,9 @@ class Corpus:
                 tags=list(e.get("tags") or []), project=e.get("project"),
                 created=e.get("created"), key_insight=e.get("key_insight", ""),
                 body=e.get("body", ""),
+                domain=e.get("domain"), quarantine=bool(e.get("quarantine", False)),
+                authority=e.get("authority"), source_system=e.get("source_system"),
+                occurrences=e.get("occurrences"),
             )
             for e in d.get("entries", [])
         ]

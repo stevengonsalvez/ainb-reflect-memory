@@ -11,7 +11,7 @@ db_path = "~/.reflect/reflect.db"
 artifacts_dir = "docs/solutions"
 
 [discovery]
-enabled_providers = ["claude", "codex", "copilot", "gemini"]
+enabled_providers = ["claude", "codex", "copilot", "gemini", "hermes"]
 staleness_days = 30
 
 [providers.claude]
@@ -35,6 +35,11 @@ agents_md = "~/.copilot/AGENTS.md"
 [providers.gemini]
 home_dir = "~/.gemini"
 global_md = "~/.gemini/GEMINI.md"
+
+[providers.hermes]
+# F3: the fleet-lambda harness. Its shim scripts and skill copy deploy under
+# ~/.hermes/ (the hermes adapter mirrors the codex physical-deploy model).
+home_dir = "~/.hermes"
 
 [indexers.graphrag]
 # Canonical CLI is `reflect` (from reflect-kb, installed via
@@ -69,6 +74,16 @@ timeout_s = 60
 # RECALL_PROJECT_ALPHA env var; this key is the declarative surface for
 # hooks that set it. Set to 0 to disable.
 project_affinity_alpha = 0.2
+# F3: domain-affinity boost (same bounded shape). A --domain-hint that matches
+# a learning's `domain` frontmatter gives 1 + α/2 (+10% at 0.2); non-matching
+# and domainless notes are exactly unchanged. recall.py is controlled by the
+# RECALL_DOMAIN_ALPHA env var; this key is the declarative surface for hooks.
+domain_affinity_alpha = 0.2
+# F3: authority-tier boost — a conservative ±5% (α=0.1) so law/promoted notes
+# break ties over advisory without overpowering quality/recency; archived
+# notes take the floor. Env RECALL_AUTHORITY_ALPHA is authoritative; this key
+# is the declarative surface for hooks. Set to 0 to disable.
+authority_alpha = 0.1
 
 [cascade]
 # C1: per-ingest semantic-dedup adjudication. A revise CREATE whose text is
