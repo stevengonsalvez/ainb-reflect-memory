@@ -40,6 +40,7 @@ GOLDEN = FIXTURES / "golden_queries.yaml"
 # HERE = <repo>/reflect-kb/tests/eval — parents[1] is reflect-kb/, parents[2]
 # is the repo root where plugins/ lives alongside reflect-kb/.
 _CANDIDATES = [
+    HERE.parents[1] / "plugin" / "skills" / "recall" / "scripts" / "recall.py",
     HERE.parents[2] / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
     # standalone reflect-kb checkout with the plugin as a sibling dir
     HERE.parents[1].parent / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",

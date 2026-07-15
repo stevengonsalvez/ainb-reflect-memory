@@ -33,6 +33,7 @@ PORT: A6
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -45,9 +46,10 @@ import pytest
 # Reuse the conftest's doc renderer so seeds index identically to every other
 # proof. conftest.py sits one dir up (tests/eval/behavioral/).
 _CONFTEST_DIR = Path(__file__).resolve().parents[1]
-if str(_CONFTEST_DIR) not in sys.path:
-    sys.path.insert(0, str(_CONFTEST_DIR))
-from conftest import RECALL_PY, _doc_md  # noqa: E402
+_spec = importlib.util.spec_from_file_location("behavioral_conftest", _CONFTEST_DIR / "conftest.py")
+_conftest = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_conftest)
+RECALL_PY, _doc_md = _conftest.RECALL_PY, _conftest._doc_md
 
 # Both learnings answer the SAME query (shared topic terms) so neither is
 # excluded by the OOD gate — only the BRANCH shard decides which is visible.

@@ -65,6 +65,7 @@ from pathlib import Path
 _HERE = Path(__file__).parent  # reflect-kb/tests/eval/behavioral/proofs
 _EVAL_ROOT = _HERE.parents[1]  # reflect-kb/tests/eval
 _RECALL_CANDIDATES = [
+    _EVAL_ROOT.parents[1] / "plugin" / "skills" / "recall" / "scripts" / "recall.py",
     _EVAL_ROOT.parents[2] / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
     _EVAL_ROOT.parents[1].parent / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
 ]

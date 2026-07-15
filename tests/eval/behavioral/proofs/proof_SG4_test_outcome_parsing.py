@@ -72,6 +72,7 @@ import pytest
 # from the repo layout regardless of cwd.
 _CONFTEST_DIR = Path(__file__).resolve().parents[1]  # reflect-kb/tests/eval/behavioral
 _PLUGIN_CANDIDATES = [
+    _CONFTEST_DIR.parents[2] / "plugin" / "scripts",
     _CONFTEST_DIR.parents[3] / "plugins" / "reflect" / "scripts",
     _CONFTEST_DIR.parents[2].parent / "plugins" / "reflect" / "scripts",
 ]

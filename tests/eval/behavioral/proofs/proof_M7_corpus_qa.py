@@ -39,6 +39,7 @@ PORT: M7
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 
@@ -47,9 +48,10 @@ import pytest
 # Reuse the conftest's doc renderer so seeds carry the EXACT frontmatter shape
 # the production engine + recall.py expect. conftest.py sits one dir up.
 _CONFTEST_DIR = Path(__file__).resolve().parents[1]
-if str(_CONFTEST_DIR) not in sys.path:
-    sys.path.insert(0, str(_CONFTEST_DIR))
-from conftest import _doc_md  # noqa: E402
+_spec = importlib.util.spec_from_file_location("behavioral_conftest", _CONFTEST_DIR / "conftest.py")
+_conftest = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_conftest)
+_doc_md = _conftest._doc_md
 
 from reflect_kb.recall import corpus as corpus_mod  # noqa: E402
 

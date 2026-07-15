@@ -52,9 +52,13 @@ RESULTS = HERE / "results"
 CACHE = RESULTS / "cache"
 KB_ROOT = RESULTS / "kb"
 
-# repo root = reflect-kb/tests/eval/locomo -> parents[3]
-REPO = HERE.parents[3]
-RECALL_PY = REPO / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py"
+# Standalone checkout: <root>/plugin/... — parents[2] is root. Monorepo:
+# reflect-kb/tests/eval/locomo — parents[3] is root where plugins/ sits.
+_RECALL_CANDIDATES = [
+    HERE.parents[2] / "plugin" / "skills" / "recall" / "scripts" / "recall.py",
+    HERE.parents[3] / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
+]
+RECALL_PY = next((p for p in _RECALL_CANDIDATES if p.exists()), _RECALL_CANDIDATES[0])
 # Dedicated venv holding THIS worktree's reflect-kb[graph] (the global `reflect`
 # is a stale namespace-shim install missing reflect_kb.cli.main). Both our direct
 # `reflect` calls and recall.py's `reflect` subprocess resolve to it via PATH.

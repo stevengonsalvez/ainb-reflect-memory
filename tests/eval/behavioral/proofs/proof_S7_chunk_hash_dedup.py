@@ -44,6 +44,7 @@ PORT: S7
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
@@ -56,9 +57,10 @@ import pytest
 
 # conftest.py (one dir up) renders docs identically to every other proof.
 _CONFTEST_DIR = Path(__file__).resolve().parents[1]
-if str(_CONFTEST_DIR) not in sys.path:
-    sys.path.insert(0, str(_CONFTEST_DIR))
-from conftest import RECALL_PY, _doc_md  # noqa: E402
+_spec = importlib.util.spec_from_file_location("behavioral_conftest", _CONFTEST_DIR / "conftest.py")
+_conftest = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_conftest)
+RECALL_PY, _doc_md = _conftest.RECALL_PY, _conftest._doc_md
 
 # The cascade + db live in the reflect plugin; import them directly. prepare()
 # is pure/deterministic (gate + slice + hash, no LLM), so the proof can drive it
@@ -67,6 +69,7 @@ from conftest import RECALL_PY, _doc_md  # noqa: E402
 # where plugins/ lives alongside reflect-kb/. Fall back to a reflect-kb-as-root
 # checkout (plugins as a sibling of reflect-kb) like conftest.RECALL_PY does.
 _PLUGIN_CANDIDATES = [
+    _CONFTEST_DIR.parents[2] / "plugin" / "scripts",
     _CONFTEST_DIR.parents[3] / "plugins" / "reflect" / "scripts",
     _CONFTEST_DIR.parents[2].parent / "plugins" / "reflect" / "scripts",
 ]

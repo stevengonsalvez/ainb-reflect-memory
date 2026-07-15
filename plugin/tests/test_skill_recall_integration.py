@@ -34,9 +34,19 @@ from pathlib import Path
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[5]
-SKILLS = ROOT / "toolkit" / "packages" / "skills"
-RECALL = ROOT / "toolkit" / "packages" / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py"
+_HERE = Path(__file__).resolve()
+# Standalone plugin checkout (this repo): <root>/plugin/... — parents[2] is root.
+# Monorepo: <root>/toolkit/packages/plugins/reflect/tests/... — parents[5] is root.
+_SKILLS_CANDIDATES = [
+    _HERE.parents[2] / "plugin" / "skills",
+    _HERE.parents[5] / "toolkit" / "packages" / "skills",
+]
+_RECALL_CANDIDATES = [
+    _HERE.parents[2] / "plugin" / "skills" / "recall" / "scripts" / "recall.py",
+    _HERE.parents[5] / "toolkit" / "packages" / "plugins" / "reflect" / "skills" / "recall" / "scripts" / "recall.py",
+]
+SKILLS = next((p for p in _SKILLS_CANDIDATES if p.is_dir()), _SKILLS_CANDIDATES[0])
+RECALL = next((p for p in _RECALL_CANDIDATES if p.exists()), _RECALL_CANDIDATES[0])
 
 # Must match TARGETS in inject_recall_preamble.py
 SKILLS_WITH_RECALL = [
@@ -44,12 +54,21 @@ SKILLS_WITH_RECALL = [
     "implement", "gh-issue", "find-missing-tests", "validate",
 ]
 
+# The tier-1/2 skills (plan, research, …) that carry the recall preamble live in
+# the monorepo's toolkit/packages/skills, not in the extracted plugin checkout.
+# Skip the structural layer cleanly when they're absent rather than failing.
+_skills_vendored = pytest.mark.skipif(
+    not (SKILLS / SKILLS_WITH_RECALL[0] / "SKILL.md").exists(),
+    reason="tier-1/2 skills not vendored in standalone plugin checkout (monorepo-only)",
+)
+
 BEGIN = "<!-- recall:begin -->"
 END = "<!-- recall:end -->"
 
 
 # ─── Layer 1: structural ──────────────────────────────────────────────
 
+@_skills_vendored
 @pytest.mark.parametrize("skill", SKILLS_WITH_RECALL)
 def test_skill_has_recall_block(skill: str):
     """Every tier-1/2 skill has the recall preamble block."""
@@ -60,6 +79,7 @@ def test_skill_has_recall_block(skill: str):
     assert END in content, f"{skill}: missing {END}"
 
 
+@_skills_vendored
 @pytest.mark.parametrize("skill", SKILLS_WITH_RECALL)
 def test_skill_recall_block_has_correct_command(skill: str):
     """The recall block invokes recall.py with the right flags."""
@@ -71,6 +91,7 @@ def test_skill_recall_block_has_correct_command(skill: str):
     assert "{{HOME_TOOL_DIR}}" in block, f"{skill}: missing template placeholder"
 
 
+@_skills_vendored
 @pytest.mark.parametrize("skill", SKILLS_WITH_RECALL)
 def test_skill_recall_block_has_query_guidance(skill: str):
     """Each skill has skill-specific guidance on building the query."""
@@ -80,6 +101,7 @@ def test_skill_recall_block_has_query_guidance(skill: str):
     assert "Query construction" in block, f"{skill}: no query construction hint"
 
 
+@_skills_vendored
 def test_recall_preamble_positioned_before_main_flow():
     """Preamble must precede the first imperative step in every skill."""
     for skill in SKILLS_WITH_RECALL:

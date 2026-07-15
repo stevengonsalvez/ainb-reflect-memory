@@ -74,6 +74,7 @@ import pytest
 # sits alongside reflect-kb/; the fallback handles a reflect-kb-as-root checkout.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]
 _PLUGIN_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "scripts",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "scripts",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "scripts",
 ]

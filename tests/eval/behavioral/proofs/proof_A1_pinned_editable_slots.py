@@ -45,6 +45,7 @@ import pytest
 # sits beside reflect-kb/; parents[4].parent covers a standalone reflect-kb checkout.
 _HERE = Path(__file__).resolve()
 _CANDIDATES = [
+    _HERE.parents[4] / "plugin",
     _HERE.parents[5] / "plugins" / "reflect",
     _HERE.parents[4].parent / "plugins" / "reflect",
 ]

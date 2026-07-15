@@ -55,6 +55,7 @@ import pytest
 # sibling dir.
 _EVAL_ROOT = Path(__file__).resolve().parents[2]  # reflect-kb/tests/eval
 _SCRIPT_CANDIDATES = [
+    _EVAL_ROOT.parents[1] / "plugin" / "scripts",
     _EVAL_ROOT.parents[2] / "plugins" / "reflect" / "scripts",
     _EVAL_ROOT.parents[1].parent / "plugins" / "reflect" / "scripts",
 ]
