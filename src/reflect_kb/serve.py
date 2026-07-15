@@ -44,6 +44,7 @@ import yaml
 from reflect_kb.cli.learnings_cli import (
     CACHE_DIR,
     DOCUMENTS_DIR,
+    documents_mtime,
     get_repo_path,
     parse_frontmatter,
 )
@@ -158,20 +159,27 @@ class KnowledgeBase:
         return self._repo
 
     def _dir_mtime(self) -> float:
-        docs = self._repo / DOCUMENTS_DIR
-        if not docs.exists():
-            return 0.0
-        stamps = [docs.stat().st_mtime]
-        stamps += [p.stat().st_mtime for p in docs.glob("*.md")]
-        return max(stamps)
+        return documents_mtime(self._repo)
 
-    def _ensure_loaded(self) -> None:
+    def _snapshot(self) -> Dict[str, Any]:
+        """Load if documents/ changed, then capture a consistent generation of
+        the read model UNDER the lock. _load reassigns these attributes (never
+        mutates them in place), so the captured references stay coherent even if
+        another thread reloads afterward — closing the read-tear where a reader
+        could otherwise mix _docs from one generation with _tokens from the next.
+        """
         with self._lock:
             stamp = self._dir_mtime()
-            if stamp == self._loaded_at:
-                return
-            self._load()
-            self._loaded_at = stamp
+            if stamp != self._loaded_at:
+                self._load()
+                self._loaded_at = stamp
+            return {
+                "docs": self._docs, "bodies": self._bodies, "entities": self._entities,
+                "tokens": self._tokens, "df": self._df, "avg_len": self._avg_len,
+            }
+
+    def _ensure_loaded(self) -> None:
+        self._snapshot()
 
     def _load(self) -> None:
         docs_dir = self._repo / DOCUMENTS_DIR
@@ -245,23 +253,22 @@ class KnowledgeBase:
     # ---------- public API ----------
 
     def memories(self) -> List[Dict[str, Any]]:
-        self._ensure_loaded()
         out = []
-        for d in self._docs:
+        for d in self._snapshot()["docs"]:
             item = dict(d)
             item["browse_score"] = round(self._browse_score(d), 3)
             out.append(item)
         return out
 
     def memory(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        self._ensure_loaded()
-        for d in self._docs:
+        snap = self._snapshot()
+        for d in snap["docs"]:
             if d["id"] == doc_id:
                 item = dict(d)
-                item["body"] = self._bodies.get(doc_id, "")
-                item["entities"] = self._entities.get(doc_id, {}).get("entities", [])
-                item["relationships"] = self._entities.get(doc_id, {}).get("relationships", [])
-                item["related"] = self._related(d)
+                item["body"] = snap["bodies"].get(doc_id, "")
+                item["entities"] = snap["entities"].get(doc_id, {}).get("entities", [])
+                item["relationships"] = snap["entities"].get(doc_id, {}).get("relationships", [])
+                item["related"] = self._related(d, snap["docs"])
                 item["browse_score"] = round(self._browse_score(d), 3)
                 return item
         return None
@@ -269,23 +276,24 @@ class KnowledgeBase:
     def search(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
         """BM25-lite lexical ranking over the index built in _load (semantic
         engine is optional-extra only)."""
-        self._ensure_loaded()
         terms = _tokenize(query)
         if not terms:
             return []
-        n_docs = max(len(self._docs), 1)
+        snap = self._snapshot()
+        docs, tokens, df, avg_len = snap["docs"], snap["tokens"], snap["df"], snap["avg_len"]
+        n_docs = max(len(docs), 1)
         k1, b = 1.4, 0.6
         scored = []
-        for d in self._docs:
-            toks = self._tokens.get(d["id"], Counter())
+        for d in docs:
+            toks = tokens.get(d["id"], Counter())
             dl = sum(toks.values()) or 1
             score = 0.0
             for term in terms:
                 tf = toks.get(term, 0)
                 if not tf:
                     continue
-                idf = math.log(1 + (n_docs - self._df[term] + 0.5) / (self._df[term] + 0.5))
-                score += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / self._avg_len))
+                idf = math.log(1 + (n_docs - df[term] + 0.5) / (df[term] + 0.5))
+                score += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avg_len))
             if score > 0:
                 item = dict(d)
                 item["match_score"] = round(score, 3)
@@ -296,11 +304,12 @@ class KnowledgeBase:
 
     def graph(self) -> Dict[str, Any]:
         """Two-layer graph: memory nodes + entity nodes, weighted edges."""
-        self._ensure_loaded()
+        snap = self._snapshot()
+        docs, entities = snap["docs"], snap["entities"]
         nodes: Dict[str, Dict[str, Any]] = {}
         edges: List[Dict[str, Any]] = []
 
-        for d in self._docs:
+        for d in docs:
             nid = "m:" + d["id"]
             nodes[nid] = {
                 "id": nid, "label": d["title"], "kind": "memory",
@@ -308,8 +317,8 @@ class KnowledgeBase:
                 "doc": d["id"], "score": self._browse_score(d),
             }
         entity_types: Dict[str, str] = {}
-        for d in self._docs:
-            side = self._entities.get(d["id"], {})
+        for d in docs:
+            side = entities.get(d["id"], {})
             for e in side.get("entities", []):
                 name = str(e.get("name", "")).strip()
                 if not name:
@@ -339,11 +348,11 @@ class KnowledgeBase:
         return {"nodes": list(nodes.values()), "edges": edges}
 
     def stats(self) -> Dict[str, Any]:
-        self._ensure_loaded()
-        conf = Counter(d["confidence"] for d in self._docs)
-        types = Counter(d["type"] for d in self._docs)
-        scopes = Counter(d["scope"] for d in self._docs)
-        tags = Counter(t for d in self._docs for t in d["tags"])
+        docs = self._snapshot()["docs"]
+        conf = Counter(d["confidence"] for d in docs)
+        types = Counter(d["type"] for d in docs)
+        scopes = Counter(d["scope"] for d in docs)
+        tags = Counter(t for d in docs for t in d["tags"])
         ops: Counter = Counter()
         errors = 0
         metrics_path = self._repo / "metrics.jsonl"
@@ -357,7 +366,7 @@ class KnowledgeBase:
                 if rec.get("error"):
                     errors += 1
         return {
-            "documents": len(self._docs),
+            "documents": len(docs),
             "repo": str(self._repo),
             "confidence": dict(conf),
             "types": dict(types.most_common()),
@@ -365,7 +374,7 @@ class KnowledgeBase:
             "top_tags": dict(tags.most_common(20)),
             "metrics_ops": dict(ops),
             "metrics_errors": errors,
-            "with_sidecars": sum(1 for d in self._docs if d["entity_count"]),
+            "with_sidecars": sum(1 for d in docs if d["entity_count"]),
         }
 
     # ---------- curation (mutations, local backend only) ----------
@@ -384,8 +393,7 @@ class KnowledgeBase:
 
     def _doc_paths(self, doc_id: str) -> Optional[tuple[Path, Optional[Path]]]:
         """Return (md_path, sidecar_path|None) for a live doc, or None."""
-        self._ensure_loaded()
-        for d in self._docs:
+        for d in self._snapshot()["docs"]:
             if d["id"] == doc_id:
                 md = self._repo / DOCUMENTS_DIR / d["file"]
                 sidecar = md.parent / (md.stem + ".entities.yaml")
@@ -408,8 +416,13 @@ class KnowledgeBase:
         left half-moved (a note in archived/ with its sidecar still in documents/
         or vice-versa).
         """
+        moving_sidecar = side_src is not None and side_src.exists()
+        # Guard the sidecar destination too (the note dest is checked by callers),
+        # so we never silently overwrite orphan sidecar debris.
+        if moving_sidecar and side_dst.exists():
+            raise MutationError(f"destination sidecar already exists: {side_dst.name}")
         md_src.replace(md_dst)
-        if side_src is not None and side_src.exists():
+        if moving_sidecar:
             try:
                 side_src.replace(side_dst)
             except OSError:
@@ -598,11 +611,12 @@ class KnowledgeBase:
             overlap = 1.0 + 0.5 * hits
         return conf * recency * overlap
 
-    def _related(self, d: Dict[str, Any], limit: int = 6) -> List[Dict[str, Any]]:
+    def _related(self, d: Dict[str, Any], docs: List[Dict[str, Any]],
+                 limit: int = 6) -> List[Dict[str, Any]]:
         mine_tags = set(d["tags"])
         mine_ents = set(d["entity_names"])
         scored = []
-        for other in self._docs:
+        for other in docs:
             if other["id"] == d["id"]:
                 continue
             s = 3 * len(mine_tags & set(other["tags"])) + len(mine_ents & set(other["entity_names"]))
