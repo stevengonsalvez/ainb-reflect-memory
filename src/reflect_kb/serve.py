@@ -148,6 +148,10 @@ class KnowledgeBase:
         self._docs: List[Dict[str, Any]] = []
         self._bodies: Dict[str, str] = {}
         self._entities: Dict[str, Dict[str, Any]] = {}
+        # Search index, built once per load (not per query).
+        self._tokens: Dict[str, Counter] = {}
+        self._df: Counter = Counter()
+        self._avg_len: float = 1.0
 
     @property
     def repo(self) -> Path:
@@ -217,6 +221,26 @@ class KnowledgeBase:
         self._docs = docs
         self._bodies = bodies
         self._entities = sidecars
+        self._build_search_index()
+
+    def _build_search_index(self) -> None:
+        """Tokenize the corpus once per load so search() is O(query), not O(corpus)."""
+        tokens: Dict[str, Counter] = {}
+        df: Counter = Counter()
+        for d in self._docs:
+            toks = Counter(_tokenize(
+                d["title"] + " " + " ".join(d["tags"]) + " " + self._bodies.get(d["id"], "")
+            ))
+            # weight title/tag hits by counting them a second time
+            for t in _tokenize(d["title"] + " " + " ".join(d["tags"])):
+                toks[t] += 2
+            tokens[d["id"]] = toks
+            for term in toks:
+                df[term] += 1
+        self._tokens = tokens
+        self._df = df
+        self._avg_len = (sum(sum(t.values()) for t in tokens.values()) / len(tokens)
+                         if tokens else 1.0)
 
     # ---------- public API ----------
 
@@ -243,38 +267,25 @@ class KnowledgeBase:
         return None
 
     def search(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
-        """BM25-lite lexical ranking (semantic engine is optional-extra only)."""
+        """BM25-lite lexical ranking over the index built in _load (semantic
+        engine is optional-extra only)."""
         self._ensure_loaded()
         terms = _tokenize(query)
         if not terms:
             return []
         n_docs = max(len(self._docs), 1)
-        df: Counter = Counter()
-        doc_tokens: Dict[str, Counter] = {}
-        for d in self._docs:
-            toks = Counter(_tokenize(
-                d["title"] * 1 + " " + " ".join(d["tags"]) + " " + self._bodies.get(d["id"], "")
-            ))
-            # weight title/tag hits by counting them again
-            for t in _tokenize(d["title"] + " " + " ".join(d["tags"])):
-                toks[t] += 2
-            doc_tokens[d["id"]] = toks
-            for term in set(toks):
-                df[term] += 1
-
-        avg_len = sum(sum(t.values()) for t in doc_tokens.values()) / n_docs
         k1, b = 1.4, 0.6
         scored = []
         for d in self._docs:
-            toks = doc_tokens[d["id"]]
+            toks = self._tokens.get(d["id"], Counter())
             dl = sum(toks.values()) or 1
             score = 0.0
             for term in terms:
                 tf = toks.get(term, 0)
                 if not tf:
                     continue
-                idf = math.log(1 + (n_docs - df[term] + 0.5) / (df[term] + 0.5))
-                score += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avg_len))
+                idf = math.log(1 + (n_docs - self._df[term] + 0.5) / (self._df[term] + 0.5))
+                score += idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / self._avg_len))
             if score > 0:
                 item = dict(d)
                 item["match_score"] = round(score, 3)
@@ -388,6 +399,23 @@ class KnowledgeBase:
         tmp.write_text(text)
         tmp.replace(path)
 
+    @staticmethod
+    def _move_pair(md_src: Path, md_dst: Path,
+                   side_src: Optional[Path], side_dst: Path) -> None:
+        """Move a note and, if present, its sidecar together.
+
+        If the sidecar move fails, roll the note move back so the pair is never
+        left half-moved (a note in archived/ with its sidecar still in documents/
+        or vice-versa).
+        """
+        md_src.replace(md_dst)
+        if side_src is not None and side_src.exists():
+            try:
+                side_src.replace(side_dst)
+            except OSError:
+                md_dst.replace(md_src)
+                raise
+
     def archive(self, doc_id: str) -> Dict[str, Any]:
         """Soft-archive: move note + sidecar out of documents/ into archived/.
 
@@ -407,9 +435,8 @@ class KnowledgeBase:
             dest_dir.mkdir(parents=True, exist_ok=True)
             if (dest_dir / md.name).exists():
                 raise MutationError(f"archive already contains {md.name}")
-            md.replace(dest_dir / md.name)
-            if sidecar:
-                sidecar.replace(dest_dir / sidecar.name)
+            self._move_pair(md, dest_dir / md.name,
+                            sidecar, dest_dir / (md.stem + ".entities.yaml"))
             self._dequeue_from_compress(doc_id)
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": True, "graph_index_stale": True}
@@ -433,10 +460,9 @@ class KnowledgeBase:
             docs_dir.mkdir(parents=True, exist_ok=True)
             if (docs_dir / src.name).exists():
                 raise MutationError(f"a live note already occupies {src.name}")
-            src.replace(docs_dir / src.name)
             sidecar = adir / (src.stem + ".entities.yaml")
-            if sidecar.exists():
-                sidecar.replace(docs_dir / (src.stem + ".entities.yaml"))
+            self._move_pair(src, docs_dir / src.name,
+                            sidecar, docs_dir / (src.stem + ".entities.yaml"))
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": False, "graph_index_stale": True}
 
