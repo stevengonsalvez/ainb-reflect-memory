@@ -637,7 +637,21 @@ When done, summarize what you captured. Do NOT touch the queue file — the drai
     result_summary=$(printf '%s' "$out_json" | python3 -c 'import json,sys; r=json.load(sys.stdin).get("result","")[:200]; print(r.replace(chr(10)," | "))' 2>/dev/null || echo "")
     cost=$(printf '%s' "$out_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("total_cost_usd","?"))' 2>/dev/null || echo "?")
     terminal_reason=$(printf '%s' "$out_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("terminal_reason",""))' 2>/dev/null || echo "")
-    num_turns=$(printf '%s' "$out_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("num_turns",0))' 2>/dev/null || echo "0")
+    # num_turns drives the no-op guard below, so coerce it to an integer here
+    # rather than trusting the raw JSON type: an explicit null prints "None"
+    # and a float prints "0.0", neither of which compares equal to "0".
+    num_turns=$(printf '%s' "$out_json" | python3 -c '
+import json,sys
+try:
+    v = json.load(sys.stdin).get("num_turns", 0)
+except Exception:
+    v = 0
+try:
+    v = int(float(v))
+except (TypeError, ValueError):
+    v = 0
+print(v)' 2>/dev/null || echo "0")
+    [[ "$num_turns" =~ ^[0-9]+$ ]] || num_turns=0
     # Extract every token bucket the result envelope reports — for the budget
     # check AND the cost timeline (W3 cached-vs-uncached split).
     local input_tok output_tok cache_read cache_creation usage_line
@@ -737,6 +751,33 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         bump_retry_count "$transcript" >/dev/null
         record_cost_event 1 "$transcript" "fail_exit_${exit_code}" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
         return 1
+    fi
+
+    # Silent-success guard: exit 0, is_error=false, yet the writer completed
+    # zero turns, so the model was never reached. The shape that caused this:
+    # an unresolved slash command ("Unknown command: /reflect"), which claude -p
+    # reports as a clean exit. Scoring that "ok" let an 11-day outage read as a
+    # healthy drain, and because "ok" drops the entry, every transcript it
+    # touched was discarded unharvested.
+    #
+    # Keyed on num_turns alone, NOT on tokens: a zero-turn run that still
+    # reports session-bootstrap cache tokens is the same no-op, and ANDing the
+    # two would silently restore the data-losing path.
+    #
+    # This is an INSTALL-level fault, not a transcript-level one: the plugin's
+    # skills are unregistered, so every entry fails identically and retrying
+    # this transcript can never help. Charging it to the entry's retry budget
+    # would poison the whole queue in 3 drains (the pre-flight check at the top
+    # of process_entry archives at retry >= MAX_RETRIES), and for skill_refresh
+    # entries -- whose retry key is a long-lived SKILL.md path, never reset --
+    # it would kill that skill's refresh permanently. So: no retry bump. Return
+    # 3 and let the caller abort the run with the entry still queued, mirroring
+    # how a closed quota gate defers the rest of the queue.
+    if [[ "$num_turns" == "0" ]]; then
+        log "    NO-OP RUN (exit=0, turns=0, tokens=${total_tokens}): model never reached: ${result_summary}"
+        emit_error error drain_unknown_command "drain produced no model turns; plugin command likely unresolved: ${result_summary}" "$transcript"
+        record_cost_event 1 "$transcript" "fail_unknown_command" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        return 3
     fi
 
     log "    OK turns=${num_turns} cost=\$${cost} tokens=${total_tokens} result=${result_summary}"
@@ -866,6 +907,17 @@ main() {
                 # Permanent skip (stale / poison) — also remove from queue.
                 perm=$((perm + 1))
                 printf '%s\n' "$line" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("transcript_path",""))' >> "$processed_list_file"
+                ;;
+            3)
+                # Install-level fault (plugin command unresolved). Every
+                # remaining entry would fail the same way, so stop the run and
+                # leave the whole queue intact: no processed_list entry (the
+                # entry keeps its place), no retry bump (nothing to retry
+                # against until the install is repaired). Same shape as the
+                # quota-gate defer above.
+                fail=$((fail + 1))
+                log "aborting run: unresolved plugin command is an install-level fault, not a transcript fault; queue left intact for replay once the install is fixed"
+                break
                 ;;
             *)
                 # Retryable failure — remove from its current position and
