@@ -1778,6 +1778,13 @@ def parse_learnings_output(json_blob: str) -> list[Learning]:
     results: list[Learning] = []
     for chunk in chunks:
         fm, body = parse_frontmatter(chunk)
+        # nano-graphrag's naive arm splits a long document into similarity-ranked
+        # chunks and emits only each chunk's raw body; the `---` frontmatter block
+        # rides the head chunk alone. Continuation chunks parse to empty
+        # frontmatter, carry no document identity, and would otherwise surface as
+        # orphan `?`/"(no title)" entries — drop them rather than misattribute.
+        if not fm:
+            continue
         archived = None
         m = ARCHIVE_HEADER_RE.search(body)
         if m:
