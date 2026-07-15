@@ -100,6 +100,45 @@ def test_archiving_a_queued_member_dissolves_a_too_small_group(kb: KnowledgeBase
     assert kb.compress_queue()["groups"] == []
 
 
+def test_move_pair_rolls_back_note_when_sidecar_move_fails(kb: KnowledgeBase, tmp_path: Path):
+    md = kb.repo / "documents" / "alpha-auth-jwt-fix.md"
+    side = kb.repo / "documents" / "alpha-auth-jwt-fix.entities.yaml"
+    md_dst = tmp_path / "moved.md"
+    bad_side_dst = tmp_path / "missing-dir" / "x.entities.yaml"  # parent absent -> OSError
+    with pytest.raises(OSError):
+        kb._move_pair(md, md_dst, side, bad_side_dst)
+    # the note move must have been rolled back so the pair stays together
+    assert md.exists()
+    assert not md_dst.exists()
+    assert side.exists()
+
+
+def test_search_index_built_once_and_survives_reload(kb: KnowledgeBase):
+    assert [r["id"] for r in kb.search("redis session cache")][:1] == ["beta-cache-redis-decision"]
+    # mutate, which invalidates the cache; the index rebuilds on next search
+    kb.set_confidence("beta-cache-redis-decision", "medium")
+    assert any(r["id"] == "beta-cache-redis-decision" for r in kb.search("redis"))
+
+
+def test_index_is_stale_flags_edits_after_reindex(tmp_path: Path, monkeypatch):
+    from reflect_kb.cli import learnings_cli as lc
+    repo = tmp_path / "kb"
+    (repo / "documents").mkdir(parents=True)
+    (repo / "nano_graphrag_cache").mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(repo))
+    graphml = repo / "nano_graphrag_cache" / "graph_chunk_entity_relation.graphml"
+    graphml.write_text("<graphml/>")
+    doc = repo / "documents" / "n.md"
+    doc.write_text("---\nid: n\ntitle: n\n---\nbody\n")
+    import os
+    # doc newer than the cache -> stale
+    os.utime(graphml, (1, 1))
+    assert lc.index_is_stale() is True
+    # cache newer than the doc -> fresh
+    os.utime(doc, (1, 1))
+    assert lc.index_is_stale() is False
+
+
 # ---------- HTTP request guard (loopback + CSRF) ----------
 
 @pytest.fixture()
