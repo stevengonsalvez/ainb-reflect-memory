@@ -53,6 +53,25 @@ def ensure_repo_exists():
     (repo / CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
 
+def index_is_stale() -> bool:
+    """True when a document is newer than the built graph cache.
+
+    After a manual edit, `reflect add` failure, or a `reflect serve` mutation,
+    the nano-graphrag cache lags documents/ until `reflect reindex`. This lets
+    `search` warn instead of silently returning stale results.
+    """
+    repo = get_repo_path()
+    cache = repo / CACHE_DIR / "graph_chunk_entity_relation.graphml"
+    docs = repo / DOCUMENTS_DIR
+    if not cache.exists() or not docs.exists():
+        return False
+    try:
+        newest_doc = max((p.stat().st_mtime for p in docs.glob("*.md")), default=0.0)
+        return newest_doc > cache.stat().st_mtime
+    except OSError:
+        return False
+
+
 def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
     if not content.startswith("---"):
         return {}, content
@@ -158,6 +177,14 @@ def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
         search_query += f" tags: {tags}"
     if category:
         search_query += f" category: {category}"
+
+    # Warn (to stderr, so JSON stdout stays clean) when the graph cache lags
+    # documents/ — e.g. after a `reflect serve` archive/confidence edit.
+    if index_is_stale():
+        console.print(
+            "[yellow]⚠ index is older than documents/ — results may be stale. "
+            "Run `reflect reindex` to refresh.[/yellow]"
+        )
 
     start = time.monotonic()
     try:
