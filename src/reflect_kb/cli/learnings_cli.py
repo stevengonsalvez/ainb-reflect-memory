@@ -53,21 +53,36 @@ def ensure_repo_exists():
     (repo / CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
 
-def index_is_stale() -> bool:
-    """True when a document is newer than the built graph cache.
+def documents_mtime(repo: Path) -> float:
+    """Newest mtime across documents/ — INCLUDING the directory itself.
 
-    After a manual edit, `reflect add` failure, or a `reflect serve` mutation,
-    the nano-graphrag cache lags documents/ until `reflect reindex`. This lets
-    `search` warn instead of silently returning stale results.
+    The directory stat matters: adding or removing a note (as `reflect serve`
+    archive/restore does) bumps the dir mtime even though it doesn't raise the
+    max mtime of the surviving *.md files. Shared by the serve read-cache
+    invalidation and index_is_stale so both agree on "documents/ changed".
+    """
+    docs = repo / DOCUMENTS_DIR
+    if not docs.exists():
+        return 0.0
+    stamps = [docs.stat().st_mtime]
+    stamps += [p.stat().st_mtime for p in docs.glob("*.md")]
+    return max(stamps)
+
+
+def index_is_stale() -> bool:
+    """True when documents/ has changed since the graph cache was built.
+
+    After a manual edit, `reflect add` failure, or a `reflect serve` mutation
+    (including archive/restore), the nano-graphrag cache lags documents/ until
+    `reflect reindex`. This lets `search` warn instead of silently returning
+    stale results.
     """
     repo = get_repo_path()
     cache = repo / CACHE_DIR / "graph_chunk_entity_relation.graphml"
-    docs = repo / DOCUMENTS_DIR
-    if not cache.exists() or not docs.exists():
+    if not cache.exists():
         return False
     try:
-        newest_doc = max((p.stat().st_mtime for p in docs.glob("*.md")), default=0.0)
-        return newest_doc > cache.stat().st_mtime
+        return documents_mtime(repo) > cache.stat().st_mtime
     except OSError:
         return False
 
