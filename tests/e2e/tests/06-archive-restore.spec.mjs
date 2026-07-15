@@ -15,7 +15,7 @@ test('archive a memory then restore it', async ({ page }) => {
 
   await page.getByTestId('archive-btn').click();
   await expect(page.getByTestId('toast')).toContainText('Archived');
-  await expect(page.getByTestId('card')).toHaveCount(6);
+  await expect(page.getByTestId('card')).toHaveCount(FIXTURE_SIZE - 1);
 
   await page.getByTestId('tab-archived').click();
   const row = page.locator('[data-testid="arch-row"][data-id="orphan-untagged-note"]');

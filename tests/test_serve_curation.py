@@ -120,7 +120,8 @@ def test_search_index_built_once_and_survives_reload(kb: KnowledgeBase):
     assert any(r["id"] == "beta-cache-redis-decision" for r in kb.search("redis"))
 
 
-def test_index_is_stale_flags_edits_after_reindex(tmp_path: Path, monkeypatch):
+def test_index_is_stale_flags_edits(tmp_path: Path, monkeypatch):
+    import os
     from reflect_kb.cli import learnings_cli as lc
     repo = tmp_path / "kb"
     (repo / "documents").mkdir(parents=True)
@@ -130,13 +131,35 @@ def test_index_is_stale_flags_edits_after_reindex(tmp_path: Path, monkeypatch):
     graphml.write_text("<graphml/>")
     doc = repo / "documents" / "n.md"
     doc.write_text("---\nid: n\ntitle: n\n---\nbody\n")
-    import os
-    # doc newer than the cache -> stale
-    os.utime(graphml, (1, 1))
-    assert lc.index_is_stale() is True
-    # cache newer than the doc -> fresh
-    os.utime(doc, (1, 1))
+    P = 1_000_000_000
+    # everything at the same instant -> fresh
+    for target in (doc, repo / "documents", graphml):
+        os.utime(target, (P, P))
     assert lc.index_is_stale() is False
+    # a newer document -> stale
+    os.utime(doc, (P + 10, P + 10))
+    assert lc.index_is_stale() is True
+
+
+def test_index_is_stale_after_archive_removes_a_doc(tmp_path: Path, monkeypatch):
+    # Regression: archiving REMOVES a file, which doesn't raise the max mtime of
+    # the survivors — only the documents/ directory mtime catches it.
+    import os
+    from reflect_kb.cli import learnings_cli as lc
+    repo = tmp_path / "kb"
+    shutil.copytree(FIXTURE, repo)
+    (repo / "nano_graphrag_cache").mkdir(parents=True, exist_ok=True)
+    graphml = repo / "nano_graphrag_cache" / "graph_chunk_entity_relation.graphml"
+    graphml.write_text("<graphml/>")
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(repo))
+    P = 1_000_000_000
+    for p in (repo / "documents").glob("*.md"):
+        os.utime(p, (P, P))
+    os.utime(repo / "documents", (P, P))
+    os.utime(graphml, (P, P))
+    assert lc.index_is_stale() is False
+    KnowledgeBase(repo).archive("orphan-untagged-note")   # bumps the dir mtime to now
+    assert lc.index_is_stale() is True
 
 
 # ---------- HTTP request guard (loopback + CSRF) ----------
