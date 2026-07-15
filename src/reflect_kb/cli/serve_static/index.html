@@ -592,8 +592,9 @@ async function archiveMemory() {
 /* ---------- tiny markdown ---------- */
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function md(src) {
-  // Line-oriented renderer: fenced code blocks stay verbatim (escaped);
-  // consecutive list items wrap in <ul>; blank lines break paragraphs.
+  // Line-oriented renderer for a deliberately small markdown subset: fenced
+  // code blocks (verbatim, escaped), h1-h3, blockquotes, and flat bullet lists
+  // in <ul>; blank lines break paragraphs. h4+ and nested lists render flat.
   const inline = s => esc(s)
     .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
     .replace(/`([^`]+)`/g,"<code>$1</code>")
