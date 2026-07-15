@@ -100,6 +100,68 @@ def test_archiving_a_queued_member_dissolves_a_too_small_group(kb: KnowledgeBase
     assert kb.compress_queue()["groups"] == []
 
 
+def test_move_pair_rolls_back_note_when_sidecar_move_fails(kb: KnowledgeBase, tmp_path: Path):
+    md = kb.repo / "documents" / "alpha-auth-jwt-fix.md"
+    side = kb.repo / "documents" / "alpha-auth-jwt-fix.entities.yaml"
+    md_dst = tmp_path / "moved.md"
+    bad_side_dst = tmp_path / "missing-dir" / "x.entities.yaml"  # parent absent -> OSError
+    with pytest.raises(OSError):
+        kb._move_pair(md, md_dst, side, bad_side_dst)
+    # the note move must have been rolled back so the pair stays together
+    assert md.exists()
+    assert not md_dst.exists()
+    assert side.exists()
+
+
+def test_search_index_built_once_and_survives_reload(kb: KnowledgeBase):
+    assert [r["id"] for r in kb.search("redis session cache")][:1] == ["beta-cache-redis-decision"]
+    # mutate, which invalidates the cache; the index rebuilds on next search
+    kb.set_confidence("beta-cache-redis-decision", "medium")
+    assert any(r["id"] == "beta-cache-redis-decision" for r in kb.search("redis"))
+
+
+def test_index_is_stale_flags_edits(tmp_path: Path, monkeypatch):
+    import os
+    from reflect_kb.cli import learnings_cli as lc
+    repo = tmp_path / "kb"
+    (repo / "documents").mkdir(parents=True)
+    (repo / "nano_graphrag_cache").mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(repo))
+    graphml = repo / "nano_graphrag_cache" / "graph_chunk_entity_relation.graphml"
+    graphml.write_text("<graphml/>")
+    doc = repo / "documents" / "n.md"
+    doc.write_text("---\nid: n\ntitle: n\n---\nbody\n")
+    P = 1_000_000_000
+    # everything at the same instant -> fresh
+    for target in (doc, repo / "documents", graphml):
+        os.utime(target, (P, P))
+    assert lc.index_is_stale() is False
+    # a newer document -> stale
+    os.utime(doc, (P + 10, P + 10))
+    assert lc.index_is_stale() is True
+
+
+def test_index_is_stale_after_archive_removes_a_doc(tmp_path: Path, monkeypatch):
+    # Regression: archiving REMOVES a file, which doesn't raise the max mtime of
+    # the survivors — only the documents/ directory mtime catches it.
+    import os
+    from reflect_kb.cli import learnings_cli as lc
+    repo = tmp_path / "kb"
+    shutil.copytree(FIXTURE, repo)
+    (repo / "nano_graphrag_cache").mkdir(parents=True, exist_ok=True)
+    graphml = repo / "nano_graphrag_cache" / "graph_chunk_entity_relation.graphml"
+    graphml.write_text("<graphml/>")
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(repo))
+    P = 1_000_000_000
+    for p in (repo / "documents").glob("*.md"):
+        os.utime(p, (P, P))
+    os.utime(repo / "documents", (P, P))
+    os.utime(graphml, (P, P))
+    assert lc.index_is_stale() is False
+    KnowledgeBase(repo).archive("orphan-untagged-note")   # bumps the dir mtime to now
+    assert lc.index_is_stale() is True
+
+
 # ---------- HTTP request guard (loopback + CSRF) ----------
 
 @pytest.fixture()

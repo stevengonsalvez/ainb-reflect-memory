@@ -44,6 +44,7 @@ import yaml
 from reflect_kb.cli.learnings_cli import (
     CACHE_DIR,
     DOCUMENTS_DIR,
+    documents_mtime,
     get_repo_path,
     parse_frontmatter,
 )
@@ -148,26 +149,37 @@ class KnowledgeBase:
         self._docs: List[Dict[str, Any]] = []
         self._bodies: Dict[str, str] = {}
         self._entities: Dict[str, Dict[str, Any]] = {}
+        # Search index, built once per load (not per query).
+        self._tokens: Dict[str, Counter] = {}
+        self._df: Counter = Counter()
+        self._avg_len: float = 1.0
 
     @property
     def repo(self) -> Path:
         return self._repo
 
     def _dir_mtime(self) -> float:
-        docs = self._repo / DOCUMENTS_DIR
-        if not docs.exists():
-            return 0.0
-        stamps = [docs.stat().st_mtime]
-        stamps += [p.stat().st_mtime for p in docs.glob("*.md")]
-        return max(stamps)
+        return documents_mtime(self._repo)
 
-    def _ensure_loaded(self) -> None:
+    def _snapshot(self) -> Dict[str, Any]:
+        """Load if documents/ changed, then capture a consistent generation of
+        the read model UNDER the lock. _load reassigns these attributes (never
+        mutates them in place), so the captured references stay coherent even if
+        another thread reloads afterward — closing the read-tear where a reader
+        could otherwise mix _docs from one generation with _tokens from the next.
+        """
         with self._lock:
             stamp = self._dir_mtime()
-            if stamp == self._loaded_at:
-                return
-            self._load()
-            self._loaded_at = stamp
+            if stamp != self._loaded_at:
+                self._load()
+                self._loaded_at = stamp
+            return {
+                "docs": self._docs, "bodies": self._bodies, "entities": self._entities,
+                "tokens": self._tokens, "df": self._df, "avg_len": self._avg_len,
+            }
+
+    def _ensure_loaded(self) -> None:
+        self._snapshot()
 
     def _load(self) -> None:
         docs_dir = self._repo / DOCUMENTS_DIR
@@ -217,56 +229,63 @@ class KnowledgeBase:
         self._docs = docs
         self._bodies = bodies
         self._entities = sidecars
+        self._build_search_index()
+
+    def _build_search_index(self) -> None:
+        """Tokenize the corpus once per load so search() is O(query), not O(corpus)."""
+        tokens: Dict[str, Counter] = {}
+        df: Counter = Counter()
+        for d in self._docs:
+            toks = Counter(_tokenize(
+                d["title"] + " " + " ".join(d["tags"]) + " " + self._bodies.get(d["id"], "")
+            ))
+            # weight title/tag hits by counting them a second time
+            for t in _tokenize(d["title"] + " " + " ".join(d["tags"])):
+                toks[t] += 2
+            tokens[d["id"]] = toks
+            for term in toks:
+                df[term] += 1
+        self._tokens = tokens
+        self._df = df
+        self._avg_len = (sum(sum(t.values()) for t in tokens.values()) / len(tokens)
+                         if tokens else 1.0)
 
     # ---------- public API ----------
 
     def memories(self) -> List[Dict[str, Any]]:
-        self._ensure_loaded()
         out = []
-        for d in self._docs:
+        for d in self._snapshot()["docs"]:
             item = dict(d)
             item["browse_score"] = round(self._browse_score(d), 3)
             out.append(item)
         return out
 
     def memory(self, doc_id: str) -> Optional[Dict[str, Any]]:
-        self._ensure_loaded()
-        for d in self._docs:
+        snap = self._snapshot()
+        for d in snap["docs"]:
             if d["id"] == doc_id:
                 item = dict(d)
-                item["body"] = self._bodies.get(doc_id, "")
-                item["entities"] = self._entities.get(doc_id, {}).get("entities", [])
-                item["relationships"] = self._entities.get(doc_id, {}).get("relationships", [])
-                item["related"] = self._related(d)
+                item["body"] = snap["bodies"].get(doc_id, "")
+                item["entities"] = snap["entities"].get(doc_id, {}).get("entities", [])
+                item["relationships"] = snap["entities"].get(doc_id, {}).get("relationships", [])
+                item["related"] = self._related(d, snap["docs"])
                 item["browse_score"] = round(self._browse_score(d), 3)
                 return item
         return None
 
     def search(self, query: str, limit: int = 25) -> List[Dict[str, Any]]:
-        """BM25-lite lexical ranking (semantic engine is optional-extra only)."""
-        self._ensure_loaded()
+        """BM25-lite lexical ranking over the index built in _load (semantic
+        engine is optional-extra only)."""
         terms = _tokenize(query)
         if not terms:
             return []
-        n_docs = max(len(self._docs), 1)
-        df: Counter = Counter()
-        doc_tokens: Dict[str, Counter] = {}
-        for d in self._docs:
-            toks = Counter(_tokenize(
-                d["title"] * 1 + " " + " ".join(d["tags"]) + " " + self._bodies.get(d["id"], "")
-            ))
-            # weight title/tag hits by counting them again
-            for t in _tokenize(d["title"] + " " + " ".join(d["tags"])):
-                toks[t] += 2
-            doc_tokens[d["id"]] = toks
-            for term in set(toks):
-                df[term] += 1
-
-        avg_len = sum(sum(t.values()) for t in doc_tokens.values()) / n_docs
+        snap = self._snapshot()
+        docs, tokens, df, avg_len = snap["docs"], snap["tokens"], snap["df"], snap["avg_len"]
+        n_docs = max(len(docs), 1)
         k1, b = 1.4, 0.6
         scored = []
-        for d in self._docs:
-            toks = doc_tokens[d["id"]]
+        for d in docs:
+            toks = tokens.get(d["id"], Counter())
             dl = sum(toks.values()) or 1
             score = 0.0
             for term in terms:
@@ -285,11 +304,12 @@ class KnowledgeBase:
 
     def graph(self) -> Dict[str, Any]:
         """Two-layer graph: memory nodes + entity nodes, weighted edges."""
-        self._ensure_loaded()
+        snap = self._snapshot()
+        docs, entities = snap["docs"], snap["entities"]
         nodes: Dict[str, Dict[str, Any]] = {}
         edges: List[Dict[str, Any]] = []
 
-        for d in self._docs:
+        for d in docs:
             nid = "m:" + d["id"]
             nodes[nid] = {
                 "id": nid, "label": d["title"], "kind": "memory",
@@ -297,8 +317,8 @@ class KnowledgeBase:
                 "doc": d["id"], "score": self._browse_score(d),
             }
         entity_types: Dict[str, str] = {}
-        for d in self._docs:
-            side = self._entities.get(d["id"], {})
+        for d in docs:
+            side = entities.get(d["id"], {})
             for e in side.get("entities", []):
                 name = str(e.get("name", "")).strip()
                 if not name:
@@ -328,11 +348,11 @@ class KnowledgeBase:
         return {"nodes": list(nodes.values()), "edges": edges}
 
     def stats(self) -> Dict[str, Any]:
-        self._ensure_loaded()
-        conf = Counter(d["confidence"] for d in self._docs)
-        types = Counter(d["type"] for d in self._docs)
-        scopes = Counter(d["scope"] for d in self._docs)
-        tags = Counter(t for d in self._docs for t in d["tags"])
+        docs = self._snapshot()["docs"]
+        conf = Counter(d["confidence"] for d in docs)
+        types = Counter(d["type"] for d in docs)
+        scopes = Counter(d["scope"] for d in docs)
+        tags = Counter(t for d in docs for t in d["tags"])
         ops: Counter = Counter()
         errors = 0
         metrics_path = self._repo / "metrics.jsonl"
@@ -346,7 +366,7 @@ class KnowledgeBase:
                 if rec.get("error"):
                     errors += 1
         return {
-            "documents": len(self._docs),
+            "documents": len(docs),
             "repo": str(self._repo),
             "confidence": dict(conf),
             "types": dict(types.most_common()),
@@ -354,7 +374,7 @@ class KnowledgeBase:
             "top_tags": dict(tags.most_common(20)),
             "metrics_ops": dict(ops),
             "metrics_errors": errors,
-            "with_sidecars": sum(1 for d in self._docs if d["entity_count"]),
+            "with_sidecars": sum(1 for d in docs if d["entity_count"]),
         }
 
     # ---------- curation (mutations, local backend only) ----------
@@ -373,8 +393,7 @@ class KnowledgeBase:
 
     def _doc_paths(self, doc_id: str) -> Optional[tuple[Path, Optional[Path]]]:
         """Return (md_path, sidecar_path|None) for a live doc, or None."""
-        self._ensure_loaded()
-        for d in self._docs:
+        for d in self._snapshot()["docs"]:
             if d["id"] == doc_id:
                 md = self._repo / DOCUMENTS_DIR / d["file"]
                 sidecar = md.parent / (md.stem + ".entities.yaml")
@@ -387,6 +406,28 @@ class KnowledgeBase:
         tmp = path.with_name(path.name + ".tmp")
         tmp.write_text(text)
         tmp.replace(path)
+
+    @staticmethod
+    def _move_pair(md_src: Path, md_dst: Path,
+                   side_src: Optional[Path], side_dst: Path) -> None:
+        """Move a note and, if present, its sidecar together.
+
+        If the sidecar move fails, roll the note move back so the pair is never
+        left half-moved (a note in archived/ with its sidecar still in documents/
+        or vice-versa).
+        """
+        moving_sidecar = side_src is not None and side_src.exists()
+        # Guard the sidecar destination too (the note dest is checked by callers),
+        # so we never silently overwrite orphan sidecar debris.
+        if moving_sidecar and side_dst.exists():
+            raise MutationError(f"destination sidecar already exists: {side_dst.name}")
+        md_src.replace(md_dst)
+        if moving_sidecar:
+            try:
+                side_src.replace(side_dst)
+            except OSError:
+                md_dst.replace(md_src)
+                raise
 
     def archive(self, doc_id: str) -> Dict[str, Any]:
         """Soft-archive: move note + sidecar out of documents/ into archived/.
@@ -407,9 +448,8 @@ class KnowledgeBase:
             dest_dir.mkdir(parents=True, exist_ok=True)
             if (dest_dir / md.name).exists():
                 raise MutationError(f"archive already contains {md.name}")
-            md.replace(dest_dir / md.name)
-            if sidecar:
-                sidecar.replace(dest_dir / sidecar.name)
+            self._move_pair(md, dest_dir / md.name,
+                            sidecar, dest_dir / (md.stem + ".entities.yaml"))
             self._dequeue_from_compress(doc_id)
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": True, "graph_index_stale": True}
@@ -433,10 +473,9 @@ class KnowledgeBase:
             docs_dir.mkdir(parents=True, exist_ok=True)
             if (docs_dir / src.name).exists():
                 raise MutationError(f"a live note already occupies {src.name}")
-            src.replace(docs_dir / src.name)
             sidecar = adir / (src.stem + ".entities.yaml")
-            if sidecar.exists():
-                sidecar.replace(docs_dir / (src.stem + ".entities.yaml"))
+            self._move_pair(src, docs_dir / src.name,
+                            sidecar, docs_dir / (src.stem + ".entities.yaml"))
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": False, "graph_index_stale": True}
 
@@ -572,11 +611,12 @@ class KnowledgeBase:
             overlap = 1.0 + 0.5 * hits
         return conf * recency * overlap
 
-    def _related(self, d: Dict[str, Any], limit: int = 6) -> List[Dict[str, Any]]:
+    def _related(self, d: Dict[str, Any], docs: List[Dict[str, Any]],
+                 limit: int = 6) -> List[Dict[str, Any]]:
         mine_tags = set(d["tags"])
         mine_ents = set(d["entity_names"])
         scored = []
-        for other in self._docs:
+        for other in docs:
             if other["id"] == d["id"]:
                 continue
             s = 3 * len(mine_tags & set(other["tags"])) + len(mine_ents & set(other["entity_names"]))

@@ -53,6 +53,40 @@ def ensure_repo_exists():
     (repo / CACHE_DIR).mkdir(parents=True, exist_ok=True)
 
 
+def documents_mtime(repo: Path) -> float:
+    """Newest mtime across documents/ — INCLUDING the directory itself.
+
+    The directory stat matters: adding or removing a note (as `reflect serve`
+    archive/restore does) bumps the dir mtime even though it doesn't raise the
+    max mtime of the surviving *.md files. Shared by the serve read-cache
+    invalidation and index_is_stale so both agree on "documents/ changed".
+    """
+    docs = repo / DOCUMENTS_DIR
+    if not docs.exists():
+        return 0.0
+    stamps = [docs.stat().st_mtime]
+    stamps += [p.stat().st_mtime for p in docs.glob("*.md")]
+    return max(stamps)
+
+
+def index_is_stale() -> bool:
+    """True when documents/ has changed since the graph cache was built.
+
+    After a manual edit, `reflect add` failure, or a `reflect serve` mutation
+    (including archive/restore), the nano-graphrag cache lags documents/ until
+    `reflect reindex`. This lets `search` warn instead of silently returning
+    stale results.
+    """
+    repo = get_repo_path()
+    cache = repo / CACHE_DIR / "graph_chunk_entity_relation.graphml"
+    if not cache.exists():
+        return False
+    try:
+        return documents_mtime(repo) > cache.stat().st_mtime
+    except OSError:
+        return False
+
+
 def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
     if not content.startswith("---"):
         return {}, content
@@ -158,6 +192,14 @@ def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
         search_query += f" tags: {tags}"
     if category:
         search_query += f" category: {category}"
+
+    # Warn (to stderr, so JSON stdout stays clean) when the graph cache lags
+    # documents/ — e.g. after a `reflect serve` archive/confidence edit.
+    if index_is_stale():
+        console.print(
+            "[yellow]⚠ index is older than documents/ — results may be stale. "
+            "Run `reflect reindex` to refresh.[/yellow]"
+        )
 
     start = time.monotonic()
     try:

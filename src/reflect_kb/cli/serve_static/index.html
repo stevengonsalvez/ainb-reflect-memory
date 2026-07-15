@@ -592,20 +592,40 @@ async function archiveMemory() {
 /* ---------- tiny markdown ---------- */
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 function md(src) {
-  const blocks = src.split(/```/);
+  // Line-oriented renderer for a deliberately small markdown subset: fenced
+  // code blocks (verbatim, escaped), h1-h3, blockquotes, and flat bullet lists
+  // in <ul>; blank lines break paragraphs. h4+ and nested lists render flat.
+  const inline = s => esc(s)
+    .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
+    .replace(/`([^`]+)`/g,"<code>$1</code>")
+    .replace(/\[([^\]]+)\]\((https?[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
   let out = "";
-  blocks.forEach((b,i) => {
-    if (i%2) { out += `<pre><code>${esc(b.replace(/^\w+\n/,""))}</code></pre>`; return; }
-    out += esc(b)
-      .replace(/^### (.*)$/gm,"<h3>$1</h3>")
-      .replace(/^## (.*)$/gm,"<h2>$1</h2>")
-      .replace(/^# (.*)$/gm,"<h1>$1</h1>")
-      .replace(/^&gt; (.*)$/gm,"<blockquote>$1</blockquote>")
-      .replace(/\*\*([^*]+)\*\*/g,"<b>$1</b>")
-      .replace(/`([^`]+)`/g,"<code>$1</code>")
-      .replace(/^[-*] (.*)$/gm,"<li>$1</li>")
-      .replace(/\[([^\]]+)\]\((https?[^)]+)\)/g,'<a href="$2" target="_blank">$1</a>')
-      .replace(/\n\n+/g,"<br><br>");
+  src.split(/```/).forEach((block, i) => {
+    if (i % 2) { out += `<pre><code>${esc(block.replace(/^\w+\n/,""))}</code></pre>`; return; }
+    let inList = false, para = [];
+    const flushPara = () => { if (para.length) { out += `<p>${inline(para.join(" "))}</p>`; para = []; } };
+    const flushList = () => { if (inList) { out += "</ul>"; inList = false; } };
+    for (const raw of block.split("\n")) {
+      const t = raw.trim();
+      if (/^[-*] /.test(t)) {
+        flushPara();
+        if (!inList) { out += "<ul>"; inList = true; }
+        out += `<li>${inline(t.slice(2))}</li>`;
+      } else if (/^#{1,3} /.test(t)) {
+        flushPara(); flushList();
+        const level = t.match(/^#+/)[0].length;
+        out += `<h${level}>${inline(t.replace(/^#+ /,""))}</h${level}>`;
+      } else if (/^> /.test(t)) {
+        flushPara(); flushList();
+        out += `<blockquote>${inline(t.slice(2))}</blockquote>`;
+      } else if (t === "") {
+        flushPara(); flushList();
+      } else {
+        flushList();
+        para.push(t);
+      }
+    }
+    flushPara(); flushList();
   });
   return out;
 }
