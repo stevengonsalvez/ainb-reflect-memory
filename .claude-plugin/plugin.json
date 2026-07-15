@@ -5,6 +5,18 @@
   "author": {
     "name": "stevengonsalvez"
   },
+  "skills": [
+    "./plugin/skills/reflect/",
+    "./plugin/skills/recall/",
+    "./plugin/skills/ingest/",
+    "./plugin/skills/consolidate/",
+    "./plugin/skills/status/",
+    "./plugin/skills/errors-ack/",
+    "./plugin/skills/cost/",
+    "./plugin/skills/corpus/",
+    "./plugin/skills/export/",
+    "./plugin/skills/slots/"
+  ],
   "hooks": {
     "SessionStart": [
       {
