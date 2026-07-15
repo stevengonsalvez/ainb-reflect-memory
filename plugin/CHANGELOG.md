@@ -4,6 +4,41 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.1] - 2026-07-15 - Drain outage: skills never registered
+
+Patch. Packaging + observability. The drain had captured **nothing since
+04 Jul**: it ran on schedule, exited clean, and logged `outcome: ok,
+tokens: 0` every time. Two independent defects.
+
+**The outage.** 5.1.0 dropped the `skills` array from the root
+`.claude-plugin/plugin.json`, on the theory that skills auto-discover. They
+only auto-discover at `<plugin-root>/skills/`, and reflect keeps its skills at
+`<plugin-root>/plugin/skills/`. The plugin therefore registered **Skills (0)**
+while its 13 hooks kept loading normally, so recall and enqueue looked healthy
+while every `claude -p "/reflect ..."` the drain issued came back
+`Unknown command: /reflect`. Restored the array (all 10 skills; the pre-5.1.0
+array listed only 7 and predated the `reflect-status` -> `status` rename).
+
+**The reason it hid for 11 days.** An unresolved command makes `claude -p`
+exit 0 with no turns. The drain scored that `ok`, and `ok` drops the entry from
+the queue, so each no-op run discarded its transcript unharvested.
+
+A zero-turn run is now `fail_unknown_command`. It is treated as an
+install-level fault rather than a transcript-level one: the drain aborts the
+run and leaves the queue **fully intact**, with no per-entry retry bump. That
+distinction matters. Charging the fault to each entry's retry budget would
+archive the whole queue to `poison-reflections.jsonl` within 3 drains (roughly
+40 minutes at the default debounce), and for `skill_refresh` entries, whose
+retry key is a long-lived `SKILL.md` path that is never reset, it would kill
+that skill's refresh permanently.
+
+Both paths are covered by tests that drive the real drain against a stub
+`claude` and fail against the old code, including a five-consecutive-drain
+outage that must not consume the queue. No drain prompt or command form
+changed: `/reflect` was correct all along.
+
+Also aligns all four plugin manifests on one version, with a parity test.
+
 ## [5.2.0] — 2026-07-10 — Persistent model daemon (recall RAM fix)
 
 Minor. Engine. Every `reflect search/embed/rerank` used to cold-boot torch
