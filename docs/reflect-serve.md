@@ -38,6 +38,11 @@ tailscale serve --bg --https 8942 http://127.0.0.1:8942
 
 Light and dark themes throughout.
 
+Note bodies render through a small built-in markdown subset (h1-h3, fenced code,
+blockquotes, and flat bullet lists) — no external markdown library:
+
+![Note detail drawer rendering a bulleted list in the note body](./reflect-serve/img/note-body-lists.png)
+
 ### Weightages surfaced
 
 | Weightage | Where |
