@@ -85,7 +85,7 @@ def ingest(root: str, kinds: str, dry_run: bool, no_reindex: bool):
     for detail in result.error_details:
         console.print(f"[red]error:[/red] {detail}")
 
-    if not dry_run and not no_reindex and (result.imported or result.deduped):
+    if not dry_run and not no_reindex and result.imported:
         console.print("[bold]Reindexing knowledge base…[/bold]")
         from reflect_kb.cli.learnings_cli import reindex
 
