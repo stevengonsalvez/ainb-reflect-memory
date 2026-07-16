@@ -30,6 +30,8 @@ from __future__ import annotations
 
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -37,6 +39,26 @@ import traceback
 from pathlib import Path
 
 _HOOK_NAME = "pre_llm_recall"
+
+# Credential shapes redacted before any exception text is persisted. Mirrors
+# plugin/scripts/silent_fail.py's scrubber (the real write_last_event scrubs;
+# the inline fallback below must too) plus a long-run catch-all.
+_SECRET_RE = [
+    re.compile(r"(?i)Authorization\s*:\s*(?:Bearer\s+)?[A-Za-z0-9._\-/+]{8,}"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-/+]{8,}"),
+    re.compile(r"sk-(?:ant-)?[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"gh[pos]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9\-]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"[A-Za-z0-9_\-]{32,}"),
+]
+
+
+def _scrub(text: str) -> str:
+    """Best-effort credential masking for persisted exception text."""
+    for rx in _SECRET_RE:
+        text = rx.sub("***REDACTED***", text)
+    return text
 
 # Best-effort import of the shared silent-fail helpers. When the shim runs from
 # its deployed location (~/.hermes/skills/reflect/shim/) the plugin scripts dir
@@ -55,7 +77,7 @@ except ImportError:
                 "event": event,
                 "hook": hook_name,
                 "kind": kind,
-                "detail": str(detail)[:500],
+                "detail": _scrub(str(detail))[:500],
                 "ts": time.time(),
             }
             tmp = path.with_suffix(".json.tmp")
@@ -130,7 +152,7 @@ def _recall_runner() -> list[str]:
     """
     override = os.environ.get("REFLECT_RECALL_RUNNER")
     if override:
-        return override.split()
+        return shlex.split(override)
     return ["uv", "run", "--script"]
 
 
@@ -149,14 +171,18 @@ def _run_recall(prompt: str, domain_hint: str, timeout: float) -> str:
     if script is None:
         raise FileNotFoundError("recall.py not found in deploy or repo layout")
 
-    cmd = [*_recall_runner(), str(script), prompt,
+    cmd = [*_recall_runner(), str(script),
            "--format", "fleet-context",
            "--include-quarantined",
-           "--max-tokens", "2000",
            "--limit", "5",
-           "--no-followup"]
+           "--no-followup",
+           "--no-gap-log"]
     if domain_hint:
         cmd.extend(["--domain-hint", domain_hint])
+    # `--` stops option parsing so a prompt starting with '-' is still taken as
+    # the positional query. render_fleet_context owns the token budget, so no
+    # --max-tokens here (a second cap would trim below the intended 5 items).
+    cmd.extend(["--", prompt])
 
     child_env = {**os.environ, "REFLECT_HARNESS": "hermes"}
     proc = subprocess.run(

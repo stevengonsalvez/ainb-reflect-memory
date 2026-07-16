@@ -38,6 +38,26 @@ from pathlib import Path
 
 _HOOK_NAME = "post_llm_capture"
 
+# Credential shapes redacted before any exception text is persisted. Mirrors
+# plugin/scripts/silent_fail.py's scrubber (the real write_last_event scrubs;
+# the inline fallback below must too) plus a long-run catch-all.
+_SECRET_RE = [
+    re.compile(r"(?i)Authorization\s*:\s*(?:Bearer\s+)?[A-Za-z0-9._\-/+]{8,}"),
+    re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-/+]{8,}"),
+    re.compile(r"sk-(?:ant-)?[A-Za-z0-9_\-]{20,}"),
+    re.compile(r"gh[pos]_[A-Za-z0-9]{20,}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9\-]{20,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"[A-Za-z0-9_\-]{32,}"),
+]
+
+
+def _scrub(text: str) -> str:
+    """Best-effort credential masking for persisted exception text."""
+    for rx in _SECRET_RE:
+        text = rx.sub("***REDACTED***", text)
+    return text
+
 # Best-effort import of the shared silent-fail helpers; inline fallback that
 # matches silent_fail.write_last_event's on-disk shape when the plugin scripts
 # dir is not deployed alongside the shim.
@@ -54,7 +74,7 @@ except ImportError:
                 "event": event,
                 "hook": hook_name,
                 "kind": kind,
-                "detail": str(detail)[:500],
+                "detail": _scrub(str(detail))[:500],
                 "ts": time.time(),
             }
             tmp = path.with_suffix(".json.tmp")
