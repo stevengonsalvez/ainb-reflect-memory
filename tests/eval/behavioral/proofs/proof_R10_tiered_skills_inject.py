@@ -74,12 +74,20 @@ import pytest
 # Resolve the REAL hook + real scripts dir the same way the deployed layout
 # places them (this proof lives at reflect-kb/tests/eval/behavioral/proofs/).
 _HERE = Path(__file__).resolve().parent
-_REPO_ROOT = _HERE.parents[4]  # proofs/ -> behavioral -> eval -> tests -> reflect-kb -> repo
-_PLUGIN = _REPO_ROOT / "plugins" / "reflect"
+_PLUGIN_CANDIDATES = [
+    _HERE.parents[3] / "plugin",
+    _HERE.parents[4] / "plugins" / "reflect",
+    _HERE.parents[4].parent / "plugins" / "reflect",
+]
+_PLUGIN = next(
+    (p for p in _PLUGIN_CANDIDATES
+     if (p / "skills" / "recall" / "hooks" / "session_start_recall.py").exists()),
+    _PLUGIN_CANDIDATES[0],
+)
 HOOK = _PLUGIN / "skills" / "recall" / "hooks" / "session_start_recall.py"
 SCRIPTS = _PLUGIN / "scripts"
 if not HOOK.exists():
-    raise RuntimeError(f"session_start_recall.py not found at {HOOK}")
+    raise RuntimeError(f"session_start_recall.py not found; tried {[str(p) for p in _PLUGIN_CANDIDATES]}")
 
 # The fake-uv learnings-tier marker. Distinct from any skill token so its
 # presence/absence cleanly distinguishes which tier answered.

@@ -63,6 +63,7 @@ import pytest
 # dir is the repo root where plugins/ sits alongside reflect-kb/.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]
 _PLUGIN_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "scripts",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "scripts",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "scripts",
 ]

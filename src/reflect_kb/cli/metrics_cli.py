@@ -40,6 +40,28 @@ def _render_window_table(window: metrics_stats.WindowStats) -> Table:
     if window.top_tags:
         for tag, count in window.top_tags:
             table.add_row(f"  tag: {tag}", str(count))
+    if window.fleet_shadow_events:
+        table.add_row("fleet shadow recalls", str(window.fleet_shadow_events))
+        table.add_row(
+            "  avg hits",
+            "—" if window.fleet_shadow_avg_hits is None
+            else f"{window.fleet_shadow_avg_hits:.2f}",
+        )
+        table.add_row(
+            "  avg latency (ms)",
+            "—" if window.fleet_shadow_avg_latency_ms is None
+            else f"{window.fleet_shadow_avg_latency_ms:.1f}",
+        )
+        table.add_row(
+            "  p95 latency (ms)",
+            "—" if window.fleet_shadow_p95_latency_ms is None
+            else f"{window.fleet_shadow_p95_latency_ms:.1f}",
+        )
+        table.add_row(
+            "  avg tokens",
+            "—" if window.fleet_shadow_avg_tokens is None
+            else f"{window.fleet_shadow_avg_tokens:.0f}",
+        )
     return table
 
 

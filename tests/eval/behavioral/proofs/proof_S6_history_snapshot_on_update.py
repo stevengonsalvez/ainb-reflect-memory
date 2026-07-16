@@ -43,9 +43,14 @@ import pytest
 
 # Locate the real reflect plugin scripts (../../../../../plugins/reflect/scripts
 # from this proof file under reflect-kb/tests/eval/behavioral/proofs/).
-_REPO_ROOT = Path(__file__).resolve().parents[5]
-_SCRIPTS = _REPO_ROOT / "plugins" / "reflect" / "scripts"
-assert _SCRIPTS.is_dir(), f"reflect scripts dir not found: {_SCRIPTS}"
+_PROOF = Path(__file__).resolve()
+_SCRIPTS_CANDIDATES = [
+    _PROOF.parents[4] / "plugin" / "scripts",
+    _PROOF.parents[5] / "plugins" / "reflect" / "scripts",
+    _PROOF.parents[4].parent / "plugins" / "reflect" / "scripts",
+]
+_SCRIPTS = next((p for p in _SCRIPTS_CANDIDATES if p.is_dir()), _SCRIPTS_CANDIDATES[0])
+assert _SCRIPTS.is_dir(), f"reflect scripts dir not found; tried {[str(p) for p in _SCRIPTS_CANDIDATES]}"
 sys.path.insert(0, str(_SCRIPTS))
 
 import reflect_db  # noqa: E402  (real production module under test)

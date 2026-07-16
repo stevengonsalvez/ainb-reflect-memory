@@ -30,6 +30,14 @@ class WindowStats:
     p50_latency_ms: Optional[float]
     p95_latency_ms: Optional[float]
     top_tags: list[tuple[str, int]] = field(default_factory=list)
+    # Fleet shadow-recall telemetry (op="fleet_shadow_recall"), emitted by the
+    # hermes pre_llm_recall shim in shadow mode. Absent (0 / None) on fleets
+    # that never ran the shadow shim.
+    fleet_shadow_events: int = 0
+    fleet_shadow_avg_hits: Optional[float] = None
+    fleet_shadow_avg_latency_ms: Optional[float] = None
+    fleet_shadow_p95_latency_ms: Optional[float] = None
+    fleet_shadow_avg_tokens: Optional[float] = None
 
 
 @dataclass
@@ -97,6 +105,12 @@ def _bucket(records: list[dict[str, Any]], label: str) -> WindowStats:
     latencies: list[float] = []
     tag_counts: Counter[str] = Counter()
 
+    # Fleet shadow-recall accumulators (op="fleet_shadow_recall").
+    fleet_events = 0
+    fleet_hits: list[float] = []
+    fleet_latencies: list[float] = []
+    fleet_tokens: list[float] = []
+
     for r in records:
         op = r.get("op")
         if op == "recall":
@@ -110,8 +124,24 @@ def _bucket(records: list[dict[str, Any]], label: str) -> WindowStats:
             for tag in r.get("tags") or []:
                 if isinstance(tag, str) and tag:
                     tag_counts[tag] += 1
+        elif op == "fleet_shadow_recall":
+            fleet_events += 1
+            hits = r.get("hits")
+            if isinstance(hits, (int, float)):
+                fleet_hits.append(float(hits))
+            lat = r.get("latency_ms")
+            if isinstance(lat, (int, float)):
+                fleet_latencies.append(float(lat))
+            tok = r.get("tokens_est")
+            if isinstance(tok, (int, float)):
+                fleet_tokens.append(float(tok))
 
     latencies.sort()
+    fleet_latencies.sort()
+
+    def _avg(values: list[float]) -> Optional[float]:
+        return (sum(values) / len(values)) if values else None
+
     return WindowStats(
         label=label,
         total_events=len(records),
@@ -121,6 +151,11 @@ def _bucket(records: list[dict[str, Any]], label: str) -> WindowStats:
         p50_latency_ms=_percentile(latencies, 50),
         p95_latency_ms=_percentile(latencies, 95),
         top_tags=tag_counts.most_common(10),
+        fleet_shadow_events=fleet_events,
+        fleet_shadow_avg_hits=_avg(fleet_hits),
+        fleet_shadow_avg_latency_ms=_avg(fleet_latencies),
+        fleet_shadow_p95_latency_ms=_percentile(fleet_latencies, 95),
+        fleet_shadow_avg_tokens=_avg(fleet_tokens),
     )
 
 

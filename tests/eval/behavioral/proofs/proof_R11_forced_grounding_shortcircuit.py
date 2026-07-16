@@ -69,6 +69,7 @@ import pytest
 # checkout.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]
 _HOOK_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "skills" / "recall" / "hooks",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "skills" / "recall" / "hooks",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "skills" / "recall" / "hooks",
 ]

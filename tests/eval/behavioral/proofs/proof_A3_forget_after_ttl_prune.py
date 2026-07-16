@@ -39,6 +39,7 @@ import pytest
 # reflect-kb checkout with the plugin as a sibling dir.
 _HERE = Path(__file__).resolve()
 _CANDIDATES = [
+    _HERE.parents[4] / "plugin" / "scripts",
     _HERE.parents[5] / "plugins" / "reflect" / "scripts",
     _HERE.parents[4].parent / "plugins" / "reflect" / "scripts",
 ]

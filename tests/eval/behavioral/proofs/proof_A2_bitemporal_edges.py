@@ -75,10 +75,12 @@ import yaml
 # reflect-kb/; the fallback handles a reflect-kb-as-root checkout.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]
 _SCRIPTS_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "scripts",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "scripts",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "scripts",
 ]
 _RECALL_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "skills" / "recall" / "scripts",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "skills" / "recall" / "scripts",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "skills" / "recall" / "scripts",
 ]

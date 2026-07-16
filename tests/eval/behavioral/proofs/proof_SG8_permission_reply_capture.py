@@ -82,6 +82,7 @@ import pytest
 # this runs from either checkout layout.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]  # reflect-kb/tests/eval/behavioral
 _PLUGIN_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect",
 ]

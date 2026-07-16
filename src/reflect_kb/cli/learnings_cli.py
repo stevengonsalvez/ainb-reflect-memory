@@ -512,18 +512,28 @@ def add(file_path: str, entities: Optional[str], force: bool):
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")
 
-    # Keep QMD in sync (if installed). `qmd embed` only embeds files QMD
-    # already tracks, so we MUST run `qmd update` first to rescan the
-    # collection for the newly-added file — otherwise new docs are visible
-    # to GraphRAG but silently missing from QMD. Graceful if qmd absent.
-    #
-    # Both subprocesses are synchronous and can take ~10s-2min on large
-    # KBs. Echo progress so a user running `learnings add` isn't staring
-    # at a silent terminal.
+    _sync_qmd()
+
+    console.print(f"[green]Added:[/green] {dest}")
+    console.print(f"[dim]Title: {frontmatter['title']}[/dim]")
+    console.print(f"[dim]Category: {frontmatter['category']}[/dim]")
+    if entity_count:
+        console.print(f"[dim]Entities: {entity_count}, Relationships: {rel_count}[/dim]")
+
+
+def _sync_qmd() -> None:
+    """Keep QMD in sync with the KB (if installed).
+
+    `qmd embed` only embeds files QMD already tracks, so we MUST run
+    `qmd update` first to rescan the collection for newly-added files —
+    otherwise new docs are visible to GraphRAG but silently missing from
+    QMD. Graceful if qmd absent.
+
+    Both subprocesses are synchronous and can take ~10s-2min on large KBs.
+    Echo progress so a user isn't staring at a silent terminal.
+    """
     if shutil.which("qmd"):
         try:
-            import subprocess
-
             console.print("[dim]QMD: rescanning collection…[/dim]")
             subprocess.run(["qmd", "update"], capture_output=True, timeout=30)
             console.print("[dim]QMD: embedding new docs (up to 2 min on large KBs)…[/dim]")
@@ -531,12 +541,6 @@ def add(file_path: str, entities: Optional[str], force: bool):
             console.print("[green]QMD index + embeddings updated[/green]")
         except Exception as e:
             console.print(f"[yellow]Warning: QMD sync failed: {e}[/yellow]")
-
-    console.print(f"[green]Added:[/green] {dest}")
-    console.print(f"[dim]Title: {frontmatter['title']}[/dim]")
-    console.print(f"[dim]Category: {frontmatter['category']}[/dim]")
-    if entity_count:
-        console.print(f"[dim]Entities: {entity_count}, Relationships: {rel_count}[/dim]")
 
 
 @cli.command()
@@ -639,6 +643,8 @@ def reindex(force: bool):
 
     if entity_total:
         console.print(f"[dim]Entities: {entity_total}, Relationships: {rel_total}[/dim]")
+
+    _sync_qmd()
 
 
 @cli.command("generate-sidecars")
@@ -959,11 +965,13 @@ def errors_append(severity, source, kind, message, context):
 from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group  # noqa: E402
 from reflect_kb.cli.issues_cli import issues_group as _issues_group  # noqa: E402
 from reflect_kb.cli.serve_cli import serve_command as _serve_command  # noqa: E402
+from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group  # noqa: E402
 
 cli.add_command(_metrics_group)
 cli.add_command(errors_group)
 cli.add_command(_issues_group)
 cli.add_command(_serve_command)
+cli.add_command(_fleet_group)
 
 
 if __name__ == "__main__":

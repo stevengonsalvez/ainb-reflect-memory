@@ -81,6 +81,7 @@ from pathlib import Path
 # resolves recall.py, so this runs from either repo layout.
 _BEHAVIORAL_DIR = Path(__file__).resolve().parents[1]  # reflect-kb/tests/eval/behavioral
 _RECALL_SCRIPTS_CANDIDATES = [
+    _BEHAVIORAL_DIR.parents[2] / "plugin" / "skills" / "recall" / "scripts",
     _BEHAVIORAL_DIR.parents[3] / "plugins" / "reflect" / "skills" / "recall" / "scripts",
     _BEHAVIORAL_DIR.parents[2].parent / "plugins" / "reflect" / "skills" / "recall" / "scripts",
 ]

@@ -1,0 +1,3 @@
+{"id": "disc-1", "agent": "research-bot", "ts": "2026-06-01T12:00:00+00:00", "context": "Investigating slow cold starts.", "problem": "Lambda cold starts exceed 4s on first invoke.", "solution": "Enable provisioned concurrency and trim the deployment bundle to shrink init time.", "tags": ["research", "performance"], "confidence": 0.8}
+{"id": "disc-2", "agent": "backend", "ts": "2026-06-02T09:30:00+00:00", "problem": "Duplicate writes under concurrent ingest.", "solution": "Serialize the read-modify-write behind an flock.", "tags": ["coding", "concurrency"], "confidence": 0.9, "retracted": false}
+{"id": "disc-3", "agent": "backend", "problem": "Retracted finding kept for provenance.", "solution": "Should not be imported.", "tags": ["coding"], "retracted": true}

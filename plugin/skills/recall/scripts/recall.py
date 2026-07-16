@@ -126,6 +126,23 @@ PROOF_COUNT_ALPHA = _env_alpha("RECALL_PROOF_ALPHA", 0.1)
 # per-project sharding lands, its shard-scoped path should pass
 # current_project="" so affinity only kicks in on the global path.
 PROJECT_AFFINITY_ALPHA = _env_alpha("RECALL_PROJECT_ALPHA", 0.2)
+# F3: domain-affinity boost strength. When a --domain-hint is supplied,
+# learnings whose `domain` frontmatter equals it get bounded_boost(1.0, α) =
+# 1 + α/2 (default +10%); a different domain, an unset hint, or a domainless
+# note all sit at the neutral 0.5 norm so their score is EXACTLY unchanged —
+# soft affinity mirroring R16's project boost, not hard isolation. Set to 0
+# (env RECALL_DOMAIN_ALPHA, config recall.boost.domain_affinity_alpha) to
+# disable.
+DOMAIN_ALPHA = _env_alpha("RECALL_DOMAIN_ALPHA", 0.2)
+# F3: authority-tier boost strength — a conservative ±5% (α=0.1) so it breaks
+# ties without overpowering quality/recency. law/promoted notes take the
+# ceiling (norm 1.0), advisory and unknown sit at the neutral 0.5, archived
+# takes the floor (norm 0.0). Env RECALL_AUTHORITY_ALPHA / config
+# recall.boost.authority_alpha; 0 disables.
+AUTHORITY_ALPHA = _env_alpha("RECALL_AUTHORITY_ALPHA", 0.1)
+# F3: authority tier → [0, 1] norm. Unknown/absent tiers land on the neutral
+# 0.5 baseline so the boost collapses to 1.0 for legacy notes.
+AUTHORITY_NORMS = {"law": 1.0, "promoted": 1.0, "advisory": 0.5, "archived": 0.0}
 # SG3: speculative down-rank strength. Idle-triggered reflections are tagged
 # 'speculative' by the drain (the session went quiet rather than ending, so
 # it may resume and overturn the conclusion). Speculative-tagged learnings
@@ -762,6 +779,43 @@ class Learning:
         """
         raw = self.frontmatter.get("project_id") or self.frontmatter.get("project")
         return _normalize_project(raw)
+
+    @property
+    def domain(self) -> str:
+        """F3: the note's domain bucket (fleet importer frontmatter, normalized
+        lowercase) — the key the ``--domain-hint`` affinity boost matches on.
+        "" when absent so non-fleet notes sit at the neutral norm, never
+        penalised."""
+        raw = self.frontmatter.get("domain")
+        if raw is None or isinstance(raw, bool):
+            return ""
+        return str(raw).strip().lower()
+
+    @property
+    def quarantine(self) -> bool:
+        """F3: True when the note is quarantined (fleet-imported content kept
+        out of the claude/codex recall scope until Fleet promotes it).
+
+        Accepts the bool the importer writes and the common truthy strings a
+        hand-edited note might carry; anything else is False (absent → visible).
+        """
+        raw = self.frontmatter.get("quarantine")
+        if isinstance(raw, bool):
+            return raw
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("true", "yes", "1")
+        return bool(raw)
+
+    @property
+    def authority(self) -> str:
+        """F3: the note's authority tier (fleet importer frontmatter,
+        normalized lowercase): ``law``/``promoted`` outrank ``advisory``
+        (neutral), which outranks ``archived``. "" (unknown) sits neutral so
+        legacy notes are unaffected."""
+        raw = self.frontmatter.get("authority")
+        if raw is None or isinstance(raw, bool):
+            return ""
+        return str(raw).strip().lower()
 
     @property
     def learning_type(self) -> str:
@@ -1724,6 +1778,13 @@ def parse_learnings_output(json_blob: str) -> list[Learning]:
     results: list[Learning] = []
     for chunk in chunks:
         fm, body = parse_frontmatter(chunk)
+        # nano-graphrag's naive arm splits a long document into similarity-ranked
+        # chunks and emits only each chunk's raw body; the `---` frontmatter block
+        # rides the head chunk alone. Continuation chunks parse to empty
+        # frontmatter, carry no document identity, and would otherwise surface as
+        # orphan `?`/"(no title)" entries — drop them rather than misattribute.
+        if not fm:
+            continue
         archived = None
         m = ARCHIVE_HEADER_RE.search(body)
         if m:
@@ -1738,6 +1799,7 @@ def rerank(
     now: datetime | None = None,
     ce_scores: dict[str, float] | None = None,
     current_project: str | None = None,
+    domain_hint: str | None = None,
 ) -> list[Learning]:
     """
     D8 + S4 + R8 + R16 + SG3: score = CE × confidence_boost × recency_boost
@@ -1764,7 +1826,7 @@ def rerank(
     Sorts in-place and returns the same list.
     """
     learnings, _ = rerank_with_scores(
-        learnings, query_tags, now, ce_scores, current_project
+        learnings, query_tags, now, ce_scores, current_project, domain_hint
     )
     return learnings
 
@@ -1775,6 +1837,7 @@ def rerank_with_scores(
     now: datetime | None = None,
     ce_scores: dict[str, float] | None = None,
     current_project: str | None = None,
+    domain_hint: str | None = None,
 ) -> tuple[list[Learning], dict[str, float]]:
     """R3: :func:`rerank` + the final per-candidate scores it sorted by.
 
@@ -1812,6 +1875,11 @@ def rerank_with_scores(
                 PROJECT_AFFINITY_ALPHA,
             )
             * bounded_boost(speculative_norm(lrn.tags), SPECULATIVE_ALPHA)
+            # F3: soft domain affinity + authority tier — both neutral-at-0.5
+            # so a hintless query over authority-less notes is byte-identical
+            # to the pre-F3 ordering.
+            * bounded_boost(domain_norm(domain_hint, lrn.domain), DOMAIN_ALPHA)
+            * bounded_boost(authority_norm(lrn.authority), AUTHORITY_ALPHA)
         )
 
     def score(lrn: Learning) -> float:
@@ -1935,6 +2003,27 @@ def project_norm(current_project: str, hit_project: str) -> float:
     return 0.5
 
 
+def domain_norm(domain_hint: str | None, hit_domain: str) -> float:
+    """F3: same-domain match → 1.0 (boost ceiling 1 + α/2); everything else —
+    different domain, no hint, domainless note — sits at the neutral 0.5 so the
+    multiplier is EXACTLY 1.0. Mirrors :func:`project_norm`: there is no
+    below-neutral side, so a cross-domain hit is down-RANKED relative to
+    same-domain ties, never down-SCORED below its R8 baseline."""
+    if not domain_hint:
+        return 0.5
+    hint = domain_hint.strip().lower()
+    if hint and hit_domain and hint == hit_domain:
+        return 1.0
+    return 0.5
+
+
+def authority_norm(authority: str) -> float:
+    """F3: authority tier → [0, 1] boost norm. law/promoted → 1.0, advisory and
+    unknown → neutral 0.5, archived → 0.0. Unknown tiers sit neutral so a note
+    without the field ranks EXACTLY as before."""
+    return AUTHORITY_NORMS.get(authority, 0.5)
+
+
 def confidence_norm(tier: str) -> float:
     """R8: confidence tier → [0, 1]. HIGH=1.0, MEDIUM=0.5 (neutral),
     LOW=0.0; unknown tiers sit at the neutral baseline.
@@ -1970,12 +2059,12 @@ def recency_norm(archived_at: str | None, now: datetime) -> float:
         return 0.5
     try:
         ts = datetime.fromisoformat(archived_at.rstrip("Z"))
+        if ts.tzinfo is not None:
+            ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+        if now.tzinfo is not None:
+            now = now.astimezone(timezone.utc).replace(tzinfo=None)
         days_ago = (now - ts).total_seconds() / 86400.0
-    except (ValueError, TypeError):
-        # TypeError: aware-vs-naive datetime subtraction (one side has a
-        # +00:00 offset). ValueError: malformed ISO string. Either way,
-        # fall back to neutral rather than crashing the rerank over one
-        # bad archive header.
+    except ValueError:
         return 0.5
     return max(0.1, min(1.0, 1.0 - days_ago / RECENCY_WINDOW_DAYS))
 
@@ -2014,6 +2103,18 @@ def proof_count_boost(proof_count: int | None) -> float:
     else:
         proof_norm = 0.5
     return bounded_boost(proof_norm, PROOF_COUNT_ALPHA)
+
+
+def filter_by_quarantine(
+    learnings: list[Learning], include_quarantined: bool
+) -> list[Learning]:
+    """F3: drop quarantined notes (fleet-imported content) from the result set
+    unless ``include_quarantined`` is set. Quarantine keeps fleet memory out of
+    the claude/codex recall scope until Fleet promotes it; the fleet-context
+    renderer opts in so the fleet shadow sees everything."""
+    if include_quarantined:
+        return learnings
+    return [lrn for lrn in learnings if not lrn.quarantine]
 
 
 def filter_by_confidence(learnings: list[Learning], threshold: str) -> list[Learning]:
@@ -2357,6 +2458,107 @@ def render_markdown(
         lines.append(entry)
         used += len(entry)
     return "".join(lines).rstrip() + "\n"
+
+
+# F3: fleet-context injection block. A fleet-lambda hook calls recall in shadow
+# mode and (when promoted to `reflect` mode) injects this block ahead of the
+# LLM turn. BANK-parity budget from fleet-lambda bank_lookup.py: at most
+# TOP_K=5 items, total est-tokens <= MAX_TOKENS_APPROX=2000. The v1 marker is
+# the contract handshake — a consumer keys off it and can refuse an unknown
+# version.
+FLEET_CONTEXT_MAX_ITEMS = 5
+FLEET_CONTEXT_MAX_TOKENS = 2000
+FLEET_CONTEXT_MARKER = "fleet-context/v1"
+# Authority tiers rendered high-to-low; each maps to its subsection heading.
+# Unknown/absent authority falls into the advisory bucket (the neutral tier).
+_FLEET_AUTHORITY_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("law", "### Law (binding)"),
+    ("promoted", "### Promoted memory"),
+    ("advisory", "### Advisory memory"),
+    ("archived", "### Archived (historical)"),
+)
+
+
+def _fleet_authority_bucket(authority: str) -> str:
+    """Map a note's authority tier to its render bucket; unknown → advisory."""
+    return authority if authority in {"law", "promoted", "archived"} else "advisory"
+
+
+def _fleet_source_path(lrn: Learning) -> str:
+    """The note's origin path for provenance in the injection block: the fleet
+    importer's ``source_path`` frontmatter, else ``provenance.source_path``,
+    else "" (rendered as unknown)."""
+    raw = lrn.frontmatter.get("source_path")
+    if not raw:
+        provenance = lrn.frontmatter.get("provenance")
+        if isinstance(provenance, dict):
+            raw = provenance.get("source_path")
+    return str(raw).strip() if raw else ""
+
+
+def render_fleet_context(
+    learnings: list[Learning],
+    query: str,
+    scores: dict[str, float] | None = None,
+    max_items: int = FLEET_CONTEXT_MAX_ITEMS,
+    max_tokens: int = FLEET_CONTEXT_MAX_TOKENS,
+) -> str:
+    """F3: authority-labelled injection block under the BANK-parity budget.
+
+    Groups the top items into authority subsections (law → promoted → advisory
+    → archived), one entry each carrying title, key insight, source path and
+    score. Hard caps: at most ``max_items`` entries and ``max_tokens`` estimated
+    tokens (``_est_tokens``) for the WHOLE block — items are dropped from the
+    tail until both hold, so the block never overflows the budget. Returns ""
+    on an empty result set.
+    """
+    if not learnings:
+        return ""
+    header = (
+        f"## Reflect Recall (fleet memory, advisory) <!-- {FLEET_CONTEXT_MARKER} -->"
+    )
+    subhead = f"_Query: {query[:80]}_"
+
+    score_map = scores or {}
+
+    def _entry_lines(lrn: Learning) -> list[str]:
+        insight = lrn.key_insight or lrn.title
+        score = score_map.get(_learning_key(lrn), 0.0)
+        lines = [f"- **{lrn.title}** — {insight}"]
+        src = _fleet_source_path(lrn) or "(unknown)"
+        lines.append(f"  source: {src} · score: {score:.3f}")
+        return lines
+
+    # Keep the top `max_items`, then bucket by authority preserving rank order.
+    picked = learnings[:max_items]
+    buckets: dict[str, list[Learning]] = {}
+    for lrn in picked:
+        buckets.setdefault(_fleet_authority_bucket(lrn.authority), []).append(lrn)
+
+    def _assemble(items: list[Learning]) -> str:
+        chosen = set(id(l) for l in items)
+        out = [header, subhead, ""]
+        for tier, heading in _FLEET_AUTHORITY_SECTIONS:
+            tier_items = [l for l in buckets.get(tier, []) if id(l) in chosen]
+            if not tier_items:
+                continue
+            out.append(heading)
+            for lrn in tier_items:
+                out.extend(_entry_lines(lrn))
+            out.append("")
+        return "\n".join(out).rstrip() + "\n"
+
+    # Byte-budget: drop tail items until the assembled block fits. `picked` is
+    # already rank-ordered, so the lowest-scored items go first.
+    items = list(picked)
+    while items:
+        block = _assemble(items)
+        if _est_tokens(block) <= max_tokens:
+            return block
+        items.pop()
+    # Even a single top item overflows the budget — emit the header alone so a
+    # consumer still sees the v1 marker rather than a truncated mid-entry block.
+    return "\n".join([header, subhead]).rstrip() + "\n"
 
 
 def render_json(
@@ -2708,6 +2910,8 @@ def recall(
     followup_track: bool = True,
     scope_global: bool = False,
     all_branches: bool = False,
+    domain_hint: str | None = None,
+    include_quarantined: bool = False,
 ) -> RecallResult:
     """High-level API: query → ranked Learnings. Never raises on KB issues.
 
@@ -2735,6 +2939,10 @@ def recall(
     diagnostic (a second, different search within 30s returning a disjoint
     result set = recall didn't satisfy); ``followup_track=False`` (ANDed
     with the RECALL_FOLLOWUP env gate) opts a synthetic-query caller out.
+    F3: ``domain_hint`` applies the soft domain-affinity boost (see
+    :func:`domain_norm`); ``include_quarantined`` keeps fleet-imported notes in
+    the result set (default excludes them — quarantine isolates fleet memory
+    from the claude/codex scope).
     """
     mmr_on = MMR_ENABLED and use_mmr  # R3
     # R6: parse a natural-language date phrase out of the query up front so
@@ -2812,7 +3020,9 @@ def recall(
             learnings, rank_scores = rerank_with_scores(
                 learnings, query_tags, ce_scores=ce_scores,
                 current_project=rerank_project,  # R15×R16
+                domain_hint=domain_hint,  # F3
             )
+            learnings = filter_by_quarantine(learnings, include_quarantined)  # F3
             learnings = filter_by_confidence(learnings, confidence.upper())
             learnings, gated = apply_ood_gate(learnings, query, min_overlap)  # R7
             if mmr_on:  # R3
@@ -2964,7 +3174,9 @@ def recall(
     learnings, rank_scores = rerank_with_scores(
         learnings, query_tags, ce_scores=ce_scores,
         current_project=rerank_project,  # R15×R16
+        domain_hint=domain_hint,  # F3
     )
+    learnings = filter_by_quarantine(learnings, include_quarantined)  # F3
     learnings = filter_by_confidence(learnings, confidence.upper())
     learnings, gated = apply_ood_gate(learnings, query, min_overlap)  # R7
     if mmr_on:  # R3
@@ -3107,7 +3319,13 @@ def main() -> int:
     ap.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     ap.add_argument("--mode", choices=["naive", "local", "global"], default=DEFAULT_MODE)
     ap.add_argument("--confidence", choices=["HIGH", "MEDIUM", "LOW", "ANY"], default="ANY")
-    ap.add_argument("--format", choices=["markdown", "json"], default="markdown")
+    ap.add_argument(
+        "--format", choices=["markdown", "json", "fleet-context"],
+        default="markdown",
+        help="F3: 'fleet-context' emits the authority-labelled injection block "
+             "(≤5 items, ≤2000 est tokens, fleet-context/v1 marker) a "
+             "fleet-lambda hook consumes; implies --include-quarantined unless "
+             "overridden.")
     ap.add_argument("--max-chars", type=int, default=DEFAULT_MAX_CHARS)
     ap.add_argument("--no-cache", action="store_true")
     ap.add_argument("--cache-ttl", type=int, default=DEFAULT_CACHE_TTL)
@@ -3152,6 +3370,21 @@ def main() -> int:
                          "to the project-level shard, pooling every branch of "
                          "the current project. Default scope is the current "
                          "branch only (worktree isolation).")
+    ap.add_argument("--domain-hint", default=None, metavar="DOMAIN",
+                    help="F3: soft-boost learnings whose `domain` frontmatter "
+                         "matches (e.g. personal, coding, ops). Neutral for "
+                         "non-matching / domainless notes — never hard "
+                         "isolation (env RECALL_DOMAIN_ALPHA tunes strength).")
+    ap.add_argument("--include-quarantined", dest="include_quarantined",
+                    action="store_true", default=None,
+                    help="F3: include quarantined (fleet-imported) notes in the "
+                         "result set. Default excludes them from the "
+                         "claude/codex scope; --format fleet-context includes "
+                         "them unless you pass --no-include-quarantined.")
+    ap.add_argument("--no-include-quarantined", dest="include_quarantined",
+                    action="store_false",
+                    help="F3: force-exclude quarantined notes even under "
+                         "--format fleet-context.")
     args = ap.parse_args()
 
     if args.corpus or args.corpus_rebuild:  # M7
@@ -3181,6 +3414,13 @@ def main() -> int:
 
     query_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
 
+    # F3: fleet-context is the fleet shadow's view — it sees quarantined memory
+    # by default. Every other format keeps quarantine isolating fleet notes
+    # from the claude/codex scope. An explicit --(no-)include-quarantined wins.
+    include_quarantined = args.include_quarantined
+    if include_quarantined is None:
+        include_quarantined = args.format == "fleet-context"
+
     result = recall(
         query,
         limit=args.limit,
@@ -3199,6 +3439,8 @@ def main() -> int:
         followup_track=not args.no_followup,
         scope_global=args.scope_global,  # R15
         all_branches=args.all_branches,  # A6
+        domain_hint=args.domain_hint,  # F3
+        include_quarantined=include_quarantined,  # F3
     )
 
     if result.error:
@@ -3229,6 +3471,12 @@ def main() -> int:
             result.learnings, query, args.mode, result.ood_gated,
             temporal=result.temporal, field=field,
         ))
+    elif args.format == "fleet-context":  # F3
+        out = render_fleet_context(
+            result.learnings, query, scores=result.scores,
+        )
+        if out:
+            print(out)
     else:
         out = render_markdown(
             result.learnings, query, max_chars=args.max_chars, field=field,
