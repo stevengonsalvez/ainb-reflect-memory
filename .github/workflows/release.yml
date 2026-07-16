@@ -70,6 +70,12 @@ jobs:
           echo "tag=v$CANON" >> "$GITHUB_OUTPUT"
           echo "Canonical version: $CANON (tag v$CANON)"
 
+      # Refuse to tag a package that breaks consumers: every manifest-referenced
+      # hook file and every external-contract asset (statusline timeline helper,
+      # adapter-deployed reflect.toml) must exist at its contracted path.
+      - name: Verify packaged asset contract
+        run: python3 scripts/check_plugin_contract.py
+
       - name: Skip if tag already exists
         id: guard
         run: |

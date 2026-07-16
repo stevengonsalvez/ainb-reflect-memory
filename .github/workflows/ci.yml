@@ -184,6 +184,15 @@ jobs:
           sys.exit(1 if failed else 0)
           '
 
+      # Every ${CLAUDE_PLUGIN_ROOT} path in the manifests must exist (+x for
+      # .sh), plus the external-contract files consumed outside the manifests
+      # (statusline timeline helper, adapter-deployed reflect.toml). Guards
+      # against layout refactors shipping a package that silently breaks
+      # consumers — v5.2.1 moved reflect_timeline.sh and every statusline
+      # lost the reflect dashboard with no error anywhere.
+      - name: verify packaged asset contract
+        run: python3 scripts/check_plugin_contract.py
+
   # ---------------------------------------------------------------------------
   # Fleet / recall regression guards (Phase 5).
   #
