@@ -2061,6 +2061,8 @@ def recency_norm(archived_at: str | None, now: datetime) -> float:
         ts = datetime.fromisoformat(archived_at.rstrip("Z"))
         if ts.tzinfo is not None:
             ts = ts.astimezone(timezone.utc).replace(tzinfo=None)
+        if now.tzinfo is not None:
+            now = now.astimezone(timezone.utc).replace(tzinfo=None)
         days_ago = (now - ts).total_seconds() / 86400.0
     except ValueError:
         return 0.5

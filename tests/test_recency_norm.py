@@ -10,7 +10,7 @@ recency, while genuinely malformed strings still degrade to 0.5.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -38,6 +38,15 @@ def test_recent_scores_near_one(offset):
 @pytest.mark.parametrize("offset", ["", "Z", "+00:00", "+05:30"])
 def test_old_scores_below_half(offset):
     assert recency_norm(_old(offset), NOW) < 0.5
+
+
+@pytest.mark.parametrize("now", [
+    datetime(2026, 7, 14, 12, 0, 0, tzinfo=timezone.utc),
+    datetime(2026, 7, 14, 17, 30, 0, tzinfo=timezone(timedelta(hours=5, minutes=30))),
+])
+def test_aware_now_against_naive_archived(now):
+    # Naive archived_at + an AWARE now must not raise (pre-fix: TypeError → 0.5).
+    assert recency_norm((NOW - timedelta(days=1)).isoformat(), now) > 0.9
 
 
 def test_malformed_falls_back_to_neutral():
