@@ -62,6 +62,22 @@ reflect add ./my-solution.md                    # capture a learning (optional -
 reflect search "how did we fix the tokio panic" # hybrid GraphRAG + BM25 recall
 ```
 
+## Memory browser (web UI)
+
+`reflect serve` launches a local web app to browse, search, graph, and curate your knowledge base — no cloud, no auth, loopback only.
+
+```bash
+reflect serve                     # http://127.0.0.1:8377  (KB: $GLOBAL_LEARNINGS_PATH or ~/.learnings)
+reflect serve --port 8942         # pick a port
+reflect serve --repo /path/to/kb  # browse a specific KB
+```
+
+Open the printed URL in a browser on the same machine. Curation is live and edits your local markdown (soft archive/restore, confidence edits, compression queueing); run `reflect reindex` afterward to refresh semantic search. Loopback only — there is no authentication, so do not bind a public interface. To reach it across your tailnet, front it with `tailscale serve --bg --https 8942 http://127.0.0.1:8942`.
+
+![reflect memory browser — memory list](docs/reflect-serve/img/memories-light.png)
+
+Full guide: **[docs/reflect-serve.md](docs/reflect-serve.md)**.
+
 ### Plugin (Claude Code)
 
 The **plugin** (hooks + skills) that wires reflect into your agent harness lives under [`plugin/`](./plugin/). Install it from this repo's marketplace:
