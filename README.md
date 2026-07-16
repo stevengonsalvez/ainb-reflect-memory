@@ -321,6 +321,7 @@ The same topology as the diagram above, component by component:
 | Local store | **QMD** | BM25 lexical index | `~/.cache/qmd/index.sqlite` |
 | Local store | **nano-graphrag** | semantic vectors + entity graph | hnswlib + `.graphml` (per machine) |
 | Shared store | **Postgres** (opt-in) | pgvector + graph + KV, RLS, tenant-scoped | `src/reflect_kb/postgres/` + `supabase/migrations/` |
+| UI | **memory browser** (`reflect serve`) | local web app to browse, search, graph, and curate the KB | `src/reflect_kb/serve.py` — see [docs/reflect-serve.md](./docs/reflect-serve.md) |
 
 **Two version streams — don't confuse them.** The **engine** is the Python
 package `reflect-kb` ([`pyproject.toml`](./pyproject.toml)); the **plugin** that
@@ -335,6 +336,7 @@ The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 
 - 🐘 **[docs/setup.md](./docs/setup.md)** — shared Postgres backend: Supabase setup, secret names, migrations, enabling it, threat model
 - 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
+- 🖥️ **[docs/reflect-serve.md](./docs/reflect-serve.md)** — the memory browser: running it, what each view does, curation model, security
 - 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration
 - 📄 **[LICENSE](./LICENSE)** — MIT
 
