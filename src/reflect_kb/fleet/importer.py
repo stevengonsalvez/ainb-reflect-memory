@@ -344,11 +344,17 @@ def _iter_docs(root: Path, kinds: list[str], result: ImportResult) -> Iterable[_
         md_path = root / "corrections.md"
         if md_path.exists():
             try:
-                for obj in _split_corrections_markdown(md_path.read_text(encoding="utf-8")):
-                    yield _correction_to_doc(obj, str(md_path))
+                sections = _split_corrections_markdown(md_path.read_text(encoding="utf-8"))
             except OSError as exc:
+                sections = []
                 result.errors += 1
                 result.error_details.append(f"{md_path}: {exc}")
+            for obj in sections:
+                try:
+                    yield _correction_to_doc(obj, str(md_path))
+                except Exception as exc:  # noqa: BLE001
+                    result.skipped += 1
+                    result.skipped_details.append(f"{md_path}: {exc}")
         jsonl_path = root / "pending-corrections.jsonl"
         if jsonl_path.exists():
             for line_no, obj in _read_jsonl(jsonl_path, result):

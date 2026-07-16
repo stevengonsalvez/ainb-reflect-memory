@@ -66,7 +66,7 @@ def load_ledger(path: Optional[Path] = None) -> dict:
         data = json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"version": _LEDGER_VERSION, "entries": {}}
-    if not isinstance(data, dict) or "entries" not in data:
+    if not isinstance(data, dict) or not isinstance(data.get("entries"), dict):
         return {"version": _LEDGER_VERSION, "entries": {}}
     return data
 
