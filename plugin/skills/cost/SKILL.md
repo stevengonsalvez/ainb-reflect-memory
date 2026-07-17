@@ -66,7 +66,7 @@ WINDOW="1d"   # ← substitute from the table above
 # Resolve reflect_cost.py robustly across deploy layouts.
 COST_PY=""
 for cand in \
-  "${CLAUDE_PLUGIN_ROOT:-}/scripts/reflect_cost.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/plugin/scripts/reflect_cost.py" \
   $(ls -t "$HOME"/.claude/plugins/cache/*/reflect/*/plugin/scripts/reflect_cost.py "$HOME"/.claude/plugins/cache/*/reflect/*/scripts/reflect_cost.py 2>/dev/null); do
   if [ -n "$cand" ] && [ -f "$cand" ]; then COST_PY="$cand"; break; fi
 done

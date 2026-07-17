@@ -45,7 +45,7 @@ running plugin, else the newest cached version):
 # Resolve kb_export.py.
 EXPORT_PY=""
 for cand in \
-  "${CLAUDE_PLUGIN_ROOT:-}/scripts/kb_export.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/plugin/scripts/kb_export.py" \
   $(ls -t "$HOME"/.claude/plugins/cache/*/reflect/*/plugin/scripts/kb_export.py "$HOME"/.claude/plugins/cache/*/reflect/*/scripts/kb_export.py 2>/dev/null); do
   if [ -n "$cand" ] && [ -f "$cand" ]; then EXPORT_PY="$cand"; break; fi
 done

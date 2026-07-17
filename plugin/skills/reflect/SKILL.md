@@ -85,7 +85,7 @@ Analyze the conversation for **two types** of signals:
 | **MEDIUM** | "perfect", "exactly", "that's right", accepted output | "spent 2 hours", "the docs say X but", "misleading error" |
 | **LOW** | Patterns that worked but not explicitly validated | "seems to work", "so far so good", implicit success |
 
-See `references/signal_patterns.md` for full detection rules.
+See `${CLAUDE_PLUGIN_ROOT}/plugin/references/signal_patterns.md` for full detection rules.
 
 ### Step 2: Classify & Match to Targets (MANDATORY)
 
@@ -108,8 +108,8 @@ existing agent target — do not skip straight to knowledge-note output.
 | Security | `security-agent`, `code-reviewer` |
 | New Skill | Create new skill file (only when no existing skill matches and quality gates pass — see Step 3) |
 
-See `references/agent_mappings.md` for detailed mapping rules.
-See `references/classification_rules.md` for behavioral vs knowledge routing.
+See `${CLAUDE_PLUGIN_ROOT}/plugin/references/agent_mappings.md` for detailed mapping rules.
+See `${CLAUDE_PLUGIN_ROOT}/plugin/references/classification_rules.md` for behavioral vs knowledge routing.
 
 ### Step 2.5: Match Against Existing Skills (BEFORE falling through to memory)
 
@@ -180,12 +180,12 @@ when `.claude/skills/publish/skill.md` is the natural canonical home for them.
 | `tooling-setup` | Dev environment, configs |
 
 **Knowledge note references** (absorbed from compound-docs):
-- `references/docs-solutions-template.md` -- template for project-local
+- `${CLAUDE_PLUGIN_ROOT}/plugin/references/docs-solutions-template.md` -- template for project-local
   `docs/solutions/{category}/{filename}.md` notes with YAML frontmatter
-- `references/critical-patterns.md` -- check for critical patterns that
+- `${CLAUDE_PLUGIN_ROOT}/plugin/references/critical-patterns.md` -- check for critical patterns that
   must always be flagged (auth, data integrity, security)
-- `references/schema.yaml` -- JSON-schema describing valid knowledge notes
-- `assets/learning_template.md` -- canonical template for new learnings
+- `${CLAUDE_PLUGIN_ROOT}/plugin/references/schema.yaml` -- JSON-schema describing valid knowledge notes
+- `${CLAUDE_PLUGIN_ROOT}/plugin/assets/learning_template.md` -- canonical template for new learnings
 
 ### Step 3: Check for NEW Skill Creation
 
@@ -207,12 +207,12 @@ matched and the signal is substantial enough to warrant a new top-level skill.
 - [ ] Verified: Solution actually worked
 - [ ] No duplication: Doesn't exist already
 
-See `references/skill_template.md` for skill creation guidelines.
+See `${CLAUDE_PLUGIN_ROOT}/plugin/references/skill_template.md` for skill creation guidelines.
 
 ### Step 4: Generate Proposals
 
-Present findings using the reflection template at `assets/reflection_template.md`.
-For each knowledge note, use `assets/learning_template.md` to structure the
+Present findings using the reflection template at `${CLAUDE_PLUGIN_ROOT}/plugin/assets/reflection_template.md`.
+For each knowledge note, use `${CLAUDE_PLUGIN_ROOT}/plugin/assets/learning_template.md` to structure the
 individual `.md` file (fields: `id`, `scope`, `confidence`, `learning_type`,
 `source_episodes`, `superseded_by`, `provenance`, plus Problem/Solution/
 Anti-Pattern/Context sections).
@@ -280,7 +280,7 @@ The output must include:
 `.entities.yaml` sidecar file alongside the `.md` file. This is the single
 most important step for knowledge searchability.
 
-**Entity sidecar format** (see `references/knowledge_format.md` for details):
+**Entity sidecar format** (see `${CLAUDE_PLUGIN_ROOT}/plugin/references/knowledge_format.md` for details):
 
 ```yaml
 document_id: lrn-{slug}-{hash6}
@@ -372,7 +372,7 @@ relationships:
 After applying changes, automatically create an episode note.
 Episode notes are raw session snapshots for provenance -- they do NOT require approval.
 
-Use template at `assets/episode_template.md`.
+Use template at `${CLAUDE_PLUGIN_ROOT}/plugin/assets/episode_template.md`.
 
 ## Belief Revision on Ingest (Drain)
 
@@ -492,9 +492,9 @@ python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_cascade.py observe \
   wording survives in `observation_history`.
 - `DELETE` retires non-destructively (`status: retired` + reason). Only when
   the convention demonstrably no longer holds.
-- Observation notes written to disk use `assets/observation_template.md`
+- Observation notes written to disk use `${CLAUDE_PLUGIN_ROOT}/plugin/assets/observation_template.md`
   (frontmatter `type: observation`); raw correction learnings keep
-  `assets/learning_template.md`.
+  `${CLAUDE_PLUGIN_ROOT}/plugin/assets/learning_template.md`.
 
 **Retrieval tier**: observations are a separate tier in `reflect.db`
 (`observations` table). Open-domain queries surface the observation tier

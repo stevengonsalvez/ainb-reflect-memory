@@ -47,7 +47,7 @@ Run the corpus builder via the recall script (no embedding model loads — the
 filter is pure frontmatter logic):
 
 ```bash
-plugins/reflect/skills/recall/scripts/recall.py \
+${CLAUDE_PLUGIN_ROOT}/plugin/skills/recall/scripts/recall.py \
   --corpus auth-subsystem \
   --corpus-filter "tag:auth category:security project:api" \
   --format markdown
@@ -67,7 +67,7 @@ The KB drifts as the user works (new learnings ingested, old ones archived).
 Re-run the saved filter — no need to restate it:
 
 ```bash
-plugins/reflect/skills/recall/scripts/recall.py \
+${CLAUDE_PLUGIN_ROOT}/plugin/skills/recall/scripts/recall.py \
   --corpus auth-subsystem --corpus-rebuild --format json
 ```
 

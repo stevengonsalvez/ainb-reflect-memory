@@ -175,7 +175,7 @@ For each non-duplicate memory, generate:
 **A. Learning note** (`~/.learnings/documents/{id}.md` — flat top-level; the
 CLI chooses this destination):
 
-Use the template at `assets/learning_template.md` for the note structure.
+Use the template at `${CLAUDE_PLUGIN_ROOT}/plugin/assets/learning_template.md` for the note structure.
 Fields preserved: `id`, `scope`, `confidence`, `learning_type`, `source_episodes`,
 `superseded_by` (for revisions), `provenance` (source_tool/path/hash), plus
 Problem / Solution / Anti-Pattern / Context sections.
@@ -249,7 +249,7 @@ Validate before writing:
 python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/validate_sidecar.py "$SIDECAR_PATH"
 ```
 
-See `references/knowledge_format.md` for the full entity/relationship type reference.
+See `${CLAUDE_PLUGIN_ROOT}/plugin/references/knowledge_format.md` for the full entity/relationship type reference.
 
 ### Step 5: Present Summary for Approval
 
