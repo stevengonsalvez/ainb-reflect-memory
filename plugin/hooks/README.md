@@ -71,8 +71,8 @@ learnings (2026-05-31 incident). The drain now defends in depth:
 
 | Control | Env var | Default | Effect |
 |---|---|---|---|
-| Turn cap | `REFLECT_DRAIN_MAX_TURNS` | `8` | Hard mid-run stop (was 25 pre-v4) |
-| Wall-clock cap | `REFLECT_DRAIN_TIMEOUT` | `180` | Per-entry `claude -p` timeout, seconds (was 600 pre-v4) |
+| Turn cap | `REFLECT_DRAIN_MAX_TURNS` | `16` | Hard mid-run stop (was 25 pre-v4) |
+| Wall-clock cap | `REFLECT_DRAIN_TIMEOUT` | `300` | Per-entry `claude -p` timeout, seconds (was 600 pre-v4) |
 | Token-budget poison | `REFLECT_DRAIN_TOKEN_MAX` | `2000000` | Post-hoc: a completed-but-expensive run is archived so it can never be retried |
 | Cascade gate+slice | `REFLECT_DRAIN_CASCADE` | `1` | Skip/slice before any spend (set `0` to disable) |
 | Debounce | `REFLECT_DRAIN_DEBOUNCE_SEC` | `600` | Collapse a burst of session starts to one drain |

@@ -499,8 +499,8 @@ sequenceDiagram
   per-day cap (`REFLECT_DRAIN_DAILY_MAX`, default 20). The daily cap sums
   the `entries` field, so $0 gated skips never consume budget.
 - **Circuit-breaker (v4, defence in depth)**: turn cap
-  (`REFLECT_DRAIN_MAX_TURNS`, **8** — was 25), wall-clock cap
-  (`REFLECT_DRAIN_TIMEOUT`, **180s** — was 600s), and a post-hoc
+  (`REFLECT_DRAIN_MAX_TURNS`, **16**, was 25 then 8), wall-clock cap
+  (`REFLECT_DRAIN_TIMEOUT`, **300s**, was 600s then 180s), and a post-hoc
   token-budget poison (`REFLECT_DRAIN_TOKEN_MAX`, default 2M) so a
   completed-but-expensive run can never be retried. `REFLECT_DISABLED=1`
   is a hard kill switch.
@@ -537,8 +537,8 @@ sequenceDiagram
 | `REFLECT_DRAIN_MAX` | `3` | Max transcripts processed per session-start fire |
 | `REFLECT_DRAIN_DAILY_MAX` | `20` | Hard daily entry cap (sums `entries`; $0 skips excluded) |
 | `REFLECT_DRAIN_MODEL` | `sonnet` | Model alias for `claude -p` (Opus reserved for escalation/synthesis) |
-| `REFLECT_DRAIN_MAX_TURNS` | `8` | Per-`/reflect` LLM turn limit (was 25 pre-v4) |
-| `REFLECT_DRAIN_TIMEOUT` | `180` | Per-entry `claude -p` wall-clock cap, seconds (was 600 pre-v4) |
+| `REFLECT_DRAIN_MAX_TURNS` | `16` | Per-`/reflect` LLM turn limit (was 25 pre-v4, 8 in v4) |
+| `REFLECT_DRAIN_TIMEOUT` | `300` | Per-entry `claude -p` wall-clock cap, seconds (was 600 pre-v4, 180 in v4) |
 | `REFLECT_DRAIN_TOKEN_MAX` | `2000000` | Post-hoc poison: archive a run reporting more total tokens than this |
 | `REFLECT_DRAIN_CASCADE` | `1` | Gate + slice the transcript before `/reflect` (set `0` to disable) |
 | `REFLECT_DRAIN_DEBOUNCE_SEC` | `600` | Min seconds between drain runs (collapse session-start bursts) |
