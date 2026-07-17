@@ -39,10 +39,10 @@
 # REFLECT_DRAIN_DRY_RUN       If "1", don't call claude -p; just log. Default: 0
 # REFLECT_STATE_DIR           State dir.                               Default: ~/.reflect
 # REFLECT_DRAIN_CLAUDE_BIN    Path to claude binary.                  Default: claude (PATH)
-# REFLECT_DRAIN_TIMEOUT       Per-entry claude -p wall-clock cap (s). Default: 180
+# REFLECT_DRAIN_TIMEOUT       Per-entry claude -p wall-clock cap (s). Default: 300
 # REFLECT_DRAIN_TIMEOUT_RETRIES  Timeout/no-output retries before quarantine.
 #                                                                    Default: 1
-# REFLECT_DRAIN_MAX_TURNS     Per-entry claude -p turn budget.        Default: 8
+# REFLECT_DRAIN_MAX_TURNS     Per-entry claude -p turn budget.        Default: 16
 # REFLECT_DRAIN_TOKEN_MAX     Poison a transcript whose run reports   Default: 2000000
 #                             more than this many total tokens.
 # REFLECT_DRAIN_MODEL         Model alias for claude -p (--model).    Default: sonnet
@@ -107,9 +107,20 @@ MAX_RETRIES="${REFLECT_DRAIN_MAX_RETRIES:-3}"
 LOG_MAX_BYTES="${REFLECT_DRAIN_LOG_MAX_BYTES:-10485760}"
 DRY_RUN="${REFLECT_DRAIN_DRY_RUN:-0}"
 CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
-ENTRY_TIMEOUT="${REFLECT_DRAIN_TIMEOUT:-180}"
+# Raised 180 -> 300 alongside MAX_TURNS 8 -> 16: the wall-clock cap must stay
+# above the turn budget's worst case, or a run that would cleanly stop at
+# max_turns (return 2, dropped) instead gets SIGTERMed with no envelope and is
+# quarantined to the poison file. A measured 16-turn write ran ~111s, so 300
+# keeps turns the binding limit with headroom.
+ENTRY_TIMEOUT="${REFLECT_DRAIN_TIMEOUT:-300}"
 TIMEOUT_RETRIES="${REFLECT_DRAIN_TIMEOUT_RETRIES:-1}"
-MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-8}"
+# num_turns counts ASSISTANT messages, not tool calls, so a cap of N permits
+# only ~N/2 tool calls. The writer's minimum honest workflow is ~7 tool calls
+# (read slice, search corpus to dedupe, read template, write .md, write
+# .entities.yaml, reflect add, summarize), so a cap of 8 could never complete
+# it: every real run hit max_turns and wrote nothing while still costing ~$0.6.
+# 16 completes with headroom (measured: 13 turns to a written learning).
+MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-16}"
 TOKEN_MAX="${REFLECT_DRAIN_TOKEN_MAX:-2000000}"
 DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-sonnet}"
 DEBOUNCE_SEC="${REFLECT_DRAIN_DEBOUNCE_SEC:-600}"
