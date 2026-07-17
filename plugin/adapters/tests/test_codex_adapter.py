@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -544,3 +545,54 @@ def test_install_force_replaces_non_pointer_skill_marker(tmp_path):
     assert "replaced non-pointer file" in result.stdout
     body = target.read_text(encoding="utf-8")
     assert codex_adapter.POINTER_MANAGED_BY in body
+
+
+def test_installed_skills_have_no_unresolved_plugin_root(tmp_path):
+    """Codex has no ${CLAUDE_PLUGIN_ROOT}; no copied SKILL.md may rely on it.
+
+    Every installed skill cites its resources via ${CLAUDE_PLUGIN_ROOT}/plugin/
+    ... which resolves on a Claude cache install but is empty under Codex. The
+    adapter must rewrite those anchors (umbrella and per-skill shapes both) to
+    the installed layout, and every rewritten skills/ path must point at a file
+    the same install actually copied. Checked across ALL installed skills, not
+    just reflect, so the per-skill rewrite branch is exercised too.
+    """
+    result = subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stderr
+
+    skills_root = tmp_path / ".codex" / "skills"
+    skill_files = sorted(skills_root.glob("*/SKILL.md"))
+    assert skill_files, "install produced no SKILL.md files"
+
+    checked_paths = 0
+    for skill_md in skill_files:
+        body = skill_md.read_text(encoding="utf-8")
+
+        # Any residual anchor, in ANY parameter-default form, is a failure:
+        # match the prefix, not the exact ${CLAUDE_PLUGIN_ROOT} spelling, so a
+        # valued default like ${CLAUDE_PLUGIN_ROOT:-/x} cannot slip through.
+        residual = re.findall(r"\$\{CLAUDE_PLUGIN_ROOT[^}]*\}", body)
+        assert not residual, (
+            f"{skill_md.parent.name}/SKILL.md still cites {residual}, unresolvable "
+            f"under Codex (the variable is unset)"
+        )
+
+        # Every rewritten path under the install must resolve to a real file.
+        referenced = re.findall(
+            rf"{re.escape(str(skills_root))}/[A-Za-z0-9_-]+/"
+            r"(?:assets|references|scripts|hooks)/[A-Za-z0-9_./-]+",
+            body,
+        )
+        missing = [p for p in referenced if not Path(p).exists()]
+        assert not missing, (
+            f"{skill_md.parent.name}/SKILL.md rewritten path(s) point at files the "
+            f"install did not copy: {missing}"
+        )
+        checked_paths += len(referenced)
+
+    # Guard against a vacuous pass: at least one skill must actually cite
+    # rewritten resource paths, or the assertions above proved nothing.
+    assert checked_paths > 0, "no rewritten resource paths found in any installed skill"

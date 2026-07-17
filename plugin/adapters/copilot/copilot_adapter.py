@@ -365,16 +365,19 @@ class CopilotAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
         """Return the full plugin SKILL.md content with ``managed_by:`` injected.
 
         Copilot's skill loader reads file content directly (no ``source:``
-        dereference). Mirrors :meth:`CodexAdapter._pointer_body`.
+        dereference). Mirrors :meth:`CodexAdapter._pointer_body`. ``dst`` is
+        accepted for interface parity; Copilot does not yet rewrite the
+        ``${CLAUDE_PLUGIN_ROOT}`` resource anchors (see CodexAdapter for the
+        rewrite; the same treatment applies here as a follow-up).
         """
         try:
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
-            return super()._pointer_body(source_skill)
+            return super()._pointer_body(source_skill, dst)
         return _inject_managed_by(text, self.POINTER_MANAGED_BY)
 
     # --- CLI flags -------------------------------------------------------

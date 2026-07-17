@@ -113,16 +113,18 @@ class ClaudeAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
         """Return the full plugin SKILL.md content with ``managed_by:`` injected.
 
         Overrides :meth:`AdapterBase._pointer_body` which produces a
-        pointer-stub. See the module docstring for the rationale.
+        pointer-stub. See the module docstring for the rationale. Claude keeps
+        the upstream ``${CLAUDE_PLUGIN_ROOT}`` anchors verbatim: the runtime
+        sets that variable, so no rewrite is needed.
         """
         try:
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
-            return super()._pointer_body(source_skill)
+            return super()._pointer_body(source_skill, dst)
         return _inject_managed_by(text, self.POINTER_MANAGED_BY)
 
     # --- CLI flags -------------------------------------------------------

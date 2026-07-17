@@ -370,8 +370,13 @@ class AdapterBase:
         Claude). Default implementation does nothing.
         """
 
-    def _pointer_body(self, source_skill: Path) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
         """Render the pointer SKILL.md body using upstream metadata.
+
+        ``dst`` is the install destination; the base renderer ignores it, but
+        harness adapters that must rewrite runtime path anchors into their own
+        installed layout (e.g. Codex, which has no ``${CLAUDE_PLUGIN_ROOT}``)
+        use it to locate the copied resources.
 
         We preserve the upstream ``name`` and ``description`` (instead of
         fabricating them) so each harness's skill UI shows accurate copy.
@@ -434,7 +439,7 @@ class AdapterBase:
                 f"(use --force to replace)"
             )
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(self._pointer_body(src), encoding="utf-8")
+        dst.write_text(self._pointer_body(src, dst), encoding="utf-8")
         if is_foreign:
             return True, f"replaced non-pointer file at {dst}"
         return True, f"wrote pointer {dst}"
