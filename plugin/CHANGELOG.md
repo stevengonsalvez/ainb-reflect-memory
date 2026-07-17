@@ -4,6 +4,55 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.2] - 2026-07-16 - Drain now actually captures: skill paths + turn budget
+
+Patch. Follows 5.2.1, which restored skill registration but left the drain
+running without capturing. Two defects, both proven on real drain runs.
+
+**Skill asset paths never resolved.** Five SKILL.md files cited their assets,
+scripts, and references with bare relative paths (`assets/learning_template.md`)
+that resolve against the skill's own directory. Those directories live at the
+plugin root, so the paths pointed nowhere. A model reading them does not error,
+it goes hunting: every drain run burned about three turns guessing
+`plugin/skills/reflect/assets/`, falling back to `find`, then reading the real
+path. Two skills (export, cost) were worse, invoking scripts at
+`${CLAUDE_PLUGIN_ROOT}/scripts/...`, which is missing the `plugin/` segment and
+never ran. Rewrote 18 references to `${CLAUDE_PLUGIN_ROOT}/plugin/...`; the one
+genuinely skill-local path (recall's own `scripts/recall_stages.py`) was left
+as is. A test now checks that every cited path resolves against one of the two
+legitimate bases.
+
+**Turn budget was below the floor.** `--max-turns` counts assistant messages,
+not tool calls, so the 8-turn cap allowed only about four tool calls. The
+writer's minimum honest workflow (read slice, search corpus to dedupe, read
+template, write the note, write the entity sidecar, `reflect add`, summarize)
+is about seven, so every real run hit max_turns and wrote nothing while still
+costing around $0.60. Raised the default to 16, which completes with headroom:
+a measured run wrote its learning in 12 turns. Still overridable via
+`REFLECT_DRAIN_MAX_TURNS`.
+
+Together these make the drain capture end to end at stock config: a real run
+at the new default recorded `ok` in 12 turns with a learning written to the
+corpus. The path fix alone does not fit under 8 turns, and the cap alone still
+wastes turns hunting, so both ship together.
+
+**Wall-clock cap raised too.** `REFLECT_DRAIN_TIMEOUT` went 180s to 300s
+alongside the turn bump. If the wall-clock cap sits below the turn budget's
+worst case, a run that should stop cleanly at max_turns instead gets SIGTERMed
+mid-write and quarantined to the poison file. The measured 16-turn write ran
+about 111s, so 300s keeps turns the binding limit.
+
+**Codex path resolution.** The reflect/corpus skills anchor their resources on
+`${CLAUDE_PLUGIN_ROOT}`, which the Claude runtime sets but Codex does not. The
+Codex adapter now rewrites those anchors to the installed umbrella layout when
+it copies each SKILL.md, so a Codex drain resolves the same files instead of
+hunting. Covered by an adapter test that installs and checks every rewritten
+path resolves across all installed skills. Known limitation: only SKILL.md
+bodies are rewritten, so a copied non-SKILL resource file that itself cites the
+anchor keeps it literal under Codex (today only a human-facing hooks/README.md
+does, which the model never dereferences). Copilot and Hermes accept the
+destination argument but do not rewrite yet; the same treatment applies.
+
 ## [5.2.1] - 2026-07-15 - Drain outage: skills never registered
 
 Patch. Packaging + observability. The drain had captured **nothing since
