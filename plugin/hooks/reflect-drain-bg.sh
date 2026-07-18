@@ -107,6 +107,10 @@ MAX_RETRIES="${REFLECT_DRAIN_MAX_RETRIES:-3}"
 LOG_MAX_BYTES="${REFLECT_DRAIN_LOG_MAX_BYTES:-10485760}"
 DRY_RUN="${REFLECT_DRAIN_DRY_RUN:-0}"
 CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
+# reflect may be installed off-PATH (uv tool default ~/.local/bin); resolve it
+# once so the extract writer's `reflect add` calls find it even when the drain's
+# environment lacks that dir on PATH.
+REFLECT_BIN="${REFLECT_DRAIN_REFLECT_BIN:-$(command -v reflect 2>/dev/null || echo "${HOME}/.local/bin/reflect")}"
 # Raised 180 -> 300 alongside MAX_TURNS 8 -> 16: the wall-clock cap must stay
 # above the turn budget's worst case, or a run that would cleanly stop at
 # max_turns (return 2, dropped) instead gets SIGTERMed with no envelope and is
@@ -125,6 +129,14 @@ TOKEN_MAX="${REFLECT_DRAIN_TOKEN_MAX:-2000000}"
 DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-sonnet}"
 DEBOUNCE_SEC="${REFLECT_DRAIN_DEBOUNCE_SEC:-600}"
 CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
+# W7: writer path. "extract" = single tool-free claude -p call that emits JSON
+# actions, executed deterministically (drain_extract.py): cost linear in slice
+# size, no partial_max_turns. "agentic" = the legacy multi-turn /reflect loop
+# (cost ~quadratic in turns). Extract only runs when a slice exists; a
+# missing-slice entry falls back to agentic regardless. Defaults to agentic
+# (opt into the cheaper extract path with REFLECT_DRAIN_WRITER=extract) while
+# the extract corpus-write integration bakes.
+DRAIN_WRITER="${REFLECT_DRAIN_WRITER:-agentic}"
 DRAIN_CWD="${REFLECT_DRAIN_CWD:-$HOME}"          # W5: neutral cwd for claude -p
 INVALID_THRESHOLD="${REFLECT_DRAIN_INVALID_THRESHOLD:-3}"  # M2: writer-drift breaker
 QUOTA_GATE_ENABLED="${REFLECT_QUOTA_GATE:-1}"    # M3: subscription-quota gate
@@ -134,6 +146,7 @@ MAINTAIN_COUNTER_FILE="${STATE_DIR}/drain.maintain-count"  # C3: post-drain coun
 # Locate sibling scripts (cascade, classifier) relative to this hook, robust to symlinks.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CASCADE_SCRIPT="${SCRIPT_DIR}/../scripts/reflect_cascade.py"
+EXTRACT_SCRIPT="${SCRIPT_DIR}/../scripts/drain_extract.py"   # W7: single-shot writer
 CLASSIFIER_SCRIPT="${SCRIPT_DIR}/../scripts/output_classifier.py"
 QUOTA_SCRIPT="${SCRIPT_DIR}/../scripts/quota_store.py"
 MODE_LOADER_SCRIPT="${SCRIPT_DIR}/../scripts/mode_loader.py"   # M4: pluggable modes
@@ -623,14 +636,67 @@ When done, summarize what you captured. Do NOT touch the queue file — the drai
     # stderr goes to a temp capture first (M3: the quota store scans it for
     # 429/529 markers) and is then appended to the drain log as before.
     stderr_tmp=$(mktemp)
-    out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "$CLAUDE_BIN" \
-        -p "$prompt" \
-        --model "$DRAIN_MODEL" \
-        --output-format json \
-        --permission-mode bypassPermissions \
-        --max-turns "$MAX_TURNS" 2>"$stderr_tmp")
-    exit_code=$?
-    cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
+
+    # W7: single-shot extraction path. Runs one tool-free claude -p call
+    # (inside drain_extract.py) and reshapes its summary into the SAME envelope
+    # the agentic branch produces, so every downstream step (quota ingest,
+    # writer classifier, cost ledger, outcome) is unchanged. Chosen only when a
+    # real slice exists and this is not a skill-refresh; otherwise the agentic
+    # branch runs. Both branches set out_json + exit_code, then fall through.
+    if [[ "$DRAIN_WRITER" == "extract" && -n "$slice_path" \
+          && "$trigger" != "skill_refresh" && -f "$EXTRACT_SCRIPT" ]]; then
+        local extract_json extract_model_timeout
+        # The outer _to caps the whole python call (model turn + the reflect add
+        # calls that follow it). Give the inner claude -p strictly less, so a
+        # slow model turn cannot consume the budget and leave the writes to be
+        # SIGTERMed mid-index. Reserve ~90s for the reflect add pass.
+        extract_model_timeout=$(( ENTRY_TIMEOUT > 150 ? ENTRY_TIMEOUT - 90 : 60 ))
+        extract_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" python3 "$EXTRACT_SCRIPT" \
+            --slice "$slice_path" \
+            --transcript "$transcript" \
+            --session-id "$session_id" \
+            --model "$DRAIN_MODEL" \
+            --timeout "$extract_model_timeout" \
+            --claude-bin "$CLAUDE_BIN" \
+            --reflect-bin "$REFLECT_BIN" \
+            2>"$stderr_tmp")
+        exit_code=$?
+        cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
+        # Reshape drain_extract's summary into the agentic envelope
+        # (is_error/result/num_turns/usage/total_cost/rate_limit_info). is_error
+        # keys on drain_extract's retryable_failure signal, NOT the capture
+        # count: a write that failed (transient) keeps the transcript queued for
+        # retry even if other CREATEs from the same slice landed, while benign
+        # drops (over-cap, injected/unlisted target ids) never force a re-drain
+        # that would only reproduce the same drop and re-bill.
+        out_json=$(printf '%s' "$extract_json" | python3 -c '
+import json, sys
+try:
+    s = json.load(sys.stdin)
+except Exception:
+    print(""); sys.exit(0)
+errs = s.get("errors") or ([s["error"]] if s.get("error") else [])
+is_error = bool(s.get("error")) or int(s.get("retryable_failure", 0)) > 0
+print(json.dumps({
+    "is_error": is_error,
+    "result": ("extract: created %s updated %s deleted %s%s" % (
+        s.get("created",0), s.get("updated",0), s.get("deleted",0),
+        (" | errors: %s" % "; ".join(map(str, errs))) if errs else "")),
+    "num_turns": s.get("num_turns", 1) or 1,
+    "total_cost_usd": s.get("cost_usd", 0),
+    "usage": s.get("usage", {}),
+    "rate_limit_info": s.get("rate_limit_info"),
+}))' 2>/dev/null)
+    else
+        out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "$CLAUDE_BIN" \
+            -p "$prompt" \
+            --model "$DRAIN_MODEL" \
+            --output-format json \
+            --permission-mode bypassPermissions \
+            --max-turns "$MAX_TURNS" 2>"$stderr_tmp")
+        exit_code=$?
+        cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
+    fi
 
     # M3: refresh the quota store from this run's telemetry (result envelope
     # rate_limit fields, 429/529 stderr fallback) so the gate check before the
