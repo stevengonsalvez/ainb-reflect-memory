@@ -4,6 +4,53 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.3] - 2026-07-18 - Single-shot extraction writer (linear cost)
+
+Minor, shipped as a patch. Adds an alternative drain "writer" behind a flag.
+**Opt-in: `REFLECT_DRAIN_WRITER` defaults to `agentic` (the existing loop); set
+it to `extract` to use the new single-shot path.** It ships opt-in rather than
+default while the corpus-write integration bakes (two review rounds found and
+fixed data-loss defects in it).
+
+**The problem.** The writer was the `claude -p "/reflect"` subprocess the drain
+spawned, run as an agentic loop: read slice, search corpus, read template,
+write .md, write sidecar, run `reflect add`, summarize, each an assistant turn.
+The API has no memory, so every turn re-sent the whole growing conversation.
+Cost therefore grew ~quadratically with turns (measured: 20 turns = 6.8M tokens
+= $4.42; one uncapped run = 242M tokens = $110). On real backlog transcripts the
+writer exhausted the 16-turn cap mid-workflow and wrote **nothing**, at ~$1.2 a
+failure.
+
+**The fix.** `extract` mode does ONE tool-free `claude -p` call
+(`--allowedTools "" --max-turns 1`): the model reads the slice (which already
+carries the belief-revision block) and emits a JSON action list, and
+`drain_extract.py` executes it deterministically: CREATE via `reflect add`
+(the same canonical corpus write), UPDATE/DELETE via `reflect_cascade.py
+revise`. No file I/O or CLI calls burn model turns. Cost is linear in slice
+size, and a single turn cannot partial_max_turns.
+
+**Measured, real transcripts** (the class that failed agentic): 216KB and 654KB
+sessions each captured 2 learnings in 1 turn at ~84K tokens / ~$0.37, versus the
+agentic path's ~$1.2 and zero capture. Draining the backlog drops from a ~$200
+estimate to roughly $15-20.
+
+The writer path is selected by `REFLECT_DRAIN_WRITER`; extract only runs when a
+slice exists and the trigger is not skill_refresh, else it falls back to
+agentic. All downstream cost/outcome/chunk-hash bookkeeping is unchanged.
+
+Hardening (found in review before merge): a run that captured nothing but
+reported per-note write failures is now scored a failure, so the transcript
+stays queued instead of being dropped; the entity sidecar carries the
+`description` field validate_sidecar requires, so entities and relationships are
+no longer rejected; UPDATE/DELETE target ids are restricted to the ids the
+slice's revision block actually listed, so an untrusted transcript cannot retire
+an arbitrary learning; the model-controlled causal-link type is whitelisted to
+the closed enum (a raw value was a frontmatter-injection vector); the note and
+its sidecar share one id; extract-written notes also record a learnings row
+keyed on the transcript so `record-chunk` provenance links them; and the model
+call is given a timeout below the entry budget so the reflect-add pass is not
+SIGTERMed mid-index.
+
 ## [5.2.2] - 2026-07-16 - Drain now actually captures: skill paths + turn budget
 
 Patch. Follows 5.2.1, which restored skill registration but left the drain
