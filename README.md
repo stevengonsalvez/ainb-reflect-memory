@@ -62,6 +62,22 @@ reflect add ./my-solution.md                    # capture a learning (optional -
 reflect search "how did we fix the tokio panic" # hybrid GraphRAG + BM25 recall
 ```
 
+## Memory browser (web UI)
+
+`reflect serve` launches a local web app to browse, search, graph, and curate your knowledge base — no cloud, no auth, loopback only.
+
+```bash
+reflect serve                     # http://127.0.0.1:8377  (KB: $GLOBAL_LEARNINGS_PATH or ~/.learnings)
+reflect serve --port 8942         # pick a port
+reflect serve --repo /path/to/kb  # browse a specific KB
+```
+
+Open the printed URL in a browser on the same machine. Curation is live and edits your local markdown (soft archive/restore, confidence edits, compression queueing); run `reflect reindex` afterward to refresh semantic search. Loopback only — there is no authentication, so do not bind a public interface. To reach it across your tailnet, front it with `tailscale serve --bg --https 8942 http://127.0.0.1:8942`.
+
+![reflect memory browser — memory list](docs/reflect-serve/img/memories-light.png)
+
+Full guide: **[docs/reflect-serve.md](docs/reflect-serve.md)**.
+
 ### Plugin (Claude Code)
 
 The **plugin** (hooks + skills) that wires reflect into your agent harness lives under [`plugin/`](./plugin/). Install it from this repo's marketplace:
@@ -305,6 +321,7 @@ The same topology as the diagram above, component by component:
 | Local store | **QMD** | BM25 lexical index | `~/.cache/qmd/index.sqlite` |
 | Local store | **nano-graphrag** | semantic vectors + entity graph | hnswlib + `.graphml` (per machine) |
 | Shared store | **Postgres** (opt-in) | pgvector + graph + KV, RLS, tenant-scoped | `src/reflect_kb/postgres/` + `supabase/migrations/` |
+| UI | **memory browser** (`reflect serve`) | local web app to browse, search, graph, and curate the KB | `src/reflect_kb/serve.py` — see [docs/reflect-serve.md](./docs/reflect-serve.md) |
 
 **Two version streams — don't confuse them.** The **engine** is the Python
 package `reflect-kb` ([`pyproject.toml`](./pyproject.toml)); the **plugin** that
@@ -319,6 +336,7 @@ The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 
 - 🐘 **[docs/setup.md](./docs/setup.md)** — shared Postgres backend: Supabase setup, secret names, migrations, enabling it, threat model
 - 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
+- 🖥️ **[docs/reflect-serve.md](./docs/reflect-serve.md)** — the memory browser: running it, what each view does, curation model, security
 - 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration
 - 📄 **[LICENSE](./LICENSE)** — MIT
 
