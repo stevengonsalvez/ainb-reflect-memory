@@ -4,6 +4,53 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.4] - 2026-08-11 - Oversized transcripts no longer kill the learning loop
+
+Patch. Fixes a total, silent outage of the drain: no learning was written
+between 2026-07-31 and 2026-08-10 while the logs and statusline reported a
+healthy system (issue #34).
+
+**The problem.** Sessions crossed ~1.5MB of transcript. Measured: 367K tokens
+raw, 162K tokens of dialogue alone, against a 200K context of which ~64K is
+already spent on the drain child's own baseline. Whenever no cascade slice
+bounded the input -- `REFLECT_DRAIN_CASCADE=0`, a missing signal detector, a
+cascade crash -- the drain handed the writer the whole file and `claude -p`
+returned `Prompt is too long` before doing any work.
+
+That alone would have been survivable. The second defect made it total: the
+size rejection was classified `poisoned` and charged one unit of
+`REFLECT_DRAIN_DAILY_MAX`, even though it spent zero tokens and no retry could
+help. Twenty oversized transcripts consumed the entire day's budget, so every
+transcript that *would* have fit was starved behind them. The only symptom was
+`daily cap reached (today=20 >= 20); exiting`, which is exactly what ordinary
+throttling looks like.
+
+**The fixes.**
+
+- Size failures are quarantined with `entries=0` under a new
+  `quarantine_oversized` outcome, so they never consume the daily budget and
+  the queue advances to the next entry. Non-size poisons (credit exhausted,
+  generic wedge) keep the old budget-consuming path.
+- The cap log now reports `successes=N failures=M`, and a cap reached entirely
+  by failures logs a WARNING and raises `drain_budget_all_failures`. The writer
+  result text is logged on the quarantine and respawn paths -- the old log
+  recorded that an entry was poisoned but never why.
+- `reflect_cascade.py bound` writes a head+tail view of a transcript capped at
+  the slicer's own `_MAX_SLICE_CHARS`, privacy-filtered like a slice. The drain
+  caps any target the cascade did not slice at `REFLECT_DRAIN_MAX_INPUT_CHARS`
+  (default 60000) before handing it over. The tail is read directly off the
+  file because `reflect_gate.extract_dialogue` stops at its char budget from
+  the FRONT, so a head-only bound would drop the end of the session -- which is
+  where the corrections are.
+
+New env: `REFLECT_DRAIN_MAX_INPUT_CHARS` (default 60000).
+
+Regression cover: `plugin/tests/test_drain_size_failure_budget.py` and
+`plugin/tests/test_drain_bounded_writer_input.py` drive the real drain script
+against a stub `claude` that measures the file it is pointed at and rejects
+anything over its context, so a >200K-token transcript must still let the queue
+advance to the next healthy entry.
+
 ## [5.2.3] - 2026-07-18 - Single-shot extraction writer (linear cost)
 
 Minor, shipped as a patch. Adds an alternative drain "writer" behind a flag.
