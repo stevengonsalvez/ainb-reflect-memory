@@ -78,6 +78,20 @@ POISON_MARKERS = (
     "credit balance is too low",
 )
 
+# The subset of POISON_MARKERS that means "the input did not fit", as opposed
+# to "the account/session ran out". A size wedge is a deterministic property of
+# the INPUT, not of the writer's health or the subscription: retrying is waste,
+# and charging it to the daily spend cap starves every healthy entry behind it
+# (the 2026-07-31 outage: 20 oversized transcripts per day burned the whole cap
+# and nothing was learned for 10 days).
+SIZE_MARKERS = (
+    "prompt is too long",
+    "context window",
+    "maximum context length",
+    "context length exceeded",
+    "conversation is too long",
+)
+
 # Internal pseudo-category used for streak-reset records in the state file.
 _RESET = "_reset"
 
@@ -138,6 +152,20 @@ def classify(raw: object) -> str:
         return "malformed"  # JSON-intent but broken (truncated envelope etc.)
 
     return "prose"
+
+
+def poison_kind(raw: object) -> str:
+    """Why a poisoned output is poisoned: ``size`` or ``other``.
+
+    ``size`` means the writer rejected the input before doing any work (the
+    prompt/context did not fit). The drainer quarantines those WITHOUT
+    consuming the daily spend cap — no tokens were spent and no retry can help.
+    Everything else (credit exhausted, session limit, generic wedge) keeps the
+    old budget-consuming poison path.
+    """
+    text = raw if isinstance(raw, str) else ""
+    lower = text.lower()
+    return "size" if any(marker in lower for marker in SIZE_MARKERS) else "other"
 
 
 def default_threshold() -> int:
@@ -235,6 +263,7 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("classify", help="classify raw writer output read from stdin")
+    sub.add_parser("poison-kind", help="why stdin is poisoned: size|other")
 
     tp = sub.add_parser("track", help="record a classification; print streak JSON")
     tp.add_argument("--state", required=True, help="writer-health JSONL sidecar")
@@ -248,6 +277,8 @@ def main() -> None:
 
     if args.cmd == "classify":
         print(classify(sys.stdin.read()))
+    elif args.cmd == "poison-kind":
+        print(poison_kind(sys.stdin.read()))
     elif args.cmd == "track":
         health = track(args.state, args.transcript, args.category, args.threshold)
         print(json.dumps(asdict(health)))
