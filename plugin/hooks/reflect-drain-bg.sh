@@ -53,6 +53,10 @@
 # REFLECT_QUOTA_GATE          If "0", skip the subscription-quota     Default: 1
 #                             gate entirely (M3).
 # REFLECT_QUOTA_TTL_SEC       Quota snapshot freshness window (s).    Default: 3600
+# REFLECT_DRAIN_MAX_INPUT_CHARS  Hard cap on the input handed to the  Default: 60000
+#                             writer when no cascade slice bounded it
+#                             (~15K tokens); larger inputs are cut to
+#                             a head+tail window first.
 # REFLECT_DRAIN_MAINTAIN_EVERY Run the C3 graph-maintenance sweep     Default: 10
 #                             (orphan/stale prune + relink) once per
 #                             N reindexing drains; 0 disables it.
@@ -142,6 +146,7 @@ INVALID_THRESHOLD="${REFLECT_DRAIN_INVALID_THRESHOLD:-3}"  # M2: writer-drift br
 QUOTA_GATE_ENABLED="${REFLECT_QUOTA_GATE:-1}"    # M3: subscription-quota gate
 MAINTAIN_EVERY="${REFLECT_DRAIN_MAINTAIN_EVERY:-10}"  # C3: graph maintenance once per N drains
 MAINTAIN_COUNTER_FILE="${STATE_DIR}/drain.maintain-count"  # C3: post-drain counter
+MAX_INPUT_CHARS="${REFLECT_DRAIN_MAX_INPUT_CHARS:-60000}"  # #34: hard cap on writer input
 
 # Locate sibling scripts (cascade, classifier) relative to this hook, robust to symlinks.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -273,14 +278,21 @@ debounce_ok() {
 # Sum the `entries` field for today (NOT line count): LLM-invoking outcomes set
 # entries=1, while $0 outcomes (cascade skip, stale, pre-run poison) set
 # entries=0 — so gated skips never consume the daily budget the cap protects.
-today_drain_count() {
-    if [[ ! -f "$COST_FILE" ]]; then echo 0; return; fi
+#
+# Prints three integers: "<total> <spent_on_successes> <burned_by_failures>".
+# The split exists because "daily cap reached (today=20 >= 20)" reads like
+# ordinary throttling whether the budget bought 20 learnings or 20 failures —
+# that ambiguity hid a 10-day total outage from a human operator.
+today_drain_stats() {
+    if [[ ! -f "$COST_FILE" ]]; then echo "0 0 0"; return; fi
     local today
     today=$(date -u +%Y-%m-%d)
-    python3 - "$COST_FILE" "$today" <<'PY' 2>/dev/null || echo 0
+    python3 - "$COST_FILE" "$today" <<'PY' 2>/dev/null || echo "0 0 0"
 import json, sys
 path, today = sys.argv[1], sys.argv[2]
-n = 0
+# Outcomes that represent budget actually converted into work.
+SUCCESS = {"ok", "dry_run", "partial_max_turns"}
+total = ok = bad = 0
 try:
     with open(path) as f:
         for line in f:
@@ -291,11 +303,18 @@ try:
                 e = json.loads(line)
             except Exception:
                 continue
-            if e.get("day") == today:
-                n += int(e.get("entries", 1) or 0)
+            if e.get("day") != today:
+                continue
+            n = int(e.get("entries", 1) or 0)
+            total += n
+            if n:
+                if str(e.get("outcome") or "") in SUCCESS:
+                    ok += n
+                else:
+                    bad += n
 except FileNotFoundError:
     pass
-print(n)
+print(total, ok, bad)
 PY
 }
 
@@ -558,6 +577,33 @@ process_entry() {
         fi
     fi
 
+    # ── Bounded writer input (last resort) ────────────────────────────────────
+    # The cascade slice is the normal bound, but it is not universal: the gate
+    # can be disabled (REFLECT_DRAIN_CASCADE=0), the signal detector can be
+    # missing, and a crashing cascade fails open — each of which hands the
+    # writer the WHOLE transcript. Sessions crossed ~1MB in July 2026 and every
+    # such entry came back "Prompt is too long" before the model did any work.
+    # Cap whatever we are about to hand over; a bounded input is always better
+    # than a rejected one. skill_refresh targets a SKILL.md, never a transcript.
+    if [[ "$reflect_target" == "$transcript" && "$trigger" != "skill_refresh" && -f "$CASCADE_SCRIPT" ]]; then
+        local target_bytes
+        target_bytes=$(wc -c < "$reflect_target" 2>/dev/null | tr -d '[:space:]')
+        [[ "$target_bytes" =~ ^[0-9]+$ ]] || target_bytes=0
+        if [[ "$target_bytes" -gt "$MAX_INPUT_CHARS" ]]; then
+            local bound_json bound_path
+            bound_json=$(python3 "$CASCADE_SCRIPT" bound "$reflect_target" \
+                --max-chars "$MAX_INPUT_CHARS" 2>>"$LOG_FILE")
+            bound_path=$(printf '%s' "$bound_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path",""))' 2>/dev/null || echo "")
+            if [[ -n "$bound_path" && -s "$bound_path" ]]; then
+                reflect_target="$bound_path"
+                slice_path="$bound_path"   # same lifecycle: consumed then removed
+                log "  bounded input: ${target_bytes} bytes > ${MAX_INPUT_CHARS} cap -> $bound_path"
+            else
+                log "  bounded input FAILED for $reflect_target (${target_bytes} bytes); handing the raw transcript to the writer"
+            fi
+        fi
+    fi
+
     if [[ "$DRY_RUN" == "1" ]]; then
         if [[ "$trigger" == "skill_refresh" ]]; then
             log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect skill-refresh ${skill_name:-?} $reflect_target"
@@ -769,7 +815,23 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         fi
     fi
     if [[ "$writer_respawn" == "true" ]]; then
-        log "    WRITER RESPAWN (writer_drift): ${writer_streak} consecutive invalid outputs, categories=[${writer_cats}]; killing writer + archiving transcript"
+        # A "prompt is too long" wedge is a deterministic property of the INPUT:
+        # zero tokens were spent, no retry can help, and charging it to the
+        # daily cap starves every healthy entry behind it (the 2026-07-31
+        # outage: 20 oversized transcripts/day ate the whole cap for 10 days).
+        # Quarantine it with entries=0 so the budget stays available.
+        local poison_why="other"
+        if [[ "$writer_class" == "poisoned" ]]; then
+            poison_why=$(printf '%s' "$out_json" | python3 "$CLASSIFIER_SCRIPT" poison-kind 2>/dev/null || echo "other")
+        fi
+        if [[ "$poison_why" == "size" ]]; then
+            log "    SIZE QUARANTINE: writer rejected the input as too large (no tokens spent, no daily budget consumed); archiving transcript. writer_result=${result_summary}"
+            emit_error error drain_oversized_input "writer rejected input as oversized: ${result_summary}" "$transcript"
+            printf '%s\n' "$entry_json" >> "$POISON_FILE"
+            record_cost_event 0 "$transcript" "quarantine_oversized" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+            return 2
+        fi
+        log "    WRITER RESPAWN (writer_drift): ${writer_streak} consecutive invalid outputs, categories=[${writer_cats}]; killing writer + archiving transcript. writer_result=${result_summary}"
         emit_error error drain_poison "writer_drift: ${writer_streak} consecutive invalid writer outputs (categories: ${writer_cats})" "$transcript"
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
         record_cost_event 1 "$transcript" "poison_writer_drift" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
@@ -930,10 +992,21 @@ main() {
         return 0
     fi
 
-    local already_today
-    already_today=$(today_drain_count | tr -d '[:space:]')
-    if [[ "$already_today" =~ ^[0-9]+$ ]] && [[ "$already_today" -ge "$DAILY_MAX" ]]; then
-        log "daily cap reached (today=$already_today >= $DAILY_MAX); exiting"
+    local already_today spent_ok burned_fail
+    read -r already_today spent_ok burned_fail <<< "$(today_drain_stats)"
+    [[ "$already_today" =~ ^[0-9]+$ ]] || already_today=0
+    [[ "$spent_ok"      =~ ^[0-9]+$ ]] || spent_ok=0
+    [[ "$burned_fail"   =~ ^[0-9]+$ ]] || burned_fail=0
+    if [[ "$already_today" -ge "$DAILY_MAX" ]]; then
+        log "daily cap reached (today=$already_today >= $DAILY_MAX; successes=$spent_ok failures=$burned_fail); exiting"
+        # A cap reached entirely by failures is an outage wearing throttling's
+        # clothes. Say so loudly and raise an error so /reflect:status and the
+        # statusline can't keep reporting a healthy system.
+        if [[ "$spent_ok" -eq 0 && "$burned_fail" -gt 0 ]]; then
+            log "  WARNING: today's ENTIRE budget was burned by failures (0 successes). This is an outage, not throttling. Inspect: reflect cost --by outcome"
+            emit_error error drain_budget_all_failures \
+                "daily cap of $DAILY_MAX consumed by $burned_fail failed entries and 0 successes" ""
+        fi
         return 0
     fi
 
@@ -944,7 +1017,7 @@ main() {
         run_max="$headroom"
     fi
 
-    log "today_count=$already_today headroom=$headroom run_max=$run_max"
+    log "today_count=$already_today (successes=$spent_ok failures=$burned_fail) headroom=$headroom run_max=$run_max"
 
     # Read up to $run_max non-empty lines from the queue.
     local processed_list_file failed_queue_file

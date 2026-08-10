@@ -1460,6 +1460,143 @@ def slice_dialogue(text: str, signals, context_lines: int = _DEFAULT_CONTEXT_LIN
     return "\n".join(out)
 
 
+def bound_dialogue(text: str, max_chars: int = _MAX_SLICE_CHARS) -> str:
+    """Cap a dialogue to ``max_chars`` by keeping a head and a tail window.
+
+    The slice path (``prepare``) is the normal bound on writer input, but it is
+    not universal: the gate can be disabled, the signal detector can be
+    unavailable, and a crashing cascade fails open. Every one of those paths
+    used to hand the writer a whole ~1MB transcript, which the model rejects
+    with "Prompt is too long" before doing any work (issue #34).
+
+    Head + tail rather than a plain truncation: a session's opening states the
+    task and its closing states the outcome, and the corrections worth learning
+    from cluster at the end.
+    """
+    if len(text) <= max_chars:
+        return text
+    head = max_chars // 4
+    tail = max_chars - head
+    elided = len(text) - max_chars
+    return (
+        text[:head]
+        + f"\n\n… [bounded input: {elided} chars of the middle elided] …\n\n"
+        + text[-tail:]
+    )
+
+
+def _tail_dialogue(p: Path, budget: int) -> str:
+    """Dialogue text from the END of a transcript.
+
+    ``reflect_gate.extract_dialogue`` stops once it has read its char budget
+    from the FRONT of the file, so on a 1MB transcript it never sees the last
+    turns at all — and the corrections worth learning from land at the end.
+    This reads a window off the tail instead and re-uses the gate's own text
+    extraction on it.
+    """
+    try:
+        size = p.stat().st_size
+    except OSError:
+        return ""
+    window = min(size, max(budget * 8, 200_000))
+    try:
+        with open(p, "rb") as fh:
+            fh.seek(size - window)
+            raw = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+    lines = raw.split("\n")
+    if window < size:
+        lines = lines[1:]  # first line is a fragment of a record we cut through
+    parts: list[str] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rec = json.loads(line)
+        except Exception:
+            continue
+        msg = rec.get("message")
+        if not isinstance(msg, dict) or msg.get("role") not in ("user", "assistant"):
+            continue
+        parts.extend(reflect_gate._text_from_content(msg.get("content")))
+    return "\n".join(parts)[-budget:]
+
+
+def bound_transcript(transcript: str | Path, *, out_path: Optional[str | Path] = None,
+                     max_chars: int = _MAX_SLICE_CHARS) -> dict:
+    """Write a bounded, privacy-filtered rendering of a transcript for the writer.
+
+    Returns ``{path, orig_chars, bounded_chars, bounded}``. Never raises for a
+    missing/unreadable transcript — it writes what it could read, because an
+    empty prompt is still a survivable drain outcome while a crash is not.
+    """
+    p = Path(transcript)
+    try:
+        file_bytes = p.stat().st_size
+    except OSError:
+        file_bytes = 0
+
+    def _extract(limit: int) -> str:
+        try:
+            return reflect_gate.extract_dialogue(p, max_chars=limit)
+        except Exception:
+            return ""
+
+    if file_bytes <= max_chars * 2:
+        # Small enough to hold whole: extract it all, then cap in memory. No
+        # head/tail seam, no duplicated overlap.
+        text = _extract(max(file_bytes, max_chars) + 1)
+        if not (text or "").strip():
+            # Not a parseable transcript (or an empty one) — fall back to raw
+            # bytes so a non-JSONL input is bounded rather than handed over whole.
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+        orig = len(text)
+        body = bound_dialogue(text, max_chars)
+    else:
+        head_budget = max_chars // 4
+        tail_budget = max_chars - head_budget
+        head = _extract(head_budget)[:head_budget]
+        tail = _tail_dialogue(p, tail_budget)
+        if not (head or tail).strip():
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            orig = len(text)
+            body = bound_dialogue(text, max_chars)
+        else:
+            orig = file_bytes
+            body = (
+                head
+                + f"\n\n… [bounded input: middle of the session elided to fit "
+                  f"{max_chars} chars] …\n\n"
+                + tail
+            )
+    try:
+        from privacy_filter import strip_private  # noqa: E402
+        body = strip_private(body)
+    except ImportError:  # pragma: no cover
+        pass  # filter is best-effort; bounding must never hard-fail on it
+    if out_path is None:
+        import os
+        import tempfile
+        fd, tmp = tempfile.mkstemp(prefix="reflect-bounded-", suffix=".txt")
+        os.close(fd)
+        out_path = tmp
+    header = (
+        f"# Bounded view of {p.name}\n"
+        f"# {orig} chars of dialogue capped to {len(body)} for the writer's context.\n\n"
+    )
+    Path(out_path).write_text(header + body, encoding="utf-8")
+    return {"path": str(out_path), "orig_chars": orig,
+            "bounded_chars": len(body), "bounded": orig > max_chars}
+
+
 def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LINES,
             out_path: Optional[str | Path] = None) -> Prep:
     """Gate + slice + hash-dedup. No LLM. Writes the slice file when reflecting."""
@@ -1680,6 +1817,14 @@ def main() -> None:
         "--scope", default=_OBSERVATION_SCOPE_DEFAULT,
         help="scope new observations land in when the action omits one",
     )
+    bd = sub.add_parser(
+        "bound",
+        help="write a size-bounded view of a transcript for the drain writer "
+             "(the last-resort cap when no signal slice was produced).",
+    )
+    bd.add_argument("transcript")
+    bd.add_argument("--out", default=None)
+    bd.add_argument("--max-chars", type=int, default=_MAX_SLICE_CHARS)
     rc = sub.add_parser(
         "record-chunk",
         help="S8: persist the (transcript -> chunk -> learnings) grouping for a "
@@ -1687,6 +1832,11 @@ def main() -> None:
     )
     rc.add_argument("--transcript", required=True, help="the drained transcript path")
     args = ap.parse_args()
+
+    if args.cmd == "bound":
+        print(json.dumps(bound_transcript(
+            args.transcript, out_path=args.out, max_chars=args.max_chars)))
+        sys.exit(0)
 
     if args.cmd == "record-chunk":
         summary = record_chunk_for_transcript(args.transcript)

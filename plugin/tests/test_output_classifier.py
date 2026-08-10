@@ -405,8 +405,24 @@ def test_drain_valid_output_resets_streak(tmp_path):
 
 
 def test_drain_poisoned_output_respawns_immediately(tmp_path):
-    """A wedged writer ('prompt is too long') is killed on first sighting —
-    no retry burn for a deterministic failure."""
+    """A wedged writer is killed on first sighting — no retry burn for a
+    deterministic failure."""
+    state = tmp_path / "state"
+    _seed_queue(state)
+    stub = _make_stub_claude(
+        tmp_path, ['{"is_error": true, "result": "Your credit balance is too low"}'],
+    )
+    _run_drain(state, stub)
+    log = (state / "drain.log").read_text()
+    assert "WRITER RESPAWN (writer_drift)" in log
+    assert "categories=[poisoned]" in log
+    assert (state / "poison-reflections.jsonl").read_text().strip()
+
+
+def test_drain_size_poison_takes_the_quarantine_path(tmp_path):
+    """'Prompt is too long' is a poison, but an INPUT-SIZE one: it archives via
+    the off-budget quarantine path, not the budget-burning drift path.
+    See test_drain_size_failure_budget.py for the full accounting cover."""
     state = tmp_path / "state"
     _seed_queue(state)
     stub = _make_stub_claude(
@@ -414,8 +430,8 @@ def test_drain_poisoned_output_respawns_immediately(tmp_path):
     )
     _run_drain(state, stub)
     log = (state / "drain.log").read_text()
-    assert "WRITER RESPAWN (writer_drift)" in log
-    assert "categories=[poisoned]" in log
+    assert "SIZE QUARANTINE" in log
+    assert "WRITER RESPAWN" not in log
     assert (state / "poison-reflections.jsonl").read_text().strip()
 
 
