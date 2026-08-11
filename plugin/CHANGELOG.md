@@ -4,6 +4,36 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [5.2.5] - 2026-08-11 - Single-shot extract is the default writer
+
+Patch, but it changes which writer the drain runs. `REFLECT_DRAIN_WRITER` now
+defaults to `extract` (shipped opt-in in 5.2.3); set it to `agentic` to opt back
+into the legacy loop.
+
+**Why now.** 5.2.4 bounded the writer's input, and the oversized transcripts
+from #34 did then reach the model — but on the agentic path they still failed.
+The loop re-sends its whole growing conversation every turn, so the context
+wall is reached mid-run no matter how small the input started. Bounding cannot
+fix that; the growth is the loop.
+
+**Measured on the two 1.5MB transcripts from #34**, real `claude`, isolated
+state dir:
+
+| writer  | turns | tokens    | cost  | outcome                          |
+|---------|-------|-----------|-------|----------------------------------|
+| agentic | 17    | 1,503,423 | $1.07 | partial_max_turns, nothing kept  |
+| extract | 1     | 77,982    | $0.40 | ok — 3 learnings written         |
+
+Extract's context is fixed at (session baseline + slice), so it cannot grow
+into the wall at all, and a single turn cannot partial_max_turns. The agentic
+loop stays reachable and is still the automatic fallback whenever no slice
+exists (a missing slice means there is nothing for the single-shot prompt to
+read) and for skill_refresh entries.
+
+Regression cover: `plugin/tests/test_drain_writer_default.py` drives the real
+drain script and asserts the default takes the extract path while
+`REFLECT_DRAIN_WRITER=agentic` still selects the legacy loop.
+
 ## [5.2.4] - 2026-08-11 - Oversized transcripts no longer kill the learning loop
 
 Patch. Fixes a total, silent outage of the drain: no learning was written

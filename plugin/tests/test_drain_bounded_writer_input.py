@@ -127,6 +127,10 @@ def _run(state: Path, stub: Path, seen_log: Path, **env_overrides):
         "REFLECT_QUOTA_GATE": "0",
         "REFLECT_DRAIN_SKIP_REINDEX": "1",     # never touch the developer's real KB
         "REFLECT_QUIET_INSTALL_WARNING": "1",
+        # Pin the legacy writer: these assert the INPUT contract, which is
+        # writer-independent (bounding happens before the writer is chosen).
+        # Which writer runs by default is test_drain_writer_default.py's job.
+        "REFLECT_DRAIN_WRITER": "agentic",
         "STUB_SEEN_LOG": str(seen_log),
     })
     env.update({k: str(v) for k, v in env_overrides.items()})
