@@ -137,10 +137,18 @@ CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
 # actions, executed deterministically (drain_extract.py): cost linear in slice
 # size, no partial_max_turns. "agentic" = the legacy multi-turn /reflect loop
 # (cost ~quadratic in turns). Extract only runs when a slice exists; a
-# missing-slice entry falls back to agentic regardless. Defaults to agentic
-# (opt into the cheaper extract path with REFLECT_DRAIN_WRITER=extract) while
-# the extract corpus-write integration bakes.
-DRAIN_WRITER="${REFLECT_DRAIN_WRITER:-agentic}"
+# missing-slice entry falls back to agentic regardless.
+#
+# Defaults to extract since 5.2.5. The agentic loop re-sends its whole growing
+# conversation every turn, so on a real 1.5MB session it reached ~200K of
+# context mid-run and the writer rejected the NEXT call with "prompt is too
+# long" — bounded input does not save it, because the growth is the loop, not
+# the input. Measured on the two transcripts from #34: agentic = 17 turns,
+# 1.5M tokens, $1.07, partial_max_turns with nothing guaranteed captured;
+# extract = 1 turn, 78K tokens, $0.40, 3 learnings written. Extract's context
+# is fixed at (baseline + slice), so it cannot grow into that wall at all.
+# Set REFLECT_DRAIN_WRITER=agentic to opt back into the legacy loop.
+DRAIN_WRITER="${REFLECT_DRAIN_WRITER:-extract}"
 DRAIN_CWD="${REFLECT_DRAIN_CWD:-$HOME}"          # W5: neutral cwd for claude -p
 INVALID_THRESHOLD="${REFLECT_DRAIN_INVALID_THRESHOLD:-3}"  # M2: writer-drift breaker
 QUOTA_GATE_ENABLED="${REFLECT_QUOTA_GATE:-1}"    # M3: subscription-quota gate
