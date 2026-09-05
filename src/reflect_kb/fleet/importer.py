@@ -32,6 +32,8 @@ from typing import Any, Iterable, Optional
 
 import yaml
 
+from reflect_kb.issues.sanitize import redact_secrets
+
 from reflect_kb.cli.learnings_cli import (
     DOCUMENTS_DIR,
     generate_document_id,
@@ -439,7 +441,9 @@ def ingest(
                 _bump_occurrences(dest, occurrences)
                 result.deduped += 1
             else:
-                content = doc.render(doc_id, occurrences)
+                # Capture gate: fleet artifacts are transcripts of other agents'
+                # sessions, so they get the same secret redaction as reflect add.
+                content = redact_secrets(doc.render(doc_id, occurrences)).text
                 dest.write_text(content, encoding="utf-8")
                 frontmatter, _ = parse_frontmatter(content)
                 _write_sidecar(dest, content, frontmatter or {})

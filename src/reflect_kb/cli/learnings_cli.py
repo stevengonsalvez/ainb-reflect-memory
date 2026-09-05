@@ -503,9 +503,12 @@ def add(file_path: str, entities: str | None, force: bool):
         entity_count = doc_entities.entity_count
         rel_count = doc_entities.relationship_count
 
-        # Save sidecar alongside document
+        # Save sidecar alongside document, through the same capture gate as
+        # the note: a free-form entity description can carry a credential too.
         sidecar_dest = dest.with_suffix(".entities.yaml")
-        shutil.copy(entities_path, sidecar_dest)
+        sidecar_dest.write_text(
+            redact_secrets(entities_path.read_text(encoding="utf-8")).text, encoding="utf-8"
+        )
     else:
         # Auto-generate entities from document content (heuristic, no LLM)
         try:

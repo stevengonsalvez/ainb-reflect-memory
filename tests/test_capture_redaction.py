@@ -120,3 +120,53 @@ def test_team_kb_copy_is_redacted(tmp_path: Path) -> None:
         assert secret not in copied
     # The local source of truth is never rewritten by the team copy step.
     assert GITHUB_TOKEN in doc.read_text(encoding="utf-8")
+
+
+def test_reflect_add_redacts_an_explicit_sidecar(tmp_path: Path, monkeypatch) -> None:
+    kb = tmp_path / "kb"
+    (kb / learnings_cli.DOCUMENTS_DIR).mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(kb))
+    monkeypatch.setattr(learnings_cli, "_sync_qmd", lambda: None)
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: (_ for _ in ()).throw(RuntimeError("no engine")))
+
+    src = tmp_path / "note.md"
+    src.write_text(_note_with_secrets(), encoding="utf-8")
+    sidecar = tmp_path / "note.entities.yaml"
+    sidecar.write_text(
+        "document_id: note\nentities:\n  - name: deploy token\n    type: credential\n"
+        f"    description: \"value was {GITHUB_TOKEN}\"\nrelationships: []\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(
+        learnings_cli.cli, ["add", "--force", str(src), "--entities", str(sidecar)]
+    )
+    assert result.exit_code == 0, result.output
+    written = list((kb / learnings_cli.DOCUMENTS_DIR).glob("*.entities.yaml"))
+    assert len(written) == 1
+    assert GITHUB_TOKEN not in written[0].read_text(encoding="utf-8")
+
+
+def test_fleet_ingest_redacts_imported_artifacts(tmp_path: Path, monkeypatch) -> None:
+    import json
+
+    from reflect_kb.fleet import importer as importer_mod
+
+    kb = tmp_path / "kb"
+    (kb / "documents").mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(kb))
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    from reflect_kb import metrics
+
+    monkeypatch.setattr(metrics, "METRICS_PATH", tmp_path / "state" / "metrics.jsonl")
+    root = tmp_path / "fleet"
+    root.mkdir()
+    (root / "patterns.jsonl").write_text(
+        json.dumps({"title": "Leaky pattern", "description": f"export GH={GITHUB_TOKEN} and {AWS_KEY}"})
+        + "\n"
+    )
+    result = importer_mod.ingest(root, ["patterns"])
+    assert result.imported == 1, result.error_details
+    for path in (kb / "documents").rglob("*"):
+        if path.is_file():
+            text = path.read_text(encoding="utf-8")
+            assert GITHUB_TOKEN not in text and AWS_KEY not in text, path
