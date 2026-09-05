@@ -170,7 +170,7 @@ to a caller whose OIDC token names the workspace.
 
 ```bash
 pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
-export REFLECT_PG_DSN=postgresql://…                      # the shared store (read-only role is enough)
+export REFLECT_PG_DSN='postgresql://…?sslmode=verify-full' # the shared store; TLS required (read-only role is enough)
 export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
 export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
 export REFLECT_BROKER_TENANT_CLAIM=workspace_id           # claim that names the workspace (default)
@@ -189,12 +189,13 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `REFLECT_BROKER_AUDIENCE` | Expected `aud`. Required. | |
 | `REFLECT_BROKER_TENANT_CLAIM` | Claim whose value becomes the workspace id. Missing claim is 403. | `workspace_id` |
 | `REFLECT_BROKER_JWKS_URL` | Skip discovery and fetch keys here. | from discovery |
-| `REFLECT_BROKER_ALGORITHMS` | Accepted JWS algorithms, comma separated. `none` and HMAC are never accepted. | `RS256` |
+| `REFLECT_BROKER_ALGORITHMS` | Accepted JWS algorithms, comma separated. Asymmetric only (RS*, PS*, ES*, EdDSA); an HMAC or `none` entry is a startup error. | `RS256` |
 | `REFLECT_BROKER_RESOLVER` | `git` (local checkouts) or `http` (forge raw URL). | `git` |
 | `REFLECT_BROKER_REPOS` | `repo=/path,repo2=/path2` checkouts for the git resolver. | |
 | `REFLECT_BROKER_FORGE_URL_TEMPLATE` | For `http`: formatted with `{repo}`, `{sha}`, `{path}`. | GitHub raw |
 | `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
 | `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
+| `REFLECT_BROKER_ALLOW_INSECURE_PG` | `1` permits a `REFLECT_PG_DSN` without `sslmode=require|verify-ca|verify-full`. Otherwise the broker refuses to start on a plaintext DSN. Loopback and Unix-socket databases only. | unset |
 
 **Microsoft Entra ID is a config swap.** From the public Entra documentation
 (learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and
@@ -244,7 +245,9 @@ unpinned and are never served.
 | `workspace_id` in body or query | ignored | the body cannot choose a tenant; extra fields are dropped |
 | hit with free-text or missing `source_uri` | dropped, `meta.dropped.unpinned` | cannot be traced to a commit |
 | hit whose pin does not resolve | dropped, `meta.dropped.unresolvable` | the commit or path does not exist where we can see it |
-| hit classified `restricted` or `pii` | dropped, `meta.dropped.classified` | above the floor; also cannot exist in the shared store (migration 0003) |
+| hit classified `restricted` or `pii`, or an unknown label | dropped, `meta.dropped.classified` | above the floor (unknown fails closed); restricted and pii also cannot exist in the shared store (migration 0003) |
+| graph edge whose `evidence_memory_id` was not returned | dropped, `meta.dropped.unverified_edges` | an edge must not cite a memory the caller could not see |
+| `REFLECT_PG_DSN` without TLS | broker refuses to start | notes and vectors cross the network on that DSN |
 | `lexical_limit` above `REFLECT_BROKER_MAX_LIMIT` | capped | bounded reads |
 
 The loopback memory browser (`reflect serve`) remains unauthenticated and local

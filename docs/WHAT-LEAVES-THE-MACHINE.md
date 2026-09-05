@@ -42,10 +42,14 @@ must never reach the API, delete its queue entry or set `REFLECT_DISABLED=1`.
 model every tool with no prompt: arbitrary Bash, network, writes anywhere. The
 default writer is now the single-shot extract path, which runs with
 `--allowedTools ""` (no tools at all, one turn). The agentic fallback runs with
-`--allowedTools "$REFLECT_DRAIN_ALLOWED_TOOLS"` (default `Read, Grep, Glob,
-Write, Edit, Bash(reflect:*), Bash(python3:*)`) and no permission mode flag, so
-headless mode denies anything outside that list. Neither path uses
-`bypassPermissions` any more.
+`--allowedTools "$REFLECT_DRAIN_ALLOWED_TOOLS"` and no permission mode flag, so
+headless mode denies anything outside that list. The default list is `Read,
+Grep, Glob, Write, Edit, Bash(reflect:*)` plus `python`/`python3` only when the
+command starts with the reflect skill's own scripts directory. There is no
+bare Bash and no bare python. What remains open: `Write`/`Edit` are unscoped
+because the skill stages the note and sidecar in a temp dir before `reflect
+add`; pin them with `Write(<path>)` rules through `REFLECT_DRAIN_ALLOWED_TOOLS`
+if your install fixes that dir. Neither path uses `bypassPermissions` any more.
 
 Off switch: `REFLECT_DISABLED=1` (everything) or `REFLECT_DRAIN_DRY_RUN=1`
 (log, do not call the model).
@@ -62,9 +66,14 @@ Hugging Face cache on an air-gapped machine to avoid this path entirely.
 
 Unset `REFLECT_PG_DSN` and nothing here happens. When set, the derived store
 (vectors, entity graph, community reports, memory items) is written to the
-configured Postgres over the DSN's TLS connection. The database is dumb: it
-stores, scopes by `workspace_id` and searches. No LLM or embedding call is made
-from the server.
+configured Postgres over whatever transport the DSN names. Transport security
+is the DSN's `sslmode`: the writer path hands the DSN to psycopg as given, so
+a DSN without `sslmode=require` (or `verify-ca`, `verify-full`) sends notes and
+vectors in plaintext. Supabase connection strings carry TLS; check yours. The
+broker refuses to start on a plaintext DSN unless
+`REFLECT_BROKER_ALLOW_INSECURE_PG=1` is set for a loopback or socket database.
+The database is dumb: it stores, scopes by `workspace_id` and searches. No LLM
+or embedding call is made from the server.
 
 Guards on this path:
 
@@ -89,7 +98,10 @@ graph neighborhood, citations) and never a synthesized answer.
 - Every returned hit carries `repo@sha:path[#Lstart-Lend]` and the resolver has
   confirmed that commit and path exist. Unpinned or unresolvable hits are
   dropped and counted in `meta.dropped`.
-- `restricted` and `pii` never appear (defence in depth over the floor above).
+- `restricted` and `pii` never appear, and an unknown label fails closed
+  (defence in depth over the floor above).
+- Graph edges are returned only when the memory they cite was itself returned;
+  the rest are dropped and counted.
 
 Configuration and an Entra ID example are in the README.
 

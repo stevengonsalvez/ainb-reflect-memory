@@ -78,9 +78,12 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/0003_classification_force_rls.sql
 ```
 
-Migration 0003 adds the classification floor (a check constraint refusing
-`restricted` and `pii` rows in the shared store) and switches the three memory
-tables to **FORCE ROW LEVEL SECURITY**. With FORCE, the table owner is subject
+Migration 0003 applies FORCE ROW LEVEL SECURITY first, then checks for rows
+already labelled above the floor and stops with a message naming the count if
+any exist (delete or relabel them deliberately, then re-run), then adds the
+classification floor as a check constraint refusing `restricted` and `pii`
+rows in the shared store. It switches the three memory tables to **FORCE ROW
+LEVEL SECURITY**. With FORCE, the table owner is subject
 to the policies too. Consequence for the worker DSN: connect as a BYPASSRLS
 role (Supabase `service_role`) or as a role that sets
 `app.current_workspace` per connection; an owner role without either now sees
