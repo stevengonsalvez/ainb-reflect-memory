@@ -117,7 +117,7 @@ graph store.
 | | **Mode 1 — Local** (default) | **Mode 2 — Shared** (Postgres) |
 |---|---|---|
 | Derived store | per-machine: QMD `index.sqlite` (BM25) + nano-graphrag (hnswlib + `.graphml`) | one **Supabase Postgres** (pgvector) for everyone |
-| Setup | nothing — works out of the box | set 2 env vars + apply 2 migrations |
+| Setup | nothing, works out of the box | set 2 env vars + apply 3 migrations |
 | Share across machines | git-sync the markdown KB, then `reflect reindex` on each machine (re-embeds locally) | automatic — every machine queries the same store |
 | Best for | solo / single machine / offline | laptop + desktop + CI sharing one memory |
 
@@ -137,6 +137,7 @@ vector + graph + community store lives in one shared DB. Opt in per machine:
 pip install '.[graph,postgres]'                                   # postgres extra = psycopg
 psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
 psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
+psql "$REFLECT_PG_DSN" -f supabase/migrations/0003_classification_force_rls.sql
 export REFLECT_PG_DSN=postgresql://…        # the trigger (NOT the generic DATABASE_URL)
 export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
 ```
@@ -146,6 +147,109 @@ stores, scopes by tenant, and runs ANN/graph reads. Tenant isolation is RLS
 (fail-closed) on the direct path + explicit `workspace_id` scoping on the
 trusted-worker path; writes need a `service_role` DSN. Full setup + threat
 model: [`docs/setup.md`](./docs/setup.md) · [`docs/regression-suite.md`](./docs/regression-suite.md).
+
+---
+
+## Context Broker (authenticated evidence over HTTP)
+
+The broker is the shared-memory answer to "who can read what, and can a
+snippet be traced to a commit". It is a read-only FastAPI route over the Mode 2
+store that returns an **evidence pack**, never a synthesized answer, and only
+to a caller whose OIDC token names the workspace.
+
+```
+┌────────┐ Bearer JWT ┌─────────────────┐  claim   ┌─────────────┐
+│ caller │───────────▶│ OIDC verify     │─────────▶│ MemoryStore │
+└────────┘            │ iss · aud · exp │ tenant   │ workspace   │
+     ▲                └─────────────────┘          └──────┬──────┘
+     │  evidence only, every hit pinned                   │ hits
+     │                ┌─────────────────┐  ┌──────────────▼──────┐
+     └────────────────│ drop + count    │◀─│ floor · parse · git │
+                      └─────────────────┘  └─────────────────────┘
+```
+
+```bash
+pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
+export REFLECT_PG_DSN=postgresql://…                      # the shared store (read-only role is enough)
+export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
+export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
+export REFLECT_BROKER_TENANT_CLAIM=workspace_id           # claim that names the workspace (default)
+export REFLECT_BROKER_REPOS='acme/widgets=/srv/mirrors/widgets'   # repo name -> local checkout
+python -m reflect_kb.broker                               # http://127.0.0.1:8787
+```
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  -X POST http://127.0.0.1:8787/v1/evidence -d '{"query": "auth token expiry"}'
+```
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `REFLECT_BROKER_ISSUER` | OIDC issuer URL. `/.well-known/openid-configuration` is fetched from it and the `jwks_uri` used for keys. Required. | |
+| `REFLECT_BROKER_AUDIENCE` | Expected `aud`. Required. | |
+| `REFLECT_BROKER_TENANT_CLAIM` | Claim whose value becomes the workspace id. Missing claim is 403. | `workspace_id` |
+| `REFLECT_BROKER_JWKS_URL` | Skip discovery and fetch keys here. | from discovery |
+| `REFLECT_BROKER_ALGORITHMS` | Accepted JWS algorithms, comma separated. `none` and HMAC are never accepted. | `RS256` |
+| `REFLECT_BROKER_RESOLVER` | `git` (local checkouts) or `http` (forge raw URL). | `git` |
+| `REFLECT_BROKER_REPOS` | `repo=/path,repo2=/path2` checkouts for the git resolver. | |
+| `REFLECT_BROKER_FORGE_URL_TEMPLATE` | For `http`: formatted with `{repo}`, `{sha}`, `{path}`. | GitHub raw |
+| `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
+| `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
+
+**Microsoft Entra ID is a config swap.** From the public Entra documentation
+(learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and
+"Access tokens in the Microsoft identity platform"): the v2.0 issuer for a
+tenant is `https://login.microsoftonline.com/{tenant-id}/v2.0`, discovery is at
+`{issuer}/.well-known/openid-configuration`, keys are at
+`https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys`, and an
+access token issued for your own API carries `aud` = the API's Application
+(client) ID and `tid` = the Entra tenant id. Request the token for your API's
+scope (`api://{client-id}/.default`), not for Microsoft Graph: Graph tokens
+are not meant to be validated by third parties.
+
+```bash
+export REFLECT_BROKER_ISSUER=https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0
+export REFLECT_BROKER_AUDIENCE=11111111-2222-3333-4444-555555555555     # app registration client id
+export REFLECT_BROKER_TENANT_CLAIM=tid          # one Entra tenant = one workspace
+# or map a custom claim (extension attribute / optional claim) to workspaces:
+# export REFLECT_BROKER_TENANT_CLAIM=extension_reflectWorkspace
+```
+
+The workspace id must be a UUID, because `workspace_id` is a `uuid` column. An
+Entra `tid` is one already; a custom claim must be minted as one.
+
+**Source pinning.** Every hit the broker returns has a `source_uri` of the form
+
+```
+<repo>@<sha>:<path>[#L<start>[-L<end>]]      e.g. acme/widgets@3f2a9c1d…:src/auth.rs#L12-L20
+```
+
+`repo` is `/`-separated segments of `[A-Za-z0-9._-]`; `sha` is 7 to 64
+lowercase hex; `path` is a clean relative path (no `..`, not absolute). The
+resolver confirms the commit exists and the path exists at that commit (the
+git resolver runs `git cat-file` in the configured checkout; the http resolver
+fetches the raw file). Pins are built at ingest by
+`InsertMemoryInput.from_note` from frontmatter that carries `repo` (or
+`repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
+optional `lines: "12-20"`. Notes without both a repo and a sha are stored
+unpinned and are never served.
+
+**What is refused, and why.**
+
+| Request or item | Response | Why |
+|---|---|---|
+| no `Authorization` header, or not `Bearer` | 401 | nothing is served anonymously |
+| bad signature, wrong `iss` or `aud`, expired, unknown `kid`, `alg=none` or HMAC | 401 | the token is not from the configured issuer |
+| valid token, no tenant claim | 403 | the tenant comes from the token only; there is no fallback |
+| `workspace_id` in body or query | ignored | the body cannot choose a tenant; extra fields are dropped |
+| hit with free-text or missing `source_uri` | dropped, `meta.dropped.unpinned` | cannot be traced to a commit |
+| hit whose pin does not resolve | dropped, `meta.dropped.unresolvable` | the commit or path does not exist where we can see it |
+| hit classified `restricted` or `pii` | dropped, `meta.dropped.classified` | above the floor; also cannot exist in the shared store (migration 0003) |
+| `lexical_limit` above `REFLECT_BROKER_MAX_LIMIT` | capped | bounded reads |
+
+The loopback memory browser (`reflect serve`) remains unauthenticated and local
+only; the broker is the authenticated surface. Egress paths are listed in
+[`docs/WHAT-LEAVES-THE-MACHINE.md`](./docs/WHAT-LEAVES-THE-MACHINE.md).
 
 ---
 
@@ -335,6 +439,7 @@ The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 ## Documentation
 
 - 🐘 **[docs/setup.md](./docs/setup.md)** — shared Postgres backend: Supabase setup, secret names, migrations, enabling it, threat model
+- 🔒 **[docs/WHAT-LEAVES-THE-MACHINE.md](./docs/WHAT-LEAVES-THE-MACHINE.md)**: every egress path (Claude drain, model weights, optional Postgres, broker), what stops it, how to turn it off
 - 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
 - 🖥️ **[docs/reflect-serve.md](./docs/reflect-serve.md)** — the memory browser: running it, what each view does, curation model, security
 - 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration

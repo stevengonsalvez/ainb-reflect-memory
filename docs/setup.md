@@ -74,7 +74,17 @@ REPLACE` / `DROP … IF EXISTS`).
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/0001_reflect_memory_phase1.sql
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/0003_classification_force_rls.sql
 ```
+
+Migration 0003 adds the classification floor (a check constraint refusing
+`restricted` and `pii` rows in the shared store) and switches the three memory
+tables to **FORCE ROW LEVEL SECURITY**. With FORCE, the table owner is subject
+to the policies too. Consequence for the worker DSN: connect as a BYPASSRLS
+role (Supabase `service_role`) or as a role that sets
+`app.current_workspace` per connection; an owner role without either now sees
+nothing, by design.
 
 **Option B — Supabase CLI** (if you use it for this project):
 
@@ -124,6 +134,12 @@ pytest -m integration   # or just `pytest` to run both tiers
 If neither var is set, or the database is unreachable, every integration test
 **skips** cleanly — they never fail for lack of credentials.
 
+The fixtures apply all three migrations. On macOS the default Unix socket
+directory can exceed the 104-byte socket path limit; either run the test
+Postgres with `-c unix_socket_directories=''` and connect over
+`127.0.0.1`, or export a short `TMPDIR` (for example `/tmp/pg`) before
+`pg_ctl start`.
+
 #### Spin a throwaway local Postgres
 
 **Docker:**
@@ -161,6 +177,11 @@ test and truncate tables between tests.
   physically impossible (composite FK)
 - duplicate ingestion is idempotent (per-tenant content hash)
 - tenant isolation on the trusted path; RLS fail-closed on the direct path
+- RLS FORCEd: a non-superuser table owner cannot read across workspaces
+- classification floor: `restricted` / `pii` rows are refused by the check constraint
+- Context Broker (`tests/broker/`): OIDC 401/403, tenant from the claim only,
+  every returned hit pinned and resolved, refusals counted; the live test
+  serves it with uvicorn against this database
 
 See [README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
 
