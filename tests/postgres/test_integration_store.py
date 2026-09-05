@@ -263,3 +263,84 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
 
         cur.execute("reset role;")
     conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Migration 0003: classification floor as a check constraint + FORCE RLS
+# --------------------------------------------------------------------------- #
+
+
+def test_check_constraint_refuses_restricted_and_pii_rows(conn) -> None:
+    """The floor holds even for a client that bypasses the Python models."""
+    import psycopg
+
+    for label in ("restricted", "pii", "top-secret"):
+        with pytest.raises(psycopg.errors.CheckViolation):
+            with conn.cursor() as cur:
+                cur.execute(
+                    "insert into reflect_memory.memory_items "
+                    "(workspace_id, source_type, content, content_hash, metadata) "
+                    "values (%s, 'note', %s, %s, %s::jsonb)",
+                    (WS_A, f"{label} row", f"hash-{label}", f'{{"classification": "{label}"}}'),
+                )
+        conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.memory_items "
+            "(workspace_id, source_type, content, content_hash, metadata) "
+            "values (%s, 'note', 'internal row', 'hash-internal', "
+            "'{\"classification\": \"internal\"}'::jsonb)",
+            (WS_A,),
+        )
+    conn.commit()
+
+
+def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, store) -> None:
+    """ENABLE RLS exempts the table owner; FORCE does not. A non-superuser owner
+    role sees nothing without a workspace and only its own workspace with one."""
+    a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha owned in A"))
+    store.insert_memory(InsertMemoryInput(tenant=b, content="beta owned in B"))
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select tableowner from pg_tables "
+            "where schemaname='reflect_memory' and tablename='memory_items'"
+        )
+        original_owner = cur.fetchone()["tableowner"]
+        cur.execute(
+            "select relforcerowsecurity from pg_class "
+            "where oid = 'reflect_memory.memory_items'::regclass"
+        )
+        assert cur.fetchone()["relforcerowsecurity"] is True
+
+        cur.execute(
+            "do $$ begin "
+            "  if exists (select 1 from pg_roles where rolname='reflect_owner_test') then "
+            "    execute 'reassign owned by reflect_owner_test to current_user'; "
+            "    execute 'drop owned by reflect_owner_test'; "
+            "    execute 'drop role reflect_owner_test'; "
+            "  end if; "
+            "end $$;"
+        )
+        cur.execute("create role reflect_owner_test nologin;")
+        cur.execute("grant usage on schema reflect_memory to reflect_owner_test;")
+        cur.execute("grant execute on all functions in schema reflect_memory to reflect_owner_test;")
+        cur.execute("alter table reflect_memory.memory_items owner to reflect_owner_test;")
+        conn.commit()
+        try:
+            cur.execute("set role reflect_owner_test;")
+            # The owner, with no workspace resolvable, sees nothing.
+            cur.execute("select count(*) as n from reflect_memory.memory_items;")
+            assert cur.fetchone()["n"] == 0
+            # With workspace A set, the owner sees A only, never B.
+            cur.execute("select set_config('app.current_workspace', %s, false);", (WS_A,))
+            cur.execute("select content from reflect_memory.memory_items order by content;")
+            assert [r["content"] for r in cur.fetchall()] == ["alpha owned in A"]
+            cur.execute("reset role;")
+        finally:
+            cur.execute("reset role;")
+            cur.execute(f"alter table reflect_memory.memory_items owner to {original_owner};")
+            cur.execute("drop owned by reflect_owner_test;")
+            cur.execute("drop role reflect_owner_test;")
+            conn.commit()

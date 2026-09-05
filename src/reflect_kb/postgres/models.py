@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
+from reflect_kb.classification import CLASSIFICATIONS, LOCAL_ONLY, classification_of
+
 from .errors import TenantScopeError, ValidationError
 
 __all__ = [
@@ -92,6 +94,18 @@ class InsertMemoryInput:
         _require_nonempty(self.source_type, "source_type")
         if not (0.0 <= float(self.confidence) <= 1.0):
             raise ValidationError("confidence must be in [0.0, 1.0]")
+        # Classification floor: the shared store is an egress path, so
+        # restricted and pii items are refused here, before any SQL is built.
+        # Migration 0003 enforces the same rule as a check constraint.
+        label = classification_of(self.metadata)
+        if label not in CLASSIFICATIONS:
+            raise ValidationError(
+                f"metadata.classification must be one of {sorted(CLASSIFICATIONS)}; got {label!r}"
+            )
+        if label in LOCAL_ONLY:
+            raise ValidationError(
+                f"classification {label!r} never leaves the local store; refusing shared insert"
+            )
 
 
 @dataclass(frozen=True)

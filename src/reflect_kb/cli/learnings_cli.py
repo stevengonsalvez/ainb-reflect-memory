@@ -443,6 +443,16 @@ def add(file_path: str, entities: Optional[str], force: bool):
         console.print(f"[red]Error: Missing required fields: {', '.join(missing)}[/red]")
         return
 
+    from reflect_kb.classification import CLASSIFICATIONS
+
+    classification = frontmatter.get("classification")
+    if classification is not None and classification not in CLASSIFICATIONS:
+        console.print(
+            f"[red]Error: classification must be one of {', '.join(sorted(CLASSIFICATIONS))}; "
+            f"got {classification!r}[/red]"
+        )
+        sys.exit(2)
+
     # Generate document ID (slug + sha256(title+body)[:6]) and copy to repo.
     doc_id = generate_document_id(frontmatter["title"], body)
     repo = get_repo_path()

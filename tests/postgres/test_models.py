@@ -160,3 +160,20 @@ def test_entity_and_edge_from_row() -> None:
     )
     assert edge.evidence_memory_id is None
     assert edge.weight == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Classification floor: restricted and pii never reach the shared store
+# --------------------------------------------------------------------------- #
+
+
+def test_insert_memory_input_refuses_local_only_classification() -> None:
+    t = Tenant(workspace_id=WS)
+    for label in ("restricted", "pii"):
+        with pytest.raises(ValidationError):
+            InsertMemoryInput(tenant=t, content="ok", metadata={"classification": label})
+    with pytest.raises(ValidationError):
+        InsertMemoryInput(tenant=t, content="ok", metadata={"classification": "top-secret"})
+    for label in ("public", "internal"):
+        InsertMemoryInput(tenant=t, content="ok", metadata={"classification": label})
+    InsertMemoryInput(tenant=t, content="ok")  # missing means internal

@@ -57,6 +57,11 @@
       "type": "string",
       "minLength": 1,
       "description": "Primary framework / runtime (e.g. tokio, react, django). Lowercase preferred."
+    },
+    "classification": {
+      "type": "string",
+      "enum": ["public", "internal", "restricted", "pii"],
+      "description": "Data classification. Missing means internal. restricted and pii never leave the local store: they are refused by the shared Postgres ingest (check constraint) and never returned by the Context Broker."
     }
   }
 }
