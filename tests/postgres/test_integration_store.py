@@ -298,6 +298,8 @@ def test_check_constraint_refuses_restricted_and_pii_rows(conn) -> None:
 def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, store) -> None:
     """ENABLE RLS exempts the table owner; FORCE does not. A non-superuser owner
     role sees nothing without a workspace and only its own workspace with one."""
+    from psycopg import sql
+
     a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
     store.insert_memory(InsertMemoryInput(tenant=a, content="alpha owned in A"))
     store.insert_memory(InsertMemoryInput(tenant=b, content="beta owned in B"))
@@ -340,7 +342,11 @@ def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, st
             cur.execute("reset role;")
         finally:
             cur.execute("reset role;")
-            cur.execute(f"alter table reflect_memory.memory_items owner to {original_owner};")
+            cur.execute(
+                sql.SQL("alter table reflect_memory.memory_items owner to {};").format(
+                    sql.Identifier(original_owner)
+                )
+            )
             cur.execute("drop owned by reflect_owner_test;")
             cur.execute("drop role reflect_owner_test;")
             conn.commit()

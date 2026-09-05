@@ -11,3 +11,11 @@ def test_classification_vocabulary(label: str) -> None:
 
     assert label in CLASSIFICATIONS
     assert may_leave_machine({"classification": label}) == (label in {"public", "internal"})
+
+
+@pytest.mark.parametrize("label", ["secret", "Public", "", None, 7])
+def test_unknown_labels_fail_closed(label) -> None:
+    from reflect_kb.classification import may_leave_machine
+
+    # Missing means internal (shareable); anything else unknown is not.
+    assert may_leave_machine({"classification": label}) == (label in ("", None))

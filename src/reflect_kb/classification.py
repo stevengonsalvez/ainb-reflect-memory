@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
-__all__ = ["CLASSIFICATIONS", "DEFAULT_CLASSIFICATION", "LOCAL_ONLY", "classification_of", "may_leave_machine"]
+__all__ = ["CLASSIFICATIONS", "DEFAULT_CLASSIFICATION", "LOCAL_ONLY", "SHAREABLE", "classification_of", "may_leave_machine"]
 
 CLASSIFICATIONS = frozenset({"public", "internal", "restricted", "pii"})
 DEFAULT_CLASSIFICATION = "internal"
@@ -23,6 +23,13 @@ def classification_of(metadata: Optional[Mapping[str, Any]]) -> str:
     return str(value) if value else DEFAULT_CLASSIFICATION
 
 
+SHAREABLE = CLASSIFICATIONS - LOCAL_ONLY
+
+
 def may_leave_machine(metadata: Optional[Mapping[str, Any]]) -> bool:
-    """True when the item is below the floor and may be shared or served."""
-    return classification_of(metadata) not in LOCAL_ONLY
+    """True only for a known label below the floor (public, internal).
+
+    Unknown or malformed labels fail closed: an egress path must never treat
+    a typo as permission to share.
+    """
+    return classification_of(metadata) in SHAREABLE

@@ -24,6 +24,35 @@
 -- Re-runnable: DROP CONSTRAINT IF EXISTS + ADD; FORCE is idempotent.
 -- ============================================================================
 
+-- FORCE first: it has no data dependency, so it lands even if the floor below
+-- has to stop on legacy rows.
+alter table reflect_memory.memory_items force row level security;
+alter table reflect_memory.entities     force row level security;
+alter table reflect_memory.edges        force row level security;
+
+-- Pre-check with a readable error. A row already labelled restricted, pii or
+-- an unknown value would make the constraint below fail with a bare check
+-- violation; instead name the count and what to do. The rows are not
+-- downgraded or deleted here: that is an operator decision, made explicitly.
+do $$
+declare
+  n_bad bigint;
+begin
+  select count(*) into n_bad
+  from reflect_memory.memory_items
+  where metadata->>'classification' is not null
+    and metadata->>'classification' not in ('public', 'internal');
+  if n_bad > 0 then
+    raise exception using
+      message = format('%s memory_items row(s) carry a classification above the floor '
+                       '(restricted, pii or unknown). Delete them from the shared store, '
+                       'or relabel them deliberately, then re-run 0003.', n_bad),
+      hint = 'select id, metadata->>''classification'' from reflect_memory.memory_items '
+             'where metadata->>''classification'' not in (''public'', ''internal'');';
+  end if;
+end;
+$$;
+
 alter table reflect_memory.memory_items
   drop constraint if exists memory_items_classification_floor;
 alter table reflect_memory.memory_items
@@ -32,7 +61,3 @@ alter table reflect_memory.memory_items
     metadata->>'classification' is null
     or metadata->>'classification' in ('public', 'internal')
   );
-
-alter table reflect_memory.memory_items force row level security;
-alter table reflect_memory.entities     force row level security;
-alter table reflect_memory.edges        force row level security;
