@@ -31,6 +31,8 @@ from typing import Callable, Optional
 
 import yaml
 
+from reflect_kb.issues.sanitize import redact_secrets
+
 ROUTE_HIGH = "high"
 ROUTE_MED = "medium"
 ROUTE_LOW = "low"
@@ -114,7 +116,10 @@ def _copy_into_team(doc: Path, team_root: Path) -> list[Path]:
     docs_dir = team_root / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
     dest_doc = docs_dir / doc.name
-    dest_doc.write_bytes(doc.read_bytes())
+    # Capture gate: the team KB copy is redacted, never a byte-for-byte copy.
+    dest_doc.write_text(
+        redact_secrets(doc.read_text(encoding="utf-8")).text, encoding="utf-8"
+    )
     staged = [dest_doc]
     sidecar = _find_sidecar(doc)
     if sidecar is not None:

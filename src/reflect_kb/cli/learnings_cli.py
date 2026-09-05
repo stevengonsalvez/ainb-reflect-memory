@@ -424,7 +424,16 @@ def add(file_path: str, entities: str | None, force: bool):
         reflect add --force ./my-solution.md   # non-interactive overwrite
     """
     source = Path(file_path)
-    content = source.read_text()
+    # Capture gate: every learning note is redacted before it is written to the
+    # KB, so a transcript that carried a credential cannot yield a note that
+    # carries it. Secrets only; commit shas, ids and paths survive.
+    from reflect_kb.issues.sanitize import redact_secrets
+
+    redacted = redact_secrets(source.read_text())
+    content = redacted.text
+    if redacted.total_redactions:
+        kinds = ", ".join(f"{k}={n}" for k, n in sorted(redacted.redactions.items()))
+        console.print(f"[yellow]Redacted {redacted.total_redactions} secret(s): {kinds}[/yellow]")
 
     frontmatter, body = parse_frontmatter(content)
 
@@ -473,7 +482,7 @@ def add(file_path: str, entities: str | None, force: bool):
             if not click.confirm(f"Document {dest.name} exists. Overwrite?"):
                 return
 
-    shutil.copy(source, dest)
+    dest.write_text(content, encoding="utf-8")
 
     # Load or auto-generate entity sidecar
     entities_formatted = None

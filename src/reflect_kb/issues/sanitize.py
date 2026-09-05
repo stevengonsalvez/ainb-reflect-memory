@@ -306,3 +306,44 @@ def _audit(text: str) -> list[dict]:
                     }
                 )
     return findings
+
+
+# ── capture boundary: secrets only ───────────────────────────────────────────
+# Frontmatter keys whose values the generic KEY=value rule must leave alone.
+# ``key_insight`` contains the substring ``key`` at a sub-token boundary, so a
+# one-word insight of 12+ chars would otherwise be redacted as a credential.
+_CAPTURE_EXEMPT_KEYS = frozenset({"key_insight"})
+
+
+def redact_secrets(text: str) -> SanitizeResult:
+    """Strip credentials from a learning note before it is written to disk.
+
+    This is the capture-side gate: it runs the secret layer only (structured
+    token rules plus the generic ``KEY=value`` rule) and leaves emails, paths,
+    UUIDs and long hex alone, because a learning note legitimately carries
+    commit shas, document ids and file paths. Over-redaction is still the
+    posture for anything that looks like a credential.
+    """
+    tally: dict[str, int] = {}
+    out = text
+    for pattern, replacement, kind in _SECRET_PATTERNS:
+        out, n = pattern.subn(replacement, out)
+        _bump(tally, kind, n)
+
+    def _generic(m: re.Match[str]) -> str:
+        if m.group(1).lower() in _CAPTURE_EXEMPT_KEYS:
+            return m.group(0)
+        return f"{m.group(1)}{m.group(2)}<REDACTED:generic_secret>"
+
+    rewrites = 0
+
+    def _generic_counted(m: re.Match[str]) -> str:
+        nonlocal rewrites
+        replaced = _generic(m)
+        if replaced != m.group(0):
+            rewrites += 1
+        return replaced
+
+    out = _GENERIC_SECRET_RE.sub(_generic_counted, out)
+    _bump(tally, "generic_secret", rewrites)
+    return SanitizeResult(text=out, redactions=tally, audit=[])
