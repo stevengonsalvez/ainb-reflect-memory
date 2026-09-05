@@ -63,6 +63,10 @@ class DroppedCounts(BaseModel):
     unpinned: int = 0
     unresolvable: int = 0
     classified: int = 0
+    # Graph edges whose evidence_memory_id points at a memory that was not
+    # itself returned (dropped above, or never a lexical hit): unverified
+    # provenance, so the edge goes too.
+    unverified_edges: int = 0
 
 
 class EvidenceMeta(BaseModel):
@@ -138,7 +142,9 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
 
     Pure: no I/O beyond the resolver. Order matters: a restricted item is
     counted as classified even if it would also fail to pin, so the counts
-    tell the operator which guard fired first.
+    tell the operator which guard fired first. Graph edges are kept only when
+    their evidence memory survived (or they cite none); entity names pass
+    through, they carry no content.
     """
     dropped = DroppedCounts()
     hits: list[LexicalHit] = []
@@ -172,6 +178,21 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
         for c in pack.citations
         if c.memory_id in kept_ids
     ]
+    edges: list[GraphEdgeOut] = []
+    for e in pack.graph.edges:
+        if e.evidence_memory_id is not None and e.evidence_memory_id not in kept_ids:
+            dropped.unverified_edges += 1
+            continue
+        edges.append(
+            GraphEdgeOut(
+                id=e.id,
+                source_entity_id=e.source_entity_id,
+                target_entity_id=e.target_entity_id,
+                relation_type=e.relation_type,
+                evidence_memory_id=e.evidence_memory_id,
+                weight=e.weight,
+            )
+        )
     return EvidenceResponse(
         query=pack.query,
         workspace_id=pack.tenant.workspace_id,
@@ -195,17 +216,7 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
                 )
                 for e in pack.graph.entities
             ],
-            edges=[
-                GraphEdgeOut(
-                    id=e.id,
-                    source_entity_id=e.source_entity_id,
-                    target_entity_id=e.target_entity_id,
-                    relation_type=e.relation_type,
-                    evidence_memory_id=e.evidence_memory_id,
-                    weight=e.weight,
-                )
-                for e in pack.graph.edges
-            ],
+            edges=edges,
         ),
         citations=citations,
         meta=EvidenceMeta(returned=len(hits), dropped=dropped),

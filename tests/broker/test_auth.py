@@ -77,3 +77,36 @@ def test_jwks_is_cached_and_refreshed_once_on_unknown_kid(issuer) -> None:
     with pytest.raises(AuthError):
         v.verify(f"Bearer {issuer.mint(kid='rotated')}")
     assert issuer.jwks_hits == 2
+
+
+def test_hmac_and_none_cannot_be_configured(issuer) -> None:
+    for algs in (("HS256",), ("RS256", "HS512"), ("none",), ()):
+        with pytest.raises(ValueError):
+            issuer.verifier(algorithms=algs)
+
+
+def test_malformed_issuer_documents_are_503_not_500(issuer) -> None:
+    import httpx
+
+    from reflect_kb.broker.auth import OIDCConfig, OIDCVerifier
+
+    def broken(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith("openid-configuration"):
+            return httpx.Response(200, text="<html>not json</html>")
+        return httpx.Response(200, json=["not", "an", "object"])
+
+    v = OIDCVerifier(
+        OIDCConfig(issuer=ISSUER, audience="reflect-broker"),
+        http=httpx.Client(transport=httpx.MockTransport(broken)),
+    )
+    with pytest.raises(AuthError) as exc:
+        v.verify(f"Bearer {issuer.mint()}")
+    assert exc.value.status == 503
+
+    v = OIDCVerifier(
+        OIDCConfig(issuer=ISSUER, audience="reflect-broker", jwks_url=ISSUER + "/jwks"),
+        http=httpx.Client(transport=httpx.MockTransport(broken)),
+    )
+    with pytest.raises(AuthError) as exc:
+        v.verify(f"Bearer {issuer.mint()}")
+    assert exc.value.status == 503

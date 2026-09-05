@@ -130,7 +130,12 @@ def test_broker_serves_pinned_evidence_for_the_token_tenant_only(
             "line_start": 2,
             "line_end": 5,
         }
-        assert body["meta"]["dropped"] == {"unpinned": 1, "unresolvable": 1, "classified": 0}
+        assert body["meta"]["dropped"] == {
+            "unpinned": 1,
+            "unresolvable": 1,
+            "classified": 0,
+            "unverified_edges": 0,
+        }
         assert "Tenant B secret" not in r.text
 
         # Tenant B, same query: only B's row, and only because it is pinned.

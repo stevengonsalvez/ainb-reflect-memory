@@ -28,9 +28,13 @@ def test_every_returned_hit_is_pinned_and_resolved(client, issuer, git_repo) -> 
     # Every refusal is counted.
     assert body["meta"] == {
         "returned": 3,
-        "dropped": {"unpinned": 2, "unresolvable": 3, "classified": 2},
+        "dropped": {"unpinned": 2, "unresolvable": 3, "classified": 2, "unverified_edges": 2},
         "evidence_only": True,
     }
+    # Graph edges survive only when their evidence memory did (or they cite none).
+    assert [e["id"] for e in body["graph"]["edges"]] == ["edge-kept", "edge-no-evidence"]
+    assert "bad-sha" not in r.text and "never-a-hit" not in r.text
+    assert [e["canonical_name"] for e in body["graph"]["entities"]] == ["auth", "token"]
     # Restricted and pii never appear anywhere in the payload.
     assert "restricted" not in r.text.replace('"classified"', "")
     assert "content of pii" not in r.text

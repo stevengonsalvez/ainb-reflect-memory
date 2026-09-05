@@ -25,7 +25,11 @@ from typing import Any
 import httpx
 import jwt
 
-__all__ = ["AuthError", "OIDCConfig", "OIDCVerifier", "Principal"]
+__all__ = ["ASYMMETRIC_ALGORITHMS", "AuthError", "OIDCConfig", "OIDCVerifier", "Principal"]
+
+ASYMMETRIC_ALGORITHMS = frozenset(
+    {"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"}
+)
 
 
 class AuthError(Exception):
@@ -48,6 +52,17 @@ class OIDCConfig:
     # Claims PyJWT must see on every token. ``exp`` keeps a stolen token short
     # lived; ``iss``/``aud`` are verified against the values above.
     required_claims: Sequence[str] = ("exp", "iss", "aud")
+
+    def __post_init__(self) -> None:
+        # JWKS keys are public keys; only asymmetric algorithms make sense. An
+        # HMAC entry would let anyone holding the public JWK mint tokens, and
+        # ``none`` is unsigned, so both are refused at configuration time.
+        bad = [a for a in self.algorithms if a not in ASYMMETRIC_ALGORITHMS]
+        if bad or not self.algorithms:
+            raise ValueError(
+                f"algorithms must be asymmetric JWS algorithms {sorted(ASYMMETRIC_ALGORITHMS)}; "
+                f"refused {bad or 'empty list'}"
+            )
 
     @property
     def discovery_url(self) -> str:
@@ -75,7 +90,7 @@ class OIDCVerifier:
             return self._cfg.jwks_url
         resp = self._http.get(self._cfg.discovery_url)
         resp.raise_for_status()
-        doc = resp.json()
+        doc = _json_object(resp, "issuer discovery document")
         jwks_uri = doc.get("jwks_uri")
         if not isinstance(jwks_uri, str) or not jwks_uri:
             raise AuthError(503, "issuer discovery document has no jwks_uri")
@@ -88,7 +103,12 @@ class OIDCVerifier:
         resp = self._http.get(self._jwks_url())
         resp.raise_for_status()
         keys: dict[str, Any] = {}
-        for jwk_dict in resp.json().get("keys", []):
+        raw_keys = _json_object(resp, "JWKS document").get("keys")
+        if not isinstance(raw_keys, list):
+            raise AuthError(503, "JWKS document has no keys list")
+        for jwk_dict in raw_keys:
+            if not isinstance(jwk_dict, dict):
+                continue
             kid = jwk_dict.get("kid")
             if not kid:
                 continue
@@ -147,6 +167,17 @@ class OIDCVerifier:
             workspace_id=tenant.strip(),
             claims=claims,
         )
+
+
+def _json_object(resp: httpx.Response, what: str) -> Mapping[str, Any]:
+    """Parse a response as a JSON object, or fail as 503 (issuer unusable)."""
+    try:
+        doc = resp.json()
+    except ValueError as exc:
+        raise AuthError(503, f"{what} is not valid JSON") from exc
+    if not isinstance(doc, Mapping):
+        raise AuthError(503, f"{what} is not a JSON object")
+    return doc
 
 
 def _bearer_token(authorization: str | None) -> str:

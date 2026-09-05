@@ -8,6 +8,7 @@ import json
 import subprocess
 import time
 from contextlib import contextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,8 @@ from reflect_kb.broker.auth import OIDCConfig, OIDCVerifier
 from reflect_kb.broker.pinning import LocalGitResolver
 from reflect_kb.postgres import (
     Citation,
+    Edge,
+    Entity,
     EvidenceHit,
     EvidencePack,
     GraphNeighborhood,
@@ -146,12 +149,27 @@ class FakeStore:
 
     def get_evidence_pack(self, q) -> EvidencePack:
         self.queries.append(q)
+        now = datetime.now(UTC)
+        ent = Entity("e-auth", q.tenant.workspace_id, "auth", "component", ("authn",), {}, now, now)
+        tok = Entity("e-token", q.tenant.workspace_id, "token", "concept", (), {}, now, now)
+
+        def edge(eid: str, evidence: str | None) -> Edge:
+            return Edge(eid, q.tenant.workspace_id, "e-auth", "e-token", "validates", evidence, 1.0, {}, now, now)
+
         return EvidencePack(
             query=q.query,
             tenant=q.tenant,
             lexical=list(self.hits),
             entities=[],
-            graph=GraphNeighborhood(entities=[], edges=[]),
+            graph=GraphNeighborhood(
+                entities=[ent, tok],
+                edges=[
+                    edge("edge-kept", "pinned-ok"),  # evidence survived
+                    edge("edge-no-evidence", None),  # cites no memory
+                    edge("edge-dropped-evidence", "bad-sha"),  # evidence was refused
+                    edge("edge-unknown-evidence", "never-a-hit"),  # evidence never returned
+                ],
+            ),
             citations=[Citation(h.memory_id, h.source_type, h.source_uri) for h in self.hits],
         )
 

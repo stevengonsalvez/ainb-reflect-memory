@@ -8,6 +8,8 @@ REFLECT_PG_DSN. See the README broker section for an Entra ID example.
 from __future__ import annotations
 
 import os
+import re
+import urllib.parse
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +36,17 @@ class BrokerSettings:
     max_limit: int = 50
     host: str = "127.0.0.1"
     port: int = 8787
+    allow_insecure_pg: bool = False
+
+    def __post_init__(self) -> None:
+        # Notes, vectors and graph cross the network on this DSN. Require TLS
+        # unless the operator says otherwise for a loopback or socket setup.
+        if not self.allow_insecure_pg and not _dsn_requires_tls(self.pg_dsn):
+            raise RuntimeError(
+                "REFLECT_PG_DSN must carry sslmode=require, verify-ca or verify-full; "
+                "set REFLECT_BROKER_ALLOW_INSECURE_PG=1 only for loopback or Unix-socket "
+                "databases"
+            )
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BrokerSettings:
@@ -77,6 +90,7 @@ class BrokerSettings:
             max_limit=int(e.get(_PREFIX + "MAX_LIMIT", "50")),
             host=e.get(_PREFIX + "HOST", "127.0.0.1").strip() or "127.0.0.1",
             port=int(e.get(_PREFIX + "PORT", "8787")),
+            allow_insecure_pg=e.get(_PREFIX + "ALLOW_INSECURE_PG", "").strip() == "1",
         )
 
     def oidc(self) -> OIDCConfig:
@@ -92,3 +106,16 @@ class BrokerSettings:
         if self.resolver_kind == "http":
             return HttpForgeResolver(self.forge_url_template)
         return LocalGitResolver(self.repos)
+
+
+_TLS_MODES = ("require", "verify-ca", "verify-full")
+
+
+def _dsn_requires_tls(dsn: str) -> bool:
+    """True when the libpq DSN pins an encrypting sslmode (URI or key=value form)."""
+    if "://" in dsn:
+        query = urllib.parse.urlparse(dsn).query
+        modes = urllib.parse.parse_qs(query).get("sslmode", [])
+        return any(m in _TLS_MODES for m in modes)
+    m = re.search(r"(?:^|\s)sslmode=(\S+)", dsn)
+    return bool(m and m.group(1).strip("'\"") in _TLS_MODES)
