@@ -74,7 +74,7 @@ jobs:
         # suite is green without it.
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install -e '.[dev,postgres]'
+          uv pip install -e '.[dev,postgres,broker]'
 
       - name: ruff check
         # NON-BLOCKING for now: the freshly-extracted engine carries a backlog

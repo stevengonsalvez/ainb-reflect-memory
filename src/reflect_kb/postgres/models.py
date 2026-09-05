@@ -126,6 +126,39 @@ class InsertMemoryInput:
             raise ValidationError("confidence must be in [0.0, 1.0]")
         _require_shareable(self.metadata)
 
+    @classmethod
+    def from_note(
+        cls,
+        tenant: Tenant,
+        frontmatter: Mapping[str, Any],
+        content: str,
+        *,
+        source_type: str = "codebase_note",
+        confidence: float = 0.5,
+    ) -> "InsertMemoryInput":
+        """Build the shared-store input for a learning note.
+
+        This is the ingest boundary for pinning: when the note's frontmatter
+        carries a repo and a sha (plus a path), ``source_uri`` becomes the
+        canonical ``repo@sha:path`` pin the broker can verify; otherwise the
+        note is stored unpinned and the broker will never serve it. The
+        classification label is copied into metadata so the floor applies.
+        """
+        from reflect_kb.broker.pinning import pinned_source_uri
+
+        metadata: dict[str, Any] = {
+            "classification": classification_of(frontmatter),
+            "title": frontmatter.get("title"),
+        }
+        return cls(
+            tenant=tenant,
+            content=content,
+            source_type=source_type,
+            source_uri=pinned_source_uri(frontmatter),
+            metadata=metadata,
+            confidence=confidence,
+        )
+
 
 @dataclass(frozen=True)
 class SearchMemoryInput:
@@ -307,6 +340,9 @@ class EvidenceHit:
     snippet: str
     source_type: str
     source_uri: str | None
+    # Item metadata (carries ``classification``) so an egress path can apply
+    # the floor without a second query.
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
