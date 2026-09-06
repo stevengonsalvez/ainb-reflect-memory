@@ -9,7 +9,7 @@ import pathlib
 
 import pytest
 
-from _support.pg import WS_A, WS_B, connect_or_skip, test_dsn  # noqa: F401
+from _support.pg import WS_A, WS_B, connect_or_skip, disposable_database  # noqa: F401
 
 _MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 _M1 = _MIGRATIONS / "0001_reflect_memory_phase1.sql"
@@ -17,23 +17,24 @@ _M2 = _MIGRATIONS / "0002_nanographrag_pgvector.sql"
 
 
 @pytest.fixture(scope="session")
-def _migrated_dsn() -> str:
-    """Apply both migrations once per session against the disposable test
-    database (REFLECT_TEST_DATABASE_URL or a localhost DATABASE_URL); skip
-    cleanly otherwise. The fixtures truncate tables, so a DSN that may name a
-    real database is refused, never used."""
-    conn = connect_or_skip()
-    dsn = test_dsn()[0]
-    try:
-        with conn.cursor() as cur:
-            try:
-                cur.execute(_M1.read_text())
-                cur.execute(_M2.read_text())
-            except Exception as exc:  # noqa: BLE001 — e.g. pgvector missing
-                pytest.skip(f"migrations did not apply ({exc})")
-    finally:
-        conn.close()
-    return dsn
+def _migrated_dsn():
+    """Create a reflect_test_<random> database on the localhost server named
+    by REFLECT_TEST_DATABASE_URL or DATABASE_URL, apply both migrations once
+    per session, drop it at the end; skip cleanly when no local server is
+    configured. The developer's own databases are never touched."""
+    with disposable_database() as dsn:
+        conn = connect_or_skip(dsn)
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute(_M1.read_text())
+                    cur.execute(_M2.read_text())
+                except Exception as exc:  # noqa: BLE001, e.g. pgvector missing
+                    pytest.skip(f"migrations did not apply ({exc})")
+        finally:
+            conn.close()
+        yield dsn
+
 
 
 # Alias used by the nano-graphrag tests.

@@ -23,6 +23,7 @@ from typing import Any
 
 import pytest
 from _support.hermetic import hermetic_env, minimal_path
+from _support.pg import disposable_database
 
 REPO = Path(__file__).resolve().parents[2]
 PLUGIN = REPO / "plugin"
@@ -244,6 +245,14 @@ def any_of(*predicates: AllowedDiff) -> AllowedDiff:
 # --------------------------------------------------------------------------- #
 # fixtures
 # --------------------------------------------------------------------------- #
+
+
+@pytest.fixture(scope="session")
+def disposable_pg():
+    """DSN of a reflect_test_<random> database created for this session on the
+    localhost server, dropped afterwards. Skips without a local server."""
+    with disposable_database() as dsn:
+        yield dsn
 
 
 @pytest.fixture

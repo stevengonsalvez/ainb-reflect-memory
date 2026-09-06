@@ -28,10 +28,10 @@ def test_ng_kv_rls_isolates_by_workspace_guc(clean) -> None:
         cur.execute(
             "do $$ begin "
             "  if exists (select 1 from pg_roles where rolname='ng_rls_test') then "
-            "    execute 'drop owned by ng_rls_test'; execute 'drop role ng_rls_test'; "
+            "    execute 'drop owned by ng_rls_test'; begin execute 'drop role ng_rls_test'; exception when dependent_objects_still_exist then null; end; "
             "  end if; end $$;"
         )
-        cur.execute("create role ng_rls_test nologin;")
+        cur.execute("do $$ begin if not exists (select 1 from pg_roles where rolname='ng_rls_test') then create role ng_rls_test nologin; end if; end $$;")
         cur.execute("grant usage on schema reflect_memory to ng_rls_test;")
         cur.execute("grant select on reflect_memory.ng_kv to ng_rls_test;")
         cur.execute(
@@ -71,10 +71,10 @@ def test_jwt_claim_wins_over_guc(clean) -> None:
         cur.execute(
             "do $$ begin "
             "  if exists (select 1 from pg_roles where rolname='ng_rls_test') then "
-            "    execute 'drop owned by ng_rls_test'; execute 'drop role ng_rls_test'; "
+            "    execute 'drop owned by ng_rls_test'; begin execute 'drop role ng_rls_test'; exception when dependent_objects_still_exist then null; end; "
             "  end if; end $$;"
         )
-        cur.execute("create role ng_rls_test nologin;")
+        cur.execute("do $$ begin if not exists (select 1 from pg_roles where rolname='ng_rls_test') then create role ng_rls_test nologin; end if; end $$;")
         cur.execute("grant usage on schema reflect_memory to ng_rls_test;")
         cur.execute("grant select on reflect_memory.ng_kv to ng_rls_test;")
         cur.execute(

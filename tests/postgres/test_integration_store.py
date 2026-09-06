@@ -229,11 +229,11 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
             "do $$ begin "
             "  if exists (select 1 from pg_roles where rolname='reflect_rls_test') then "
             "    execute 'drop owned by reflect_rls_test'; "
-            "    execute 'drop role reflect_rls_test'; "
+            "    begin execute 'drop role reflect_rls_test'; exception when dependent_objects_still_exist then null; end; "
             "  end if; "
             "end $$;"
         )
-        cur.execute("create role reflect_rls_test nologin;")
+        cur.execute("do $$ begin if not exists (select 1 from pg_roles where rolname='reflect_rls_test') then create role reflect_rls_test nologin; end if; end $$;")
         cur.execute("grant usage on schema reflect_memory to reflect_rls_test;")
         cur.execute("grant select on all tables in schema reflect_memory to reflect_rls_test;")
         cur.execute("grant execute on all functions in schema reflect_memory to reflect_rls_test;")

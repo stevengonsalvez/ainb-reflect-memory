@@ -17,7 +17,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import pytest
-from _support.pg import WS_A, WS_B, connect_or_skip, test_dsn
+from _support.pg import WS_A, WS_B, connect_or_skip
 
 from .conftest import REPO
 
@@ -31,16 +31,23 @@ M = {n: MIGRATIONS / f for n, f in (
 )}
 SEVEN = ("memory_items", "entities", "edges", "ng_kv", "ng_graph_nodes", "ng_graph_edges", "ng_vectors")
 
+# On a tree without 0003 this module proves nothing and says so: the
+# migrations dir must be exactly 0001 and 0002, and the whole module skips
+# with the reason. The stack rebase (#37 adds 0003) turns it live.
+if not M[3].exists():
+    _present = sorted(p.name for p in MIGRATIONS.glob("*.sql"))
+    assert _present == [M[1].name, M[2].name], f"unexpected migrations without 0003: {_present}"
+    pytest.skip("0003 lands in #37; the Mode 2 proof is not executed on this tree", allow_module_level=True)
+
 
 @pytest.fixture
-def pg():
-    """(conn, dsn) on a fresh reflect_memory schema with 0001 and 0002 applied."""
-    if not M[3].exists():
-        pytest.skip("no 0003 migration on this branch (main baseline)")
+def pg(disposable_pg):
+    """(conn, dsn) on a fresh reflect_memory schema with 0001 and 0002 applied,
+    inside the session's disposable reflect_test_<random> database."""
     from psycopg.rows import dict_row
 
-    conn = connect_or_skip(row_factory=dict_row)
-    dsn = test_dsn()[0]
+    dsn = disposable_pg
+    conn = connect_or_skip(dsn, row_factory=dict_row)
     with conn.cursor() as cur:
         cur.execute("drop schema if exists reflect_memory cascade;")
         cur.execute(M[1].read_text())
