@@ -152,7 +152,8 @@ failure is logged and the local note stays the source of truth.
 Unset → Mode 1, unchanged. The DB is **dumb**: no LLM, no embeddings — it
 stores, scopes by tenant, and runs ANN/graph reads. Tenant isolation is RLS
 (fail-closed) on the direct path + explicit `workspace_id` scoping on the
-trusted-worker path; writes need a `service_role` DSN. Full setup + threat
+trusted-worker path; writes use the `reflect_writer` role from migration 0004
+(or `service_role` where you accept BYPASSRLS). Full setup + threat
 model: [`docs/setup.md`](./docs/setup.md) · [`docs/regression-suite.md`](./docs/regression-suite.md).
 
 ---

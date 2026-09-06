@@ -79,6 +79,8 @@ here instead of repeating it. Each file is plain SQL and re-runnable
 | 2 | `0002_nanographrag_pgvector.sql` | `pgvector` (enabled by the file; install the package locally) | `ng_*` tables for the shared nano-graphrag store |
 | 3 | `0003_classification_force_rls.sql` | 1 and 2 applied | legacy-row pre-check, FORCE RLS on all seven tables, classification floor on every label column, read functions filter before `limit` |
 | 4 | `0004_broker_and_writer_roles.sql` | 1 to 3 applied; no session settings, no secrets | the `reflect_broker` and `reflect_writer` roles, NOLOGIN, grants only (see "Roles" below); their passwords come from the provisioning step |
+| 5 | `0005_rls_policies_initplan.sql` | 1 to 3 applied | every policy evaluates the tenant resolver once per statement (an InitPlan) instead of once per row under FORCE RLS |
+| 6 | `0006_read_functions_shareable_floor.sql` | 1 to 5 applied | the read functions: `is_shareable(jsonb)` composed into every entity-returning query, literal substring entity search (`%` and `_` are characters), an index-friendly neighbourhood walk |
 
 **Option A, psql (works anywhere).** One invocation, the files in order;
 `ON_ERROR_STOP` makes psql exit non-zero at the first failing statement and
@@ -89,8 +91,14 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/0001_reflect_memory_phase1.sql \
   -f supabase/migrations/0002_nanographrag_pgvector.sql \
   -f supabase/migrations/0003_classification_force_rls.sql \
-  -f supabase/migrations/0004_broker_and_writer_roles.sql
+  -f supabase/migrations/0004_broker_and_writer_roles.sql \
+  -f supabase/migrations/0005_rls_policies_initplan.sql \
+  -f supabase/migrations/0006_read_functions_shareable_floor.sql
 ```
+
+The table and the block above are checked against `ls supabase/migrations`
+by `tests/test_docs_contracts.py`, so a new file cannot land without a row
+here. Shipped files are never edited in place; a change is a new file.
 
 **Then provision the role passwords (both options).** No migration carries a
 secret: 0004 creates the roles NOLOGIN, and this step, run after the
@@ -122,12 +130,12 @@ connection; an owner role without either now sees nothing, by design.
 |---|---|---|---|---|
 | `reflect_writer` | the Mode 2 writer (ingest, reindex) on deployments without a BYPASSRLS service role | `REFLECT_PG_DSN` | SELECT, INSERT, UPDATE, DELETE on every table; sequences; every function | applies; bound per statement via `SET LOCAL app.current_workspace` |
 | `reflect_broker` | the Context Broker | `REFLECT_BROKER_PG_DSN` | SELECT on every table; EXECUTE on the search functions only | applies; the broker refuses a superuser, BYPASSRLS or owner role at startup |
+| `service_role` (Supabase, not created here) | migrations, and the writer where you accept BYPASSRLS | `REFLECT_PG_DSN` | everything | bypassed |
 
-Both are created NOLOGIN by 0004 and cannot connect until
-`scripts/provision_roles.py` sets their passwords; re-running 0004 alters an
-existing role only for an attribute that differs, so it applies under a
-CREATEROLE-only migrator (hosted Supabase) as well as locally.
-| `service_role` (Supabase) | migrations, and the writer where you accept BYPASSRLS | `REFLECT_PG_DSN` | everything | bypassed |
+`reflect_writer` and `reflect_broker` are created NOLOGIN by 0004 and cannot
+connect until `scripts/provision_roles.py` sets their passwords; re-running
+0004 alters an existing role only for an attribute that differs, so it
+applies under a CREATEROLE-only migrator (hosted Supabase) as well as locally.
 
 One variable per process: the writer never reads `REFLECT_BROKER_PG_DSN`
 and the broker never reads `REFLECT_PG_DSN`. Neither role owns a table.
@@ -193,7 +201,7 @@ Postgres with `-c unix_socket_directories=''` and connect over
 
 ```bash
 docker run -d --name reflect-pg -e POSTGRES_PASSWORD=reflect_test \
-  -e POSTGRES_DB=reflect_test -p 55432:5432 postgres:16-alpine
+  -e POSTGRES_DB=reflect_test -p 55432:5432 pgvector/pgvector:pg16   # postgres:16-alpine has no pgvector; 0002 needs it
 export DATABASE_URL='postgresql://postgres:reflect_test@localhost:55432/reflect_test'
 # ... run tests ...
 docker rm -f reflect-pg
