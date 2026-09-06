@@ -75,6 +75,7 @@ def test_kv_adapter_writes_what_the_engine_hands_it() -> None:
     """The ng_* floor is engine-level, before chunking: the KV adapter no
     longer drops full_docs on its own (that only re-chunked the doc as new on
     every run while text_chunks kept it)."""
+    pytest.importorskip("nano_graphrag")  # the adapter package imports it; slim CI has no graph extra
     from reflect_kb.postgres.nanographrag.kv import PgKVStorage
 
     class _Pg:
