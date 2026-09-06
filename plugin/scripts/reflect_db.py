@@ -36,9 +36,10 @@ import re
 import sqlite3
 import subprocess
 import uuid
-from datetime import datetime, timedelta, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 from domain.enums import (
     ArtifactStatus,
@@ -638,7 +639,7 @@ def has_legacy_state() -> bool:
     return False
 
 
-def get_legacy_state_summary() -> Optional[str]:
+def get_legacy_state_summary() -> str | None:
     """Return the one-line doctor message, or None when nothing is found."""
     home = Path.home()
     yaml_found: list[Path] = []
@@ -673,7 +674,7 @@ _CONN_CACHE: dict[str, sqlite3.Connection] = {}
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _new_id() -> str:
@@ -695,7 +696,7 @@ def db_path() -> Path:
     return _db_path()
 
 
-def init_db(path: Optional[Path] = None) -> sqlite3.Connection:
+def init_db(path: Path | None = None) -> sqlite3.Connection:
     """Create tables if they don't exist and return a connection."""
     if path is None:
         path = _db_path()
@@ -989,7 +990,7 @@ def _migrate_schema(conn: sqlite3.Connection) -> None:
     _backfill_concept_index(conn)
 
 
-def get_conn(path: Optional[Path] = None) -> sqlite3.Connection:
+def get_conn(path: Path | None = None) -> sqlite3.Connection:
     """Return (and lazily create) the database connection."""
     return init_db(path)
 
@@ -1020,7 +1021,7 @@ def compute_content_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(blob).hexdigest()[:16]
 
 
-def get_known_content_hashes(*, conn: Optional[sqlite3.Connection] = None) -> set[str]:
+def get_known_content_hashes(*, conn: sqlite3.Connection | None = None) -> set[str]:
     """Return the set of distinct non-empty content_hash values in learnings."""
     conn = conn or get_conn()
     rows = conn.execute(
@@ -1054,9 +1055,9 @@ def compute_chunk_hash(text: str) -> str:
 
 
 def get_seen_chunk_hashes(
-    hashes: Optional[Iterable[str]] = None,
+    hashes: Iterable[str] | None = None,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> set[str]:
     """Return which of *hashes* are already recorded (empty arg = all of them).
 
@@ -1088,7 +1089,7 @@ def record_chunk_hashes(
     *,
     source_memory_id: str = "",
     now: Any = None,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Record *hashes* as seen; returns the count of newly inserted rows.
 
@@ -1114,7 +1115,7 @@ def prune_chunk_hashes(
     *,
     ttl_days: int = CHUNK_HASH_TTL_DAYS,
     now: Any = None,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Delete chunk-hash rows older than *ttl_days*; returns rows removed.
 
@@ -1137,7 +1138,7 @@ def get_events_by_type(
     event_type: str,
     *,
     limit: int = 10_000,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Thin wrapper around ``get_events`` scoped to a single event type."""
     return get_events(event_type=event_type, limit=limit, conn=conn)
@@ -1166,7 +1167,7 @@ _REVERTS_COMMIT_RE = re.compile(
 )
 
 
-def _commits_jsonl_path(conn: sqlite3.Connection) -> Optional[Path]:
+def _commits_jsonl_path(conn: sqlite3.Connection) -> Path | None:
     """Resolve the ``commits.jsonl`` mirror path for *conn*.
 
     Honours ``REFLECT_STATE_DIR`` when set (the test/runtime override the SG2
@@ -1197,7 +1198,7 @@ def _append_commit_jsonl(conn: sqlite3.Connection, payload: dict[str, Any]) -> N
         return
 
 
-def parse_reverted_sha(message: str) -> Optional[str]:
+def parse_reverted_sha(message: str) -> str | None:
     """Extract the reverted SHA from a git revert commit message, else None.
 
     Matches the ``This reverts commit <sha>.`` body line git generates for a
@@ -1217,7 +1218,7 @@ def add_commit_link(
     branch: str = "",
     message: str = "",
     conflict_resolved: bool = False,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """Insert a ``commit_links`` row linking *sha* to *session_id*.
 
@@ -1249,8 +1250,8 @@ def add_commit_link(
 def get_commit_link(
     sha: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch a single ``commit_links`` row by SHA (None if absent)."""
     conn = conn or get_conn()
     sha = (sha or "").strip().lower()
@@ -1268,7 +1269,7 @@ def revert_session_learnings(
     *,
     reverted_sha: str = "",
     revert_sha: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[str]:
     """Demote a session's learnings on revert (is_latest=0, "contradicted").
 
@@ -1328,10 +1329,10 @@ def record_commit(
     session_id: str = "",
     branch: str = "",
     message: str = "",
-    files: Optional[list[str]] = None,
+    files: list[str] | None = None,
     conflict_resolved: bool = False,
     now: Any = None,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """SG2 capture entrypoint — the body the post-commit hook drives.
 
@@ -1482,25 +1483,25 @@ def add_learning(
     source_path: str = "",
     content_hash: str = "",
     *,
-    confidence_num: Optional[float] = None,
+    confidence_num: float | None = None,
     status: str = LearningStatus.PENDING.value,
     scope: str = "project",
     source_provider: str = "",
     source_kind: str = "",
     source_quote: str = "",
     source_quote_hash: str = "",
-    source_memory_ids: Optional[list[str]] = None,
+    source_memory_ids: list[str] | None = None,
     proof_count: int = 1,
     session_id: str = "",
     thread_id: str = "",
     privacy_level: str = PrivacyLevel.INTERNAL.value,
     artifact_path: str = "",
     sidecar_path: str = "",
-    commit_hash: Optional[str] = None,
-    supersedes_learning_id: Optional[str] = None,
-    superseded_by_learning_id: Optional[str] = None,
-    forget_after: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    commit_hash: str | None = None,
+    supersedes_learning_id: str | None = None,
+    superseded_by_learning_id: str | None = None,
+    forget_after: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert a new learning row. Returns the generated id.
 
@@ -1602,9 +1603,9 @@ def update_learning_status(
     learning_id: str,
     status: str,
     *,
-    revert_reason: Optional[str] = None,
-    commit_hash: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    revert_reason: str | None = None,
+    commit_hash: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Transition a learning to *status* and write a matching audit event."""
     conn = conn or get_conn()
@@ -1660,7 +1661,7 @@ def update_learning_status(
 
 
 def get_pending_learnings(
-    *, conn: Optional[sqlite3.Connection] = None,
+    *, conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return all learnings with status='pending'."""
     conn = conn or get_conn()
@@ -1674,8 +1675,8 @@ def get_pending_learnings(
 def get_learning(
     learning_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch a single learning by id."""
     conn = conn or get_conn()
     row = conn.execute(
@@ -1688,7 +1689,7 @@ def get_learning(
 def get_learnings_by_content_hash(
     content_hash: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return every learning row carrying *content_hash* (oldest first)."""
     if not content_hash:
@@ -1704,7 +1705,7 @@ def get_learnings_by_content_hash(
 def get_learnings_by_source_memory_id(
     source_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return every learning whose ``source_memory_ids`` JSON array contains
     *source_id* (the drain passes the transcript path as ``revise --source``,
@@ -1734,7 +1735,7 @@ def add_learning_proof(
     learning_id: str,
     source_memory_id: str = "",
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """S4 UPDATE path: append *source_memory_id* and bump ``proof_count``.
 
@@ -1800,12 +1801,12 @@ def snapshot_learning_history(
     learning_id: str,
     *,
     change_type: str = "update",
-    changed_fields: Optional[list[str]] = None,
+    changed_fields: list[str] | None = None,
     reason: str = "",
     actor: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
     autocommit: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """S6: snapshot the CURRENT form of a learning before it is mutated.
 
     Called at the top of every UPDATE path so belief revision is
@@ -1856,7 +1857,7 @@ def get_learning_history(
     learning_id: str,
     *,
     limit: int = 100,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return history snapshots for a learning, newest first."""
     conn = conn or get_conn()
@@ -1873,7 +1874,7 @@ def get_learning_history(
 def get_update_counts(
     *,
     limit: int = 100,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Per-learning update counts from the history table (most-updated first).
 
@@ -1983,7 +1984,7 @@ def _backfill_concept_index(conn: sqlite3.Connection) -> None:
         return
 
 
-def _conn_state_dir(conn: sqlite3.Connection) -> Optional[Path]:
+def _conn_state_dir(conn: sqlite3.Connection) -> Path | None:
     """Directory holding this connection's DB file (None for :memory:)."""
     try:
         for row in conn.execute("PRAGMA database_list").fetchall():
@@ -2020,7 +2021,7 @@ def detect_and_resolve_contradictions(
     title: str,
     *,
     scope: str = "project",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """SG1 post-write hook body: demote learnings the new write contradicts.
 
@@ -2110,7 +2111,7 @@ def detect_and_resolve_contradictions(
     return resolved
 
 
-def get_contradiction_count(*, conn: Optional[sqlite3.Connection] = None) -> int:
+def get_contradiction_count(*, conn: sqlite3.Connection | None = None) -> int:
     """Total contradiction audit events on file (powers /reflect:status)."""
     conn = conn or get_conn()
     row = conn.execute(
@@ -2127,7 +2128,7 @@ def get_contradiction_count(*, conn: Optional[sqlite3.Connection] = None) -> int
 FORGET_EVENT_TYPE = "learning_forgotten"
 
 
-def _parse_forget_after(value: Any) -> Optional[datetime]:
+def _parse_forget_after(value: Any) -> datetime | None:
     """Parse a ``forget_after`` value to an aware UTC datetime.
 
     Tolerant: ISO-8601 with or without offset ('Z' accepted); naive
@@ -2142,24 +2143,24 @@ def _parse_forget_after(value: Any) -> Optional[datetime]:
     except (ValueError, TypeError):
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def _coerce_now(now: Any = None) -> datetime:
     """Normalize the sweep's *now* (None / ISO string / datetime) to UTC."""
     if now is None:
-        return datetime.now(timezone.utc)
+        return datetime.now(UTC)
     if isinstance(now, datetime):
-        return now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+        return now if now.tzinfo else now.replace(tzinfo=UTC)
     parsed = _parse_forget_after(now)
-    return parsed if parsed is not None else datetime.now(timezone.utc)
+    return parsed if parsed is not None else datetime.now(UTC)
 
 
 def get_expired_learnings(
     *,
     now: Any = None,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Learnings whose ``forget_after`` TTL has passed and aren't archived yet.
 
@@ -2190,7 +2191,7 @@ def sweep_expired_learnings(
     *,
     now: Any = None,
     dry_run: bool = False,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """A3 sweep body: archive every learning past its ``forget_after`` TTL.
 
@@ -2280,8 +2281,8 @@ def add_observation(
     *,
     category: str = "Unknown",
     scope: str = "project",
-    source_correction_ids: Optional[list[str]] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    source_correction_ids: list[str] | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """O1 CREATE path: insert a new consolidated observation. Returns its id.
 
@@ -2332,8 +2333,8 @@ def add_observation(
 def get_observation(
     observation_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch a single observation by id (``source_correction_ids`` stays the
     raw JSON string, mirroring how learning rows carry ``source_memory_ids``)."""
     conn = conn or get_conn()
@@ -2346,10 +2347,10 @@ def get_observation(
 
 def get_observations(
     *,
-    scope: Optional[str] = None,
+    scope: str | None = None,
     include_retired: bool = False,
     limit: int = 100,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """O1 read path: observations strongest-evidence-first.
 
@@ -2382,9 +2383,9 @@ def snapshot_observation_history(
     *,
     change_type: str = "update",
     reason: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
     autocommit: bool = True,
-) -> Optional[str]:
+) -> str | None:
     """O1/S6: snapshot the CURRENT form of an observation before mutating it.
 
     Same contract as :func:`snapshot_learning_history`, applied to the
@@ -2423,7 +2424,7 @@ def get_observation_history(
     observation_id: str,
     *,
     limit: int = 100,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return history snapshots for an observation, newest first."""
     conn = conn or get_conn()
@@ -2439,10 +2440,10 @@ def get_observation_history(
 
 def add_observation_evidence(
     observation_id: str,
-    source_correction_ids: Optional[list[str]] = None,
+    source_correction_ids: list[str] | None = None,
     *,
-    content: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    content: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """O1 UPDATE path: fold new correction evidence into an observation.
 
@@ -2523,7 +2524,7 @@ def retire_observation(
     observation_id: str,
     *,
     reason: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """O1 DELETE path: retire an observation non-destructively.
 
@@ -2578,9 +2579,9 @@ def is_open_domain_query(query: Any) -> bool:
 def recall_observation_tier(
     query: str,
     *,
-    scope: Optional[str] = None,
+    scope: str | None = None,
     limit: int = 5,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """O1 retrieval tier: active observations for an open-domain query.
 
@@ -2653,8 +2654,8 @@ def get_persona_field(
     project_id: str,
     field_name: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch a single persona field by (project_id, field_name).
 
     ``source_observation_ids`` stays the raw JSON string, mirroring how
@@ -2673,7 +2674,7 @@ def get_persona_fields(
     project_id: str,
     *,
     min_confidence: float = 0.0,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """O3 read path: a project's persona fields, strongest-evidence-first.
 
@@ -2697,8 +2698,8 @@ def upsert_persona_field(
     field_name: str,
     value: str,
     *,
-    source_observation_ids: Optional[list[str]] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    source_observation_ids: list[str] | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """O3 CREATE/UPDATE path: fold persona evidence into ONE (project, field).
 
@@ -2810,8 +2811,8 @@ def recall_persona_field(
     project_id: str,
     *,
     min_confidence: float = PERSONA_CONFIDENCE_THRESHOLD,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """O3 retrieval: the direct persona-field answer for an open-domain query.
 
     Only fires for open-domain (aggregate-shaped) queries — closed-domain
@@ -2862,8 +2863,8 @@ def add_proposal(
     target_path: str = "",
     status: str = ProposalStatus.PENDING.value,
     decision_actor: str = "",
-    rationale_json: Optional[dict[str, Any] | str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    rationale_json: dict[str, Any] | str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert a new proposal. Returns the generated id."""
     conn = conn or get_conn()
@@ -2906,7 +2907,7 @@ def set_metric(
     key: str,
     value: Any,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Upsert a metric value (stored as JSON string)."""
     conn = conn or get_conn()
@@ -2925,7 +2926,7 @@ def get_metric(
     key: str,
     default: Any = None,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> Any:
     """Read a single metric value. Returns *default* if not found."""
     conn = conn or get_conn()
@@ -2942,7 +2943,7 @@ def get_metric(
         return raw
 
 
-def get_metrics(*, conn: Optional[sqlite3.Connection] = None) -> dict[str, Any]:
+def get_metrics(*, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     """Return all metrics as a flat dict."""
     conn = conn or get_conn()
     rows = conn.execute("SELECT key, value FROM metrics").fetchall()
@@ -2959,7 +2960,7 @@ def increment_metric(
     key: str,
     delta: int = 1,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Atomically increment an integer metric. Returns new value.
 
@@ -3006,13 +3007,13 @@ def increment_metric(
 
 def add_event(
     event_type: str,
-    learning_id: Optional[str] = None,
-    details: Optional[dict[str, Any]] = None,
+    learning_id: str | None = None,
+    details: dict[str, Any] | None = None,
     *,
     actor: str = "",
-    parent_event_id: Optional[str] = None,
+    parent_event_id: str | None = None,
     idempotency_key: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
     autocommit: bool = True,
 ) -> str:
     """Insert an audit event. Returns the event id."""
@@ -3061,10 +3062,10 @@ def add_event(
 
 
 def get_events(
-    event_type: Optional[str] = None,
+    event_type: str | None = None,
     limit: int = 100,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Fetch recent events, optionally filtered by type."""
     conn = conn or get_conn()
@@ -3096,7 +3097,7 @@ def upsert_source(
     provider_id: str = "",
     canonical_project_id: str = "",
     ingest_state: str = "discovered",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or update a discovered source. Returns the source id."""
     conn = conn or get_conn()
@@ -3159,7 +3160,7 @@ def upsert_source(
 def get_stale_sources(
     days: int = 30,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return sources not seen within *days*."""
     conn = conn or get_conn()
@@ -3175,7 +3176,7 @@ def get_stale_sources(
 def mark_sources_stale(
     days: int = 30,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Mark sources not seen within *days* as stale. Returns count affected."""
     conn = conn or get_conn()
@@ -3202,7 +3203,7 @@ def add_index_job(
     idempotency_key: str = "",
     attempt_count: int = 0,
     last_error: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert an index job or return the existing row for an idempotency key."""
     conn = conn or get_conn()
@@ -3314,7 +3315,7 @@ def _ensure_signals_row(
 def get_learning_signals(
     learning_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """S9: read the volatile ranking signals for a learning.
 
@@ -3334,10 +3335,10 @@ def get_learning_signals(
 def set_learning_signals(
     learning_id: str,
     *,
-    importance: Optional[float] = None,
-    maturity: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    importance: float | None = None,
+    maturity: str | None = None,
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """S9: upsert curated ranking signals for a learning.
 
     ``importance`` is clamped to [0, 100]; an unknown ``maturity`` tier is
@@ -3428,12 +3429,12 @@ def add_recall_event(
     query: str,
     *,
     source_context: str = "",
-    rank: Optional[int] = None,
+    rank: int | None = None,
     feedback: str = "",
     query_hash: str = "",
     session_id: str = "",
     followup: bool = False,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Record a recall hit and update recall telemetry on the learning row.
 
@@ -3539,7 +3540,7 @@ def followup_window_seconds() -> float:
 
 def _latest_recall_search(
     conn: sqlite3.Connection, session_id: str,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """A4: the session's most recent recorded search, with its full id set.
 
     A "search" is the group of recall_events rows sharing (session_id,
@@ -3573,8 +3574,8 @@ def record_recall_search(
     session_id: str = "",
     source_context: str = "",
     feedback: str = "",
-    window_seconds: Optional[float] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    window_seconds: float | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """A4: record one SEARCH (a ranked set of recalled learnings) and flag
     followups.
@@ -3626,7 +3627,7 @@ def record_recall_search(
         if prior is not None and prior["learning_ids"]:
             prior_at = _parse_forget_after(prior["created_at"])
             if prior_at is not None:
-                age = (datetime.now(timezone.utc) - prior_at).total_seconds()
+                age = (datetime.now(UTC) - prior_at).total_seconds()
                 followup = (
                     0 <= age <= window
                     and prior["query"] != query
@@ -3653,7 +3654,7 @@ def record_recall_search(
     return {"followup": followup, "counted": counted, "recall_event_ids": event_ids}
 
 
-def get_followup_stats(*, conn: Optional[sqlite3.Connection] = None) -> dict[str, Any]:
+def get_followup_stats(*, conn: sqlite3.Connection | None = None) -> dict[str, Any]:
     """A4: the followup-rate diagnostic read-back (powers /reflect:cost).
 
     ``rate`` is followups / searches — high means recall keeps failing to
@@ -3684,8 +3685,8 @@ def add_artifact(
     *,
     content_hash: str = "",
     status: str = ArtifactStatus.CREATED.value,
-    metadata: Optional[dict[str, Any] | str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    metadata: dict[str, Any] | str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Record a generated artifact for a learning."""
     conn = conn or get_conn()
@@ -3719,8 +3720,8 @@ def add_artifact(
 def record_transcript(
     transcript_id: str,
     *,
-    captured_at: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    captured_at: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Register a transcript (conversation) so its chunks/learnings can group.
 
@@ -3742,8 +3743,8 @@ def record_chunk(
     chunk_hash: str,
     *,
     slice_text: str = "",
-    captured_at: Optional[str] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    captured_at: str | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Record a (transcript, slice_hash) chunk, reusing the S7 slice hash.
 
@@ -3772,7 +3773,7 @@ def chunk_already_processed(
     transcript_id: str,
     chunk_hash: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """True if this (transcript_id, slice_hash) chunk is already recorded."""
     conn = conn or get_conn()
@@ -3787,7 +3788,7 @@ def link_chunk_learning(
     chunk_hash: str,
     learning_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Attribute a learning back to the chunk it was drained from.
 
@@ -3810,7 +3811,7 @@ def record_chunk_with_learnings(
     learning_ids: list[str],
     *,
     slice_text: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> None:
     """Convenience: record a chunk and attribute its learnings in one call.
 
@@ -3826,7 +3827,7 @@ def record_chunk_with_learnings(
 def get_learnings_for_transcript(
     transcript_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[str]:
     """Return the distinct learning ids that came from a transcript/session.
 
@@ -3848,7 +3849,7 @@ def get_learnings_for_transcript(
 def get_transcript_grouping(
     transcript_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, list[str]]:
     """Return the per-chunk learning grouping for a transcript.
 
@@ -3892,10 +3893,10 @@ def upsert_skill(
     name: str,
     path: str,
     *,
-    tags: Optional[list[str]] = None,
+    tags: list[str] | None = None,
     summary: str = "",
     mtime: float = 0.0,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or refresh a skills-index row. Returns the path (natural key).
 
@@ -3933,7 +3934,7 @@ def upsert_skill(
 def get_skills(
     *,
     compute_stale: bool = False,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Return every indexed skill (tags decoded to a list), name-ordered.
 
@@ -3959,8 +3960,8 @@ def get_skills(
 def get_skill_by_name(
     name: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch a single skill by name (first match when namespaces collide)."""
     conn = conn or get_conn()
     row = conn.execute(
@@ -3977,7 +3978,7 @@ def get_skill_by_name(
 def remove_skills(
     paths: list[str],
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Delete skills rows for *paths* (uninstalled skills). Returns count."""
     if not paths:
@@ -3992,7 +3993,7 @@ def remove_skills(
 def mark_skills_stale(
     paths: list[str],
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """R13: flag the skills at *paths* as stale. Returns rows newly flagged.
 
@@ -4019,7 +4020,7 @@ def mark_skills_stale(
 def clear_skill_stale(
     path: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """R13: clear the staleness flag for one skill (refresh completed)."""
     if not path:
@@ -4034,7 +4035,7 @@ def clear_skill_stale(
 
 
 def get_stale_skills(
-    *, conn: Optional[sqlite3.Connection] = None,
+    *, conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """R13: every skill currently flagged stale (tags decoded), name-ordered."""
     conn = conn or get_conn()
@@ -4135,8 +4136,8 @@ GROUP BY l.id
 
 def compute_skills_staleness(
     *,
-    skills: Optional[list[dict[str, Any]]] = None,
-    conn: Optional[sqlite3.Connection] = None,
+    skills: list[dict[str, Any]] | None = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, bool]:
     """R14: map of skill path -> computed ``is_stale`` (hindsight
     ``compute_mental_model_is_stale`` shape, recomputed on read).
@@ -4168,7 +4169,7 @@ def compute_skills_staleness(
     if not skills:
         return {}
 
-    floors: dict[str, Optional[datetime]] = {
+    floors: dict[str, datetime | None] = {
         str(s.get("path", "")): _parse_forget_after(s.get("last_refreshed_at"))
         for s in skills
     }
@@ -4216,8 +4217,8 @@ def compute_skills_staleness(
 def compute_skill_is_stale(
     path: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[bool]:
+    conn: sqlite3.Connection | None = None,
+) -> bool | None:
     """R14: computed staleness for ONE indexed skill (None when not indexed)."""
     if not path:
         return None
@@ -4247,10 +4248,10 @@ def upsert_conventions_doc(
     *,
     query: str = "",
     content: str = "",
-    scope_tags: Optional[list[str]] = None,
+    scope_tags: list[str] | None = None,
     doc_path: str = "",
     observation_count: int = 0,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Insert or refresh the conventions-doc row for *project_id*.
 
@@ -4303,8 +4304,8 @@ def upsert_conventions_doc(
 def get_conventions_doc(
     project_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch one conventions-doc row (``scope_tags`` decoded to a list)."""
     if not project_id:
         return None
@@ -4321,7 +4322,7 @@ def get_conventions_doc(
 
 
 def get_conventions_docs(
-    *, conn: Optional[sqlite3.Connection] = None,
+    *, conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Every conventions-doc row (``scope_tags`` decoded), project-ordered."""
     conn = conn or get_conn()
@@ -4339,7 +4340,7 @@ def get_conventions_docs(
 def mark_conventions_docs_stale(
     project_ids: list[str],
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """O2/R13 shape: flag the docs for *project_ids* stale. Returns rows
     newly flagged. A stale doc stops injecting at SessionStart until the
@@ -4360,8 +4361,8 @@ def mark_conventions_docs_stale(
 def compute_conventions_is_stale(
     project_id: str,
     *,
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[bool]:
+    conn: sqlite3.Connection | None = None,
+) -> bool | None:
     """O2/R14 shape: computed staleness for one conventions doc.
 
     Mirrors :func:`compute_skill_is_stale` (the hindsight
@@ -4474,7 +4475,7 @@ DEFAULT_SLOTS: tuple[dict[str, Any], ...] = (
 )
 
 
-def validate_slot_name(name: Any) -> Optional[str]:
+def validate_slot_name(name: Any) -> str | None:
     """Normalize a slot name: lowercase snake_case, <= 64 chars, or None."""
     if not isinstance(name, str):
         return None
@@ -4484,7 +4485,7 @@ def validate_slot_name(name: Any) -> Optional[str]:
     return trimmed
 
 
-def derive_slot_project_id(cwd: Optional[Path] = None) -> str:
+def derive_slot_project_id(cwd: Path | None = None) -> str:
     """Project identity for slot scoping: git remote basename, else dir name.
 
     Mirrors the derivation in memory_discovery's ``project-id`` and the
@@ -4518,7 +4519,7 @@ def _slot_bucket(scope: str, project_id: str) -> str:
 def ensure_default_slots(
     project_id: str = "",
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> int:
     """Seed any missing default slot rows. Returns the number created.
 
@@ -4554,8 +4555,8 @@ def get_slot(
     name: str,
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
-) -> Optional[dict[str, Any]]:
+    conn: sqlite3.Connection | None = None,
+) -> dict[str, Any] | None:
     """Fetch one slot: the project row wins, else the global ('') row."""
     label = validate_slot_name(name)
     if label is None:
@@ -4574,7 +4575,7 @@ def get_slot(
 def list_slots(
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """All slots visible from *project_id* (project shadows global), by name."""
     conn = conn or get_conn()
@@ -4589,7 +4590,7 @@ def list_slots(
     return [merged[k] for k in sorted(merged)]
 
 
-def _slot_result(ok: bool, *, error: str = "", slot: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+def _slot_result(ok: bool, *, error: str = "", slot: dict[str, Any] | None = None) -> dict[str, Any]:
     out: dict[str, Any] = {"ok": ok}
     if error:
         out["error"] = error
@@ -4636,7 +4637,7 @@ def slot_append(
     text: str,
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Agent edit: append *text* as a new line. Size cap is a hard error —
     the agent must compact via :func:`slot_replace` rather than silently
@@ -4670,7 +4671,7 @@ def slot_replace(
     content: str,
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Agent edit: replace the slot body wholesale (size cap enforced)."""
     conn = conn or get_conn()
@@ -4696,7 +4697,7 @@ def slot_delete(
     name: str,
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, Any]:
     """Agent edit: clear a slot's content (the named slot row survives so
     the vocabulary stays fixed — delete means 'empty it', not 'unname it')."""
@@ -4717,7 +4718,7 @@ def slot_auto_append(
     lines: list[str],
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """Deterministic (hook) writer: append *lines* not already present.
 
@@ -4750,7 +4751,7 @@ def slot_auto_replace(
     content: str,
     *,
     project_id: str = "",
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> bool:
     """Deterministic (hook) writer: replace content, head-truncated to fit.
     Skips read-only slots. Returns True when the slot changed."""
@@ -4772,7 +4773,7 @@ def render_slots_context(
     *,
     project_id: str = "",
     max_chars: int = 4000,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> str:
     """Markdown block of every non-empty slot visible from *project_id*.
 

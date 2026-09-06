@@ -26,13 +26,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import yaml
-
-from reflect_kb.issues.sanitize import redact_secrets
 
 from reflect_kb.cli.learnings_cli import (
     DOCUMENTS_DIR,
@@ -41,6 +40,7 @@ from reflect_kb.cli.learnings_cli import (
     parse_frontmatter,
 )
 from reflect_kb.fleet import ledger as ledger_mod
+from reflect_kb.issues.sanitize import redact_secrets
 
 _CATEGORY = {
     "patterns": "fleet-pattern",
@@ -70,7 +70,7 @@ class ImportResult:
     skipped_details: list[str] = field(default_factory=list)
     error_details: list[str] = field(default_factory=list)
 
-    def merge(self, other: "ImportResult") -> None:
+    def merge(self, other: ImportResult) -> None:
         self.imported += other.imported
         self.deduped += other.deduped
         self.skipped += other.skipped
@@ -127,7 +127,7 @@ class _Doc:
     source_path: str
     domain: str
     workflow_state: str = "open"
-    supersedes: Optional[str] = None
+    supersedes: str | None = None
 
     def content_hash(self) -> str:
         return _content_hash(self.title, self.body)
@@ -264,7 +264,7 @@ def _split_corrections_markdown(text: str) -> list[dict]:
     """
     lines = text.splitlines()
     entries: list[dict] = []
-    current_title: Optional[str] = None
+    current_title: str | None = None
     current_body: list[str] = []
 
     def flush() -> None:
@@ -405,7 +405,7 @@ def ingest(
     kinds: list[str],
     *,
     dry_run: bool = False,
-    ledger_file: Optional[Path] = None,
+    ledger_file: Path | None = None,
 ) -> ImportResult:
     """Import every ``kinds`` artifact under ``root`` into the KB.
 

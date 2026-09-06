@@ -24,10 +24,10 @@ from __future__ import annotations
 import re
 import shutil
 import subprocess
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable, Optional
 
 import yaml
 
@@ -55,7 +55,7 @@ REVIEW_QUEUE_DIR = Path.home() / ".learnings" / "review-queue"
 Runner = Callable[..., subprocess.CompletedProcess]
 
 
-def _default_runner(cmd: list[str], cwd: Optional[Path] = None, check: bool = True) -> subprocess.CompletedProcess:
+def _default_runner(cmd: list[str], cwd: Path | None = None, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=cwd, check=check, capture_output=True, text=True)
 
 
@@ -98,15 +98,15 @@ class RouteResult:
     slug: str
     confidence: str
     staged_paths: list[Path] = field(default_factory=list)
-    branch: Optional[str] = None
-    commit_sha: Optional[str] = None
+    branch: str | None = None
+    commit_sha: str | None = None
     pushed: bool = False
-    pr_url: Optional[str] = None
-    queue_path: Optional[Path] = None
+    pr_url: str | None = None
+    queue_path: Path | None = None
     notes: list[str] = field(default_factory=list)
 
 
-def _find_sidecar(doc: Path) -> Optional[Path]:
+def _find_sidecar(doc: Path) -> Path | None:
     candidate = doc.with_suffix(".entities.yaml")
     return candidate if candidate.exists() else None
 
@@ -184,7 +184,7 @@ def route_medium(
     confidence: str = ROUTE_MED,
     git: Runner = _default_runner,
     gh: Runner = _default_runner,
-    gh_available: Optional[Callable[[], bool]] = None,
+    gh_available: Callable[[], bool] | None = None,
 ) -> RouteResult:
     """MED path: push a ``knowledge/<slug>`` branch and open a draft PR."""
     branch = f"knowledge/{slug}"
@@ -197,7 +197,7 @@ def route_medium(
     notes: list[str] = []
     pushed = _safe_push(["git", "push", "-u", "origin", branch], team_root, git, notes)
 
-    pr_url: Optional[str] = None
+    pr_url: str | None = None
     gh_check = gh_available if gh_available is not None else (lambda: shutil.which("gh") is not None)
     if pushed and gh_check():
         try:
@@ -253,7 +253,7 @@ def route_low(
         "category": frontmatter.get("category"),
         "tags": frontmatter.get("tags"),
         "created": _coerce_yaml_scalar(frontmatter.get("created")),
-        "queued_at": datetime.now(timezone.utc).isoformat(),
+        "queued_at": datetime.now(UTC).isoformat(),
     }
     queue_path.write_text(yaml.safe_dump(payload, sort_keys=True), encoding="utf-8")
     return RouteResult(
@@ -269,11 +269,11 @@ def route_low(
 def route_document(
     doc: Path,
     *,
-    team_root: Optional[Path] = None,
+    team_root: Path | None = None,
     queue_dir: Path = REVIEW_QUEUE_DIR,
     git: Runner = _default_runner,
     gh: Runner = _default_runner,
-    gh_available: Optional[Callable[[], bool]] = None,
+    gh_available: Callable[[], bool] | None = None,
 ) -> RouteResult:
     """Classify ``doc`` and dispatch to the appropriate route.
 
@@ -335,7 +335,7 @@ def _pr_body(title: str, slug: str, confidence: str) -> str:
     )
 
 
-def _extract_pr_url(stdout: str) -> Optional[str]:
+def _extract_pr_url(stdout: str) -> str | None:
     """``gh pr create`` prints the URL on its own line. Grab the first https:// match."""
     if not stdout:
         return None

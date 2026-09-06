@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 # ── Layer 2: secret patterns (ordered; most specific first) ──────────────────
 # Each entry is (compiled_regex, replacement, kind). ``kind`` is surfaced in
@@ -215,7 +214,7 @@ def _bump(tally: dict[str, int], kind: str, n: int) -> None:
         tally[kind] = tally.get(kind, 0) + n
 
 
-def sanitize(text: str, *, maps: Optional[dict[str, str]] = None) -> SanitizeResult:
+def sanitize(text: str, *, maps: dict[str, str] | None = None) -> SanitizeResult:
     """Sanitize ``text`` for external publication.
 
     Args:

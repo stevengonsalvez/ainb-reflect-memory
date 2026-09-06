@@ -54,7 +54,6 @@ import sqlite3
 import sys
 import tarfile
 from pathlib import Path
-from typing import Optional
 
 # Bump only on a breaking change to the tarball layout / manifest shape.
 EXPORT_FORMAT_VERSION = 1
@@ -210,8 +209,8 @@ def _add_bytes(tar: tarfile.TarFile, arcname: str, payload: bytes) -> None:
 def export_kb(
     tarball: Path,
     *,
-    db_path: Optional[Path] = None,
-    learnings_home: Optional[Path] = None,
+    db_path: Path | None = None,
+    learnings_home: Path | None = None,
 ) -> dict:
     """Export the KB at (*db_path*, *learnings_home*) to *tarball*.
 
@@ -273,7 +272,7 @@ def export_kb(
     return manifest
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kb_export.py",
         description="Snapshot a reflect-kb (learnings + reflect.db) to a "
