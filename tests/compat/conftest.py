@@ -48,6 +48,8 @@ AllowedDiff = Callable[[str, Any, Any], bool]
 
 def run(cmd: list[str], *, env: dict[str, str] | None = None, cwd: Path | None = None,
         timeout: int = 900, stdin: str | None = None) -> subprocess.CompletedProcess:
+    if env is not None and "PYTHONFAULTHANDLER" not in env:
+        env = {**env, "PYTHONFAULTHANDLER": "1"}  # a native crash names its module, not just -4
     return subprocess.run(cmd, env=env, cwd=str(cwd) if cwd else None, input=stdin,
                           capture_output=True, text=True, timeout=timeout, check=False)
 
@@ -176,7 +178,7 @@ def capture(kind: str, *, tree: Path, home: Path) -> dict[str, Any]:
     home.mkdir(parents=True, exist_ok=True)
     proc = run([sys.executable, str(CAPTURE), "--tree", str(tree), "--home", str(home),
                 "--kind", kind, "--fixtures", str(FIXTURES)],
-               env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}, timeout=3600)
+               env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONFAULTHANDLER": "1"}, timeout=3600)
     if proc.returncode != 0:
         pytest.fail(f"capture {kind} on {tree} failed (exit {proc.returncode}):\n{proc.stderr[-2000:]}")
     return json.loads(proc.stdout)

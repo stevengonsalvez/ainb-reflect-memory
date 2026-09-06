@@ -299,7 +299,10 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          cache-suffix: graph
+          # graph-v2: the v1 cache held an hnswlib wheel built from source
+          # with -march=native on one runner generation and replayed on
+          # another (SIGILL, exit -4, on EPYC 7763 after a build on 9V74).
+          cache-suffix: graph-v2
           prune-cache: false
           cache-dependency-glob: 'pyproject.toml'
 
@@ -311,6 +314,12 @@ jobs:
           key: hf-${{ env.EMBEDDING_MODEL }}-v1
 
       - name: 'install package with graph extra (CPU torch first, then the stack)'
+        env:
+          # hnswlib has no cp312 manylinux wheel, so uv builds it from source
+          # and caches the result; setup.py adds -march=native unless this is
+          # set. A native build from one runner CPU must never be replayed on
+          # another, so build a portable wheel.
+          HNSWLIB_NO_NATIVE: "1"
         run: |
           uv venv --python 3.12
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
@@ -325,7 +334,8 @@ jobs:
           grep -m1 'model name' /proc/cpuinfo || true
           grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|avx512[a-z_]*|amx[a-z_]*|fma|sse4_2)$' | sort | tr '\n' ' '; echo
           uv run python -c "import torch, numpy; print('torch', torch.__version__, 'numpy', numpy.__version__); print(torch.__config__.show())"
-          uv run python -X faulthandler -c "import reflect_kb.graph_engine as g; print('graph_engine import ok')" || echo "graph_engine import failed: $?"
+          uv run python -X faulthandler -c "import hnswlib; print('hnswlib import ok')" || echo "hnswlib import failed: $?"
+          uv run python -X faulthandler -c "import reflect_kb.cli.graph_engine as g; print('graph_engine import ok')" || echo "graph_engine import failed: $?"
 
       - name: warm the embedding model (tolerates a partial cache)
         run: |
