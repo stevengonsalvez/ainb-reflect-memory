@@ -9,29 +9,37 @@ and a future non-Python client can produce the same shapes.
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any
+
+from reflect_kb.classification import (
+    CLASSIFICATIONS,
+    INVALID_CLASSIFICATION,
+    LOCAL_ONLY,
+    classification_of,
+)
 
 from .errors import TenantScopeError, ValidationError
 
 __all__ = [
-    "Tenant",
-    "InsertMemoryInput",
-    "SearchMemoryInput",
-    "UpsertEntityInput",
-    "UpsertEdgeInput",
-    "EvidencePackQuery",
-    "MemoryItem",
-    "Entity",
-    "Edge",
-    "SearchResult",
-    "EvidenceHit",
-    "EntityHit",
-    "GraphNeighborhood",
-    "Citation",
-    "EvidencePack",
     "SOURCE_TYPES",
+    "Citation",
+    "Edge",
+    "Entity",
+    "EntityHit",
+    "EvidenceHit",
+    "EvidencePack",
+    "EvidencePackQuery",
+    "GraphNeighborhood",
+    "InsertMemoryInput",
+    "MemoryItem",
+    "SearchMemoryInput",
+    "SearchResult",
+    "Tenant",
+    "UpsertEdgeInput",
+    "UpsertEntityInput",
 ]
 
 # Recommended source types (from the spec). Not an allow-list — callers may use
@@ -48,6 +56,30 @@ SOURCE_TYPES = frozenset(
         "note",
     }
 )
+
+
+def _require_shareable(metadata: Mapping[str, Any]) -> None:
+    """Classification floor at the write boundary: the shared store is an
+    egress path, so restricted and pii rows are refused here, before any SQL
+    is built, for every input that carries a metadata label (memory items,
+    entities, edges). Migration 0003 enforces the same rule as a check
+    constraint on every table with a label column."""
+    if not isinstance(metadata, Mapping):
+        raise ValidationError(f"metadata must be a mapping; got {type(metadata).__name__}")
+    label = classification_of(metadata)
+    if label == INVALID_CLASSIFICATION:
+        raise ValidationError(
+            "metadata.classification must be a non-empty string when present; "
+            f"got {metadata.get('classification')!r}"
+        )
+    if label not in CLASSIFICATIONS:
+        raise ValidationError(
+            f"metadata.classification must be one of {sorted(CLASSIFICATIONS)}; got {label!r}"
+        )
+    if label in LOCAL_ONLY:
+        raise ValidationError(
+            f"classification {label!r} never leaves the local store; refusing shared insert"
+        )
 
 
 def _require_nonempty(value: object, field_name: str) -> str:
@@ -67,9 +99,9 @@ class Tenant:
     """
 
     workspace_id: str
-    agent_id: Optional[str] = None
-    source_session_id: Optional[str] = None
-    user_id: Optional[str] = None
+    agent_id: str | None = None
+    source_session_id: str | None = None
+    user_id: str | None = None
 
     def __post_init__(self) -> None:
         # A missing workspace is fatal: it is the only thing standing between
@@ -83,7 +115,7 @@ class InsertMemoryInput:
     tenant: Tenant
     content: str
     source_type: str = "note"
-    source_uri: Optional[str] = None
+    source_uri: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
     confidence: float = 0.5
 
@@ -92,6 +124,7 @@ class InsertMemoryInput:
         _require_nonempty(self.source_type, "source_type")
         if not (0.0 <= float(self.confidence) <= 1.0):
             raise ValidationError("confidence must be in [0.0, 1.0]")
+        _require_shareable(self.metadata)
 
 
 @dataclass(frozen=True)
@@ -100,9 +133,9 @@ class SearchMemoryInput:
     query: str
     limit: int = 10
     # Optional extra filter: restrict to one agent's memories within the tenant.
-    agent_id: Optional[str] = None
+    agent_id: str | None = None
     # Drop hits below this lexical rank (ts_rank). None = keep all.
-    min_rank: Optional[float] = None
+    min_rank: float | None = None
 
     def __post_init__(self) -> None:
         _require_nonempty(self.query, "query")
@@ -121,6 +154,7 @@ class UpsertEntityInput:
     def __post_init__(self) -> None:
         _require_nonempty(self.canonical_name, "canonical_name")
         _require_nonempty(self.entity_type, "entity_type")
+        _require_shareable(self.metadata)
 
 
 @dataclass(frozen=True)
@@ -129,7 +163,7 @@ class UpsertEdgeInput:
     source_entity_id: str
     target_entity_id: str
     relation_type: str
-    evidence_memory_id: Optional[str] = None
+    evidence_memory_id: str | None = None
     weight: float = 1.0
     metadata: Mapping[str, Any] = field(default_factory=dict)
 
@@ -137,6 +171,7 @@ class UpsertEdgeInput:
         _require_nonempty(self.source_entity_id, "source_entity_id")
         _require_nonempty(self.target_entity_id, "target_entity_id")
         _require_nonempty(self.relation_type, "relation_type")
+        _require_shareable(self.metadata)
 
 
 @dataclass(frozen=True)
@@ -164,11 +199,11 @@ class EvidencePackQuery:
 class MemoryItem:
     id: str
     workspace_id: str
-    agent_id: Optional[str]
-    source_session_id: Optional[str]
-    user_id: Optional[str]
+    agent_id: str | None
+    source_session_id: str | None
+    user_id: str | None
     source_type: str
-    source_uri: Optional[str]
+    source_uri: str | None
     content: str
     content_hash: str
     metadata: Mapping[str, Any]
@@ -177,7 +212,7 @@ class MemoryItem:
     updated_at: datetime
 
     @classmethod
-    def from_row(cls, row: Mapping[str, Any]) -> "MemoryItem":
+    def from_row(cls, row: Mapping[str, Any]) -> MemoryItem:
         return cls(
             id=str(row["id"]),
             workspace_id=str(row["workspace_id"]),
@@ -207,7 +242,7 @@ class Entity:
     updated_at: datetime
 
     @classmethod
-    def from_row(cls, row: Mapping[str, Any]) -> "Entity":
+    def from_row(cls, row: Mapping[str, Any]) -> Entity:
         return cls(
             id=str(row["id"]),
             workspace_id=str(row["workspace_id"]),
@@ -227,14 +262,14 @@ class Edge:
     source_entity_id: str
     target_entity_id: str
     relation_type: str
-    evidence_memory_id: Optional[str]
+    evidence_memory_id: str | None
     weight: float
     metadata: Mapping[str, Any]
     created_at: datetime
     updated_at: datetime
 
     @classmethod
-    def from_row(cls, row: Mapping[str, Any]) -> "Edge":
+    def from_row(cls, row: Mapping[str, Any]) -> Edge:
         return cls(
             id=str(row["id"]),
             workspace_id=str(row["workspace_id"]),
@@ -271,7 +306,7 @@ class EvidenceHit:
     rank: float
     snippet: str
     source_type: str
-    source_uri: Optional[str]
+    source_uri: str | None
 
 
 @dataclass(frozen=True)
@@ -279,7 +314,7 @@ class EntityHit:
     entity_id: str
     canonical_name: str
     entity_type: str
-    matched_alias: Optional[str] = None
+    matched_alias: str | None = None
 
 
 @dataclass(frozen=True)
@@ -292,7 +327,7 @@ class GraphNeighborhood:
 class Citation:
     memory_id: str
     source_type: str
-    source_uri: Optional[str]
+    source_uri: str | None
 
 
 @dataclass(frozen=True)
@@ -305,5 +340,5 @@ class EvidencePack:
     citations: Sequence[Citation]
 
 
-def _opt_str(value: object) -> Optional[str]:
+def _opt_str(value: object) -> str | None:
     return None if value is None else str(value)

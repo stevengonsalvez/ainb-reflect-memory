@@ -123,13 +123,9 @@ def _split_frontmatter(text: str) -> Optional[tuple[str, str]]:
     ``title: cost --- benefit``) can't truncate the frontmatter and corrupt the
     note on write-back. Returns None when there is no frontmatter block.
     """
-    lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
-        return None
-    for i in range(1, len(lines)):
-        if lines[i].strip() == "---":
-            return "\n".join(lines[1:i]), "\n".join(lines[i + 1:])
-    return None
+    from reflect_kb.frontmatter import split_frontmatter_text
+
+    return split_frontmatter_text(text)
 
 
 class KnowledgeBase:

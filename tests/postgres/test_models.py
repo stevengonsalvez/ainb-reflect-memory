@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -100,7 +100,7 @@ def test_evidence_pack_query_validation() -> None:
 
 
 def _now() -> datetime:
-    return datetime(2026, 6, 18, tzinfo=timezone.utc)
+    return datetime(2026, 6, 18, tzinfo=UTC)
 
 
 def test_memory_item_from_row_handles_nulls_and_uuid_objects() -> None:
@@ -160,3 +160,57 @@ def test_entity_and_edge_from_row() -> None:
     )
     assert edge.evidence_memory_id is None
     assert edge.weight == 1.0
+
+
+# --------------------------------------------------------------------------- #
+# Classification floor: restricted and pii never reach the shared store
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize("bad", [["internal"], "internal", 7, ("public",)])
+def test_metadata_must_be_a_mapping(bad) -> None:
+    """A list read as internal and a string raised TypeError; both are
+    refused before the label is read."""
+    tenant = Tenant(workspace_id=WS)
+    with pytest.raises(ValidationError, match="metadata must be a mapping"):
+        InsertMemoryInput(tenant=tenant, content="x", metadata=bad)
+    with pytest.raises(ValidationError, match="metadata must be a mapping"):
+        UpsertEntityInput(tenant=tenant, canonical_name="n", entity_type="t", metadata=bad)
+
+
+def test_insert_memory_input_refuses_local_only_classification() -> None:
+    t = Tenant(workspace_id=WS)
+    for label in ("restricted", "pii"):
+        with pytest.raises(ValidationError):
+            InsertMemoryInput(tenant=t, content="ok", metadata={"classification": label})
+    with pytest.raises(ValidationError):
+        InsertMemoryInput(tenant=t, content="ok", metadata={"classification": "top-secret"})
+    for label in ("public", "internal"):
+        InsertMemoryInput(tenant=t, content="ok", metadata={"classification": label})
+    InsertMemoryInput(tenant=t, content="ok")  # missing means internal
+
+
+def test_insert_memory_input_names_empty_or_non_string_labels() -> None:
+    t = Tenant(workspace_id=WS)
+    for bad in ("", "   ", 7, ["public"]):
+        with pytest.raises(ValidationError, match="non-empty string"):
+            InsertMemoryInput(tenant=t, content="ok", metadata={"classification": bad})
+    InsertMemoryInput(tenant=t, content="ok", metadata={"classification": None})  # null = missing
+
+
+def test_entity_and_edge_inputs_refuse_local_only_classification() -> None:
+    TENANT = Tenant(workspace_id="11111111-1111-1111-1111-111111111111")
+    """The floor applies to every input that carries a label, not only memory items."""
+    for label in ("restricted", "pii"):
+        with pytest.raises(ValidationError, match="never leaves the local store"):
+            UpsertEntityInput(tenant=TENANT, canonical_name="Auth", entity_type="component",
+                              metadata={"classification": label})
+        with pytest.raises(ValidationError, match="never leaves the local store"):
+            UpsertEdgeInput(tenant=TENANT, source_entity_id="a", target_entity_id="b", relation_type="uses",
+                            metadata={"classification": label})
+    with pytest.raises(ValidationError, match="must be one of"):
+        UpsertEntityInput(tenant=TENANT, canonical_name="Auth", entity_type="component",
+                          metadata={"classification": "secret"})
+    UpsertEntityInput(tenant=TENANT, canonical_name="Auth", entity_type="component",
+                      metadata={"classification": "internal"})
+

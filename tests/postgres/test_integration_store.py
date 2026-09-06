@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from reflect_kb.postgres import (
@@ -137,6 +139,32 @@ def test_graph_neighborhood_is_same_tenant_only(store) -> None:
     assert nb_b.entities == []
 
 
+def test_every_call_ends_its_own_transaction_and_unbinds(conn, store) -> None:
+    """On the documented non-autocommit connection every store call commits
+    or rolls back its own transaction: the connection is idle afterwards, the
+    tenant binding is gone, and a failed statement leaves it usable."""
+    import psycopg
+
+    idle = psycopg.pq.TransactionStatus.IDLE
+    a = Tenant(workspace_id=WS_A)
+    assert conn.info.transaction_status == idle
+    store.insert_memory(InsertMemoryInput(tenant=a, content="idle after the write", source_type="note"))
+    assert conn.info.transaction_status == idle
+    assert store.search_memory(SearchMemoryInput(tenant=a, query="idle"))
+    assert conn.info.transaction_status == idle
+    with conn.transaction():
+        row = conn.execute("select current_setting('app.current_workspace', true) as ws").fetchone()
+    assert (row["ws"] or "") == "", row
+    assert conn.info.transaction_status == idle
+    ea = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="X", entity_type="t"))
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        store.upsert_edge(UpsertEdgeInput(
+            tenant=a, source_entity_id=ea.id, target_entity_id="00000000-0000-0000-0000-00000000dead",
+            relation_type="rel"))
+    assert conn.info.transaction_status == idle, "a failed call left the connection aborted"
+    assert store.search_memory(SearchMemoryInput(tenant=a, query="idle")), "the connection is unusable after a failure"
+
+
 def test_cross_tenant_edge_is_physically_rejected(store) -> None:
     import psycopg
 
@@ -247,6 +275,10 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
 
         cur.execute("set role reflect_rls_test;")
 
+        # MemoryStore binds app.current_workspace per call, so this connection
+        # still carries the last tenant it wrote for; clear it to test the
+        # unbound case.
+        cur.execute("select set_config('app.current_workspace', '', false);")
         # No workspace resolvable -> resolver returns NULL -> deny all.
         cur.execute("select count(*) as n from reflect_memory.memory_items;")
         assert cur.fetchone()["n"] == 0
@@ -263,3 +295,154 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
 
         cur.execute("reset role;")
     conn.commit()
+
+
+# --------------------------------------------------------------------------- #
+# Migration 0003: classification floor as a check constraint + FORCE RLS
+# --------------------------------------------------------------------------- #
+
+
+def test_check_constraint_refuses_restricted_and_pii_rows(conn) -> None:
+    """The floor holds even for a client that bypasses the Python models."""
+    import psycopg
+
+    for label in ("restricted", "pii", "top-secret"):
+        with pytest.raises(psycopg.errors.CheckViolation), conn.cursor() as cur:
+            cur.execute(
+                "insert into reflect_memory.memory_items "
+                "(workspace_id, source_type, content, content_hash, metadata) "
+                "values (%s, 'note', %s, %s, %s::jsonb)",
+                (WS_A, f"{label} row", f"hash-{label}", f'{{"classification": "{label}"}}'),
+            )
+        conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.memory_items "
+            "(workspace_id, source_type, content, content_hash, metadata) "
+            "values (%s, 'note', 'internal row', 'hash-internal', "
+            "'{\"classification\": \"internal\"}'::jsonb)",
+            (WS_A,),
+        )
+    conn.commit()
+
+
+def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, store) -> None:
+    """ENABLE RLS exempts the table owner; FORCE does not. A non-superuser owner
+    role sees nothing without a workspace and only its own workspace with one."""
+    from psycopg import sql
+
+    a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha owned in A"))
+    store.insert_memory(InsertMemoryInput(tenant=b, content="beta owned in B"))
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select tableowner from pg_tables "
+            "where schemaname='reflect_memory' and tablename='memory_items'"
+        )
+        original_owner = cur.fetchone()["tableowner"]
+        cur.execute(
+            "select relforcerowsecurity from pg_class "
+            "where oid = 'reflect_memory.memory_items'::regclass"
+        )
+        assert cur.fetchone()["relforcerowsecurity"] is True
+
+        cur.execute(
+            "do $$ begin "
+            "  if exists (select 1 from pg_roles where rolname='reflect_owner_test') then "
+            "    execute 'reassign owned by reflect_owner_test to current_user'; "
+            "    execute 'drop owned by reflect_owner_test'; "
+            "    execute 'drop role reflect_owner_test'; "
+            "  end if; "
+            "end $$;"
+        )
+        cur.execute("create role reflect_owner_test nologin;")
+        cur.execute("grant usage on schema reflect_memory to reflect_owner_test;")
+        cur.execute("grant execute on all functions in schema reflect_memory to reflect_owner_test;")
+        cur.execute("alter table reflect_memory.memory_items owner to reflect_owner_test;")
+        conn.commit()
+        try:
+            cur.execute("set role reflect_owner_test;")
+            # MemoryStore binds app.current_workspace per call, so this connection
+            # still carries the last tenant it wrote for; clear it to test the
+            # unbound case.
+            cur.execute("select set_config('app.current_workspace', '', false);")
+            # The owner, with no workspace resolvable, sees nothing.
+            cur.execute("select count(*) as n from reflect_memory.memory_items;")
+            assert cur.fetchone()["n"] == 0
+            # With workspace A set, the owner sees A only, never B.
+            cur.execute("select set_config('app.current_workspace', %s, false);", (WS_A,))
+            cur.execute("select content from reflect_memory.memory_items order by content;")
+            assert [r["content"] for r in cur.fetchall()] == ["alpha owned in A"]
+            cur.execute("reset role;")
+        finally:
+            cur.execute("reset role;")
+            cur.execute(
+                sql.SQL("alter table reflect_memory.memory_items owner to {};").format(
+                    sql.Identifier(original_owner)
+                )
+            )
+            cur.execute("drop owned by reflect_owner_test;")
+            cur.execute("drop role reflect_owner_test;")
+            conn.commit()
+
+
+@pytest.mark.integration
+def test_floor_constraint_refuses_restricted_rows_in_every_label_table(conn) -> None:
+    """The check constraint from 0003 covers every table with a label column,
+    so a restricted row cannot exist anywhere in the shared store even when a
+    client bypasses the Python inputs."""
+    import psycopg
+
+    with conn.cursor() as cur:
+        cur.execute("select conname from pg_constraint where conname like '%_classification_floor' order by 1")
+        names = {r["conname"] for r in cur.fetchall()}
+    # The three tables with a label column; the ng_* floor is engine-level.
+    assert names == {f"{t}_classification_floor" for t in ("memory_items", "entities", "edges")}, names
+    with conn.cursor() as cur:
+        cur.execute("select convalidated from pg_constraint where conname = 'entities_classification_floor'")
+        assert cur.fetchone()["convalidated"] is True
+    restricted_entity = (
+        "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+        "values (%s, 'Secret Component', 'component', '{\"classification\":\"restricted\"}'::jsonb)"
+    )
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
+        cur.execute(restricted_entity, (WS_A,))
+
+
+@pytest.mark.integration
+def test_store_binding_is_transaction_local_and_survives_a_rollback(conn, store) -> None:
+    """The tenant is bound with SET LOCAL per call: a rollback (here a
+    CheckViolation) does not leave a stale binding behind, the next call
+    binds again and reads the tenant's rows, and after the call ends the GUC
+    is unset at session scope so a pooled connection carries no workspace."""
+    import psycopg
+
+    a = Tenant(workspace_id=WS_A)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha survives"))
+    with pytest.raises(psycopg.errors.CheckViolation), conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+            "values (%s, 'bad', 'component', '{\"classification\":\"pii\"}'::jsonb)", (WS_A,))
+    conn.rollback()
+    hits = store.search_memory(SearchMemoryInput(tenant=a, query="alpha"))
+    assert [h.item.content for h in hits] == ["alpha survives"]
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("select coalesce(current_setting('app.current_workspace', true), '') as ws")
+        assert cur.fetchone()["ws"] == "", "the binding leaked past the transaction"
+
+
+@pytest.mark.integration
+def test_0005_policies_use_an_initplan_and_the_resolver_has_no_handlers(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("select polname, pg_get_expr(polqual, polrelid) as qual from pg_policy "
+                    "where polname like '%_tenant_isolation' order by 1")
+        rows = cur.fetchall()
+        assert len(rows) == 7, rows
+        for r in rows:
+            assert re.search(r"\(\s*SELECT reflect_memory\.current_workspace_id\(\)", r["qual"]), r
+        cur.execute("select pg_get_functiondef('reflect_memory.current_workspace_id()'::regprocedure) as def")
+        body = cur.fetchone()["def"].lower()
+        assert "exception" not in body and "missing_ok" not in body
+
