@@ -4,9 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Manual trigger for the heavy golden-diff job (see `golden-diff` below): it
-  # pulls the [graph] stack (~2GB) + an embedding model, so it must never gate a
-  # PR — it runs ONLY on an explicit workflow_dispatch.
+  # Manual trigger kept for re-running the heavy jobs on demand. golden-diff
+  # runs on every PR as the compat gate (see the job comment).
   workflow_dispatch:
 
 # Cancel in-progress runs on the same ref so a series of pushes doesn't pile up.
@@ -19,15 +18,18 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Lint + type-check + fast unit tests on the SLIM ([dev]) install.
+  # Lint + type-check + unit and Postgres integration tests on the SLIM
+  # ([dev,postgres]) install.
   #
   # We deliberately do NOT install the [graph] extra here: it pulls
-  # sentence-transformers -> torch (~2GB) and nano-graphrag's import-time
-  # chain. graph_engine.py lazy-imports that stack inside _get_graph_engine(),
-  # and the unit tests under tests/ stub networkx / inject a fake
-  # sentence_transformers (or pytest.importorskip), so the base suite is green
-  # without it. The heavy GraphRAG + LOCOMO suites live under tests/eval/ and
-  # need [graph] + model downloads + an API key — they are excluded here.
+  # sentence-transformers -> torch and nano-graphrag's import-time chain.
+  # graph_engine.py lazy-imports that stack inside _get_graph_engine(), and the
+  # unit tests under tests/ stub networkx / inject a fake sentence_transformers
+  # (or pytest.importorskip), so the base suite is green without it. The
+  # nano-graphrag adapter tests (tests/postgres/nanographrag) importorskip
+  # nano_graphrag here and run for real in golden-diff. The heavy GraphRAG +
+  # LOCOMO suites under tests/eval/ need [graph] + model downloads + an API
+  # key and are excluded here.
   # ---------------------------------------------------------------------------
   test:
     name: lint + test (py${{ matrix.python-version }})
@@ -36,6 +38,23 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
+    # A real Postgres with pgvector so the integration tier (tests/postgres)
+    # runs instead of skipping. The migrations need the vector extension,
+    # hence the pgvector image rather than postgres:17. localhost is what the
+    # disposable-DSN guard in tests/_support/pg.py accepts.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: reflect
+          POSTGRES_PASSWORD: reflect_test
+          POSTGRES_DB: reflect_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reflect -d reflect_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://reflect:reflect_test@localhost:5432/reflect_test
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +74,7 @@ jobs:
         # suite is green without it.
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install -e '.[dev]'
+          uv pip install -e '.[dev,postgres]'
 
       - name: ruff check
         # NON-BLOCKING for now: the freshly-extracted engine carries a backlog
@@ -76,12 +95,12 @@ jobs:
         continue-on-error: true
         run: uv run mypy src/reflect_kb
 
-      - name: pytest (fast unit tests; excludes heavy tests/eval suite)
-        # THE gate. tests/eval/{behavioral,locomo} need the [graph] extra,
-        # model downloads, and (LOCOMO) an Anthropic API key, so they are
-        # excluded here. Everything directly under tests/ runs on the slim
-        # install.
-        run: uv run pytest -q tests --ignore=tests/eval
+      - name: pytest (fast unit tests; excludes tests/eval and tests/compat)
+        # THE gate for unit + Postgres integration tests. tests/eval needs the
+        # [graph] extra, model downloads, and (LOCOMO) an Anthropic API key;
+        # tests/compat needs the [graph] extra too and runs once, in the
+        # golden-diff job, rather than three times across this matrix.
+        run: uv run pytest -q tests --ignore=tests/eval --ignore=tests/compat
 
   # ---------------------------------------------------------------------------
   # Playwright e2e for the `reflect serve` memory browser. The suite launches
