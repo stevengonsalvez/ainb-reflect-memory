@@ -8,8 +8,10 @@ The plugin scripts are stdlib-only by contract (they run under the harness's
 python, where reflect-kb may live in an isolated tool venv), so the engine's
 ``redact_secrets`` cannot be imported here. This module carries the same
 pattern table, the same generic KEY=value rule and the same capture posture
-(``looks_like_credential``); ``plugin/tests/test_secret_redact.py``
-asserts the two stay identical, so they cannot drift apart silently.
+(``looks_like_credential``); ``plugin/tests/test_secret_redact_parity.py``
+runs both on the fixture corpus and the over-redaction cases and asserts
+identical output, with the vendored path called explicitly, so they cannot
+drift apart silently.
 
 The engine's function is preferred when importable, so a full-stack install
 always runs the canonical code.
@@ -192,47 +194,27 @@ def _redact_local(text: str) -> str:
         # The capture posture, same test as the engine's redact_secrets.
         if m.group(1).lower() in _CAPTURE_EXEMPT_KEYS or not looks_like_credential(m.group(4)):
             return m.group(0)
-        return f"{m.group(1)}{m.group(2)}<REDACTED:generic_secret>"
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}<REDACTED:generic_secret>{m.group(3)}"
 
     return _GENERIC_SECRET_RE.sub(_generic, out)
 
 
-def redact_file(src: str, dst: str) -> int:
-    """Write a redacted copy of ``src`` to ``dst``; return the number of
-    characters that changed (0 when nothing matched)."""
-    with open(src, encoding="utf-8", errors="replace") as fh:
-        text = fh.read()
-    out = redact_secrets_text(text)
-    with open(dst, "w", encoding="utf-8") as fh:
-        fh.write(out)
-    return abs(len(text) - len(out)) if out != text else 0
+# Resolved once: the engine's canonical function when reflect-kb is
+# importable, else the vendored table above. A per-call import attempt cost
+# more than the redaction itself when the engine was absent.
+try:
+    from reflect_kb.issues.sanitize import redact_secrets as _engine_redact_secrets
+except ImportError:  # stdlib-only layout
+    _engine_redact_secrets = None
 
 
 def redact_secrets_text(text: str) -> str:
     """Secrets-only redaction: tokens, keys, PEM blocks, generic KEY=value.
 
     Paths, ids, emails and commit shas survive (a transcript slice needs
-    them). Uses the engine's ``redact_secrets`` when importable.
+    them). The engine's ``redact_secrets`` runs when importable; the
+    vendored copy otherwise, and the parity test keeps the two identical.
     """
-    try:
-        from reflect_kb.issues.sanitize import redact_secrets
-
-        return redact_secrets(text).text
-    except ImportError:
-        return _redact_local(text)
-
-
-if __name__ == "__main__":  # secret_redact.py --in FILE --out FILE
-    import argparse
-    import sys
-
-    _ap = argparse.ArgumentParser(description="write a redacted copy of a file")
-    _ap.add_argument("--in", dest="src", required=True)
-    _ap.add_argument("--out", dest="dst", required=True)
-    _args = _ap.parse_args()
-    try:
-        _changed = redact_file(_args.src, _args.dst)
-    except OSError as exc:
-        print(f"redaction failed: {exc}", file=sys.stderr)
-        sys.exit(1)
-    print(_changed)
+    if _engine_redact_secrets is not None:
+        return _engine_redact_secrets(text).text
+    return _redact_local(text)
