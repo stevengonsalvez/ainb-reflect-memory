@@ -14,12 +14,16 @@ import drain_extract
 
 def test_sourcing_the_library_has_no_side_effects(home) -> None:
     """Sourced with the kill switch set: returns, defines the function, prints
-    argv, installs no trap, exits nothing."""
+    argv, installs no trap, exits nothing. Traps are counted before and after
+    the source: a signal the test process ignores (a library in the pytest
+    process can leave one ignored) is inherited by bash and listed by
+    ``trap -p`` too, and that is not a side effect of the library."""
     script = (
+        'before=$(trap -p | wc -l | tr -d " "); '
         'source "$1"; rc=$?; '
         'drain_agentic_writer_argv "p q"; '
         'printf "%s\\n" "${WRITER_ARGV[@]}"; '
-        'echo "TRAPS:$(trap -p | wc -l | tr -d " ")"; '
+        'echo "TRAPS_ADDED:$(( $(trap -p | wc -l | tr -d " ") - before ))"; '
         'echo "RC:$rc"; echo "REACHED"'
     )
     env = clean_env(home, REFLECT_DISABLED="1", REFLECT_DRAIN_MODEL="haiku")
@@ -27,8 +31,8 @@ def test_sourcing_the_library_has_no_side_effects(home) -> None:
                           capture_output=True, text=True, timeout=30, check=False)
     assert proc.returncode == 0, proc.stderr
     lines = proc.stdout.splitlines()
-    assert "REACHED" in lines and "RC:0" in lines
-    assert "TRAPS:0" in lines
+    assert "REACHED" in lines and "RC:0" in lines, proc.stdout + proc.stderr
+    assert "TRAPS_ADDED:0" in lines, proc.stdout + proc.stderr
     assert lines[:3] == ["claude", "-p", "p q"]
     assert not (home / ".reflect" / "drain.lock.d").exists()
 
