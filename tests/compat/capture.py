@@ -42,9 +42,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))  # tests/ for _support
 from _support.hermetic import hermetic_env, minimal_path
 
-HARNESS_DIR = {"claude": ".claude", "codex": ".codex", "copilot": ".copilot"}
+HARNESS_DIR = {"claude": ".claude", "codex": ".codex", "copilot": ".copilot", "hermes": ".hermes"}
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 _DOC_HASH_RE = re.compile(r"-[0-9a-f]{6}(\.(?:md|entities\.yaml))$")
+# Any install-time marker that survived rendering, of either kind.
+_UNRESOLVED_RE = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
 FAKE_TOKEN = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
 
 
@@ -110,16 +112,31 @@ class Capture:
             raise SystemExit(f"{harness} install failed:\n{proc.stdout}\n{proc.stderr}")
         root = self.home / HARNESS_DIR[harness]
         tree: dict[str, Any] = {}
+        unresolved: dict[str, list[str]] = {}
         for path in sorted(p for p in root.rglob("*") if p.is_file()):
             rel = str(path.relative_to(root))
             if "__pycache__" in rel:
                 continue
             raw = path.read_bytes()
             try:
-                digest = hashlib.sha256(self.norm(raw.decode("utf-8")).encode()).hexdigest()[:16]
+                text = self.norm(raw.decode("utf-8"))
             except UnicodeDecodeError:
-                digest = hashlib.sha256(raw).hexdigest()[:16]
-            tree[rel] = {"exec": os.access(path, os.X_OK), "sha": digest}
+                tree[rel] = {"exec": os.access(path, os.X_OK), "sha": hashlib.sha256(raw).hexdigest()[:16]}
+                continue
+            entry: dict[str, Any] = {"exec": os.access(path, os.X_OK)}
+            if path.name == "SKILL.md":
+                # Full text, so a whitelist can prove new == render(old).
+                entry["text"] = text
+            else:
+                entry["sha"] = hashlib.sha256(text.encode()).hexdigest()[:16]
+            tree[rel] = entry
+            # Install-time markers are rendered in skill bodies only; asset
+            # templates carry runtime {{VARS}} by design and hook docstrings
+            # quote the marker as documentation.
+            if path.name == "SKILL.md":
+                found = sorted(set(_UNRESOLVED_RE.findall(text)))
+                if found:
+                    unresolved[rel] = found
         hooks: dict[str, list[str]] = {}
         for cfg in sorted(list(root.glob("*.json")) + list((root / "hooks").glob("*.json"))):
             hooks[str(cfg.relative_to(root))] = self._hook_commands(cfg)
@@ -128,10 +145,7 @@ class Capture:
             "tree": tree,
             "hooks": hooks,
             "hook_paths": self._hook_paths_exist(hooks),
-            "placeholders": sorted(
-                str(p.relative_to(root)) for p in root.rglob("SKILL.md")
-                if "{{HOME_TOOL_DIR}}" in p.read_text(encoding="utf-8", errors="replace")
-            ),
+            "unresolved": unresolved,
         }
 
     def _hook_commands(self, cfg: Path) -> list[str]:

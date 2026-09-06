@@ -1,15 +1,22 @@
 """Gate 1: clean-home install matrix against the merge-base baseline.
 
-For each adapter, install into a throwaway HOME from the baseline checkout and
-from this checkout, and diff the installed tree, hook commands, hook target
-paths and surviving placeholders. Any difference must be whitelisted below
-with the reason. Then, for this checkout: no placeholder survives, every hook
-command path exists, and every absolute path the drain's permission rules
-name exists in that harness's layout.
+For each adapter (claude, codex, copilot, hermes), install into a throwaway
+HOME from the baseline checkout and from this checkout, and diff the
+installed tree, hook commands, hook target paths and unresolved markers.
+Every difference must fall into a whitelist bucket that PROVES the intended
+transform rather than exempting a path: a changed SKILL.md must equal
+render(baseline text); a new or changed file must be byte-identical to the
+plugin source it mirrors; a hook target path may only go from missing to
+present; unresolved markers may only disappear. Then, for this checkout: no
+marker survives, every hook command path exists, every path the drain's
+permission rules name exists, and every script a rendered skill names exists.
 """
 
 from __future__ import annotations
 
+import hashlib
+import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -19,6 +26,7 @@ import pytest
 from .conftest import (
     HARNESS_DIR,
     HARNESSES,
+    PLUGIN,
     REPO,
     WRITER_ARGV_LIB,
     absolute_paths_in_rules,
@@ -31,41 +39,82 @@ from .conftest import (
     permission_rules,
 )
 
-# --------------------------------------------------------------------------- #
-# Whitelist: the only review surface for an intended install change. Each
-# predicate names the file(s) and the reason. Empty means "identical to main".
-# --------------------------------------------------------------------------- #
+sys.path.insert(0, str(PLUGIN / "adapters"))
+from base import UNRESOLVED_MARKER, render_for_layout
 
-def _writer_argv_library(key: str, old, new) -> bool:
-    """This branch moves the writer argv into hooks/lib/writer_argv.sh (new
-    file) and makes the hook source it; drain_extract gains writer_argv."""
-    return (
-        key.startswith("tree.skills/reflect/hooks/lib/writer_argv.sh.")
-        or key == "tree.skills/reflect/hooks/reflect-drain-bg.sh.sha"
-        or key == "tree.skills/reflect/scripts/drain_extract.py.sha"
-    )
+from .capture import _TS_RE
+
+_KEY_RE = re.compile(r"^tree\.(?P<rel>.+)\.(?P<field>text|sha|exec)$")
 
 
-def _rendered_placeholder(key: str, old, new) -> bool:
-    """Adapters now render {{HOME_TOOL_DIR}} in every SKILL.md they write."""
-    if key.startswith("tree.skills/") and key.endswith("/SKILL.md.sha"):
-        return True
-    return key.startswith("placeholders") and new in ("<absent>", [])
+def _split(key: str) -> tuple[str, str] | None:
+    m = _KEY_RE.match(key)
+    return (m.group("rel"), m.group("field")) if m else None
 
 
-def _claude_installs_runtime_files(key: str, old, new) -> bool:
-    """The Claude adapter now syncs skills/*/{hooks,scripts,assets,references}
-    and the plugin-root resources, so its hook command targets exist."""
-    if key.startswith("tree.skills/") and old == "<absent>":
-        return True
-    return key.startswith("hook_paths.") and old is False and new is True
+def _source_for(harness: str, rel: str) -> Path | None:
+    """The plugin source an installed file mirrors, or None if it mirrors nothing."""
+    parts = Path(rel).parts
+    if len(parts) >= 3 and parts[0] == "skills":
+        name, rest = parts[1], Path(*parts[2:])
+        per_skill = PLUGIN / "skills" / name / rest
+        if per_skill.exists():
+            return per_skill
+        if name == "reflect":
+            if rest.parts[0] == "shim":  # hermes deploys its own shim dir
+                return PLUGIN / "adapters" / "hermes" / rest
+            umbrella = PLUGIN / rest  # plugin-root resources + reflect.toml
+            if umbrella.exists():
+                return umbrella
+    return None
 
 
-ALLOWED_INSTALL_DIFF = {
-    "claude": any_of(_rendered_placeholder, _claude_installs_runtime_files),
-    "codex": any_of(_writer_argv_library, _rendered_placeholder),
-    "copilot": any_of(_writer_argv_library, _rendered_placeholder),
-}
+def _source_sha(path: Path) -> str:
+    """Same digest capture.py records: normalized text (timestamps masked)."""
+    raw = path.read_bytes()
+    try:
+        return hashlib.sha256(_TS_RE.sub("<TS>", raw.decode("utf-8")).encode()).hexdigest()[:16]
+    except UnicodeDecodeError:
+        return hashlib.sha256(raw).hexdigest()[:16]
+
+
+def _make_whitelist(harness: str):
+    harness_dir = f"$HOME/{HARNESS_DIR[harness]}"
+
+    def rendered_skill(key: str, old, new) -> bool:
+        """A SKILL.md may change only into render(baseline text) for this layout."""
+        split = _split(key)
+        if not split or split[1] != "text" or not isinstance(old, str) or not isinstance(new, str):
+            return False
+        dst = Path(f"{harness_dir}/{split[0]}")
+        return new == render_for_layout(old, dst)
+
+    def mirrors_plugin_source(key: str, old, new) -> bool:
+        """A new or changed non-skill file must be byte-identical to its plugin source."""
+        split = _split(key)
+        if not split or split[1] == "text":
+            return False
+        rel, field = split
+        source = _source_for(harness, rel)
+        if source is None or not source.exists():
+            return False
+        if field == "sha":
+            return new == _source_sha(source)
+        return new == os.access(source, os.X_OK)
+
+    def hook_target_now_exists(key: str, old, new) -> bool:
+        return key.startswith("hook_paths.") and old is False and new is True
+
+    def marker_rendered_away(key: str, old, new) -> bool:
+        if key == "unresolved":  # the whole map collapsed to empty
+            return new == {}
+        return key.startswith("unresolved.") and new == "<absent>"
+
+    return any_of(rendered_skill, mirrors_plugin_source, hook_target_now_exists, marker_rendered_away)
+
+
+# The review surface: one whitelist per harness, each bucket a proof.
+ALLOWED_INSTALL_DIFF = {h: _make_whitelist(h) for h in HARNESSES}
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
@@ -75,9 +124,9 @@ def test_install_matches_baseline(harness: str, captures) -> None:
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
-def test_no_placeholder_survives_install(harness: str, captures) -> None:
+def test_no_marker_survives_install(harness: str, captures) -> None:
     _, branch = captures(f"install-{harness}")
-    assert branch["placeholders"] == [], branch["placeholders"]
+    assert branch["unresolved"] == {}, branch["unresolved"]
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
@@ -86,6 +135,26 @@ def test_every_hook_command_path_exists(harness: str, captures) -> None:
     _, branch = captures(f"install-{harness}")
     missing = sorted(p for p, exists in branch["hook_paths"].items() if not exists)
     assert not missing, f"{harness}: hook commands target missing files: {missing}"
+
+
+_SCRIPT_RE = re.compile(r"(?:python3?|uv run)\s+\"?(/[^\s\"]+\.py)\"?")
+
+
+@pytest.mark.parametrize("harness", HARNESSES)
+def test_rendered_skill_paths_exist(harness: str, home: Path) -> None:
+    """Every script or resource a rendered SKILL.md names by absolute path exists."""
+    harness_dir = install_adapter(harness, home)
+    missing = []
+    for skill_md in sorted((harness_dir / "skills").glob("*/SKILL.md")):
+        text = skill_md.read_text(encoding="utf-8")
+        assert not UNRESOLVED_MARKER.search(text), skill_md
+        for m in _SCRIPT_RE.finditer(text):
+            if not Path(m.group(1)).exists():
+                missing.append(f"{skill_md.name}: {m.group(1)}")
+        for m in re.finditer(re.escape(str(harness_dir)) + r"/skills/[^\s`'\")]+", text):
+            if not Path(m.group(0)).exists():
+                missing.append(f"{skill_md.parent.name}/{skill_md.name}: {m.group(0)}")
+    assert not missing, f"{harness}: rendered skill names missing paths:\n  " + "\n  ".join(sorted(set(missing)))
 
 
 def _installed_lib(harness: str, harness_dir: Path) -> Path:

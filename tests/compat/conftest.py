@@ -32,7 +32,7 @@ CAPTURE = Path(__file__).resolve().parent / "capture.py"
 WRITER_ARGV_LIB = PLUGIN / "hooks" / "lib" / "writer_argv.sh"
 TRANSCRIPT = REPO / "tests" / "fixtures" / "transcripts" / "recorded-session.jsonl"
 
-HARNESS_DIR = {"claude": ".claude", "codex": ".codex", "copilot": ".copilot"}
+HARNESS_DIR = {"claude": ".claude", "codex": ".codex", "copilot": ".copilot", "hermes": ".hermes"}
 HARNESSES = tuple(HARNESS_DIR)
 
 # Stevie's kind of install: personal settings.json with bypassPermissions and a uv allow rule.
