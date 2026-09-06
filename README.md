@@ -178,6 +178,10 @@ to a caller whose OIDC token names the workspace.
 
 ```bash
 pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
+# Migration 0004 creates the reflect_broker role NOLOGIN: provision its password once (re-run to rotate)
+export DATABASE_URL='postgresql://postgres:…@…/postgres'  # a CREATEROLE or superuser connection, provisioning only
+export REFLECT_BROKER_PASSWORD='…'
+python scripts/provision_roles.py --only broker
 export REFLECT_BROKER_PG_DSN='postgresql://reflect_broker:…@…?sslmode=verify-full' # the broker's own DSN: the reflect_broker role from migration 0004, never the writer's
 export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
 export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
