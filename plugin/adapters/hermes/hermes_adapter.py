@@ -34,18 +34,19 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether this script is invoked directly or
 # through pytest. Mirrors codex_adapter.py's convention.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
     run_cli,
+)
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/hermes"
@@ -81,7 +82,7 @@ class HermesAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
         """Full plugin SKILL.md content with ``managed_by:`` injected; marker
         rendering (HOME_TOOL_DIR and the plugin-root anchors) happens once, in
         AdapterBase._write_pointer, so Hermes is covered like every harness.
@@ -171,7 +172,7 @@ class HermesAdapter(AdapterBase):
         # 3. Copy plugin-root single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            AdapterBase.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         return actions, 0
@@ -222,7 +223,7 @@ class HermesAdapter(AdapterBase):
                 HermesAdapter._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target)
+                AdapterBase.install_file(entry, target)
 
 
 # --- backwards-compatible module-level API ------------------------------
@@ -236,8 +237,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
 ) -> InstallPlan:
     return _DEFAULT_ADAPTER.build_plan(home=home, plugin_root=plugin_root)
 
@@ -247,7 +248,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
     return actions
 
 
-def uninstall(*, home: Optional[Path] = None) -> list[str]:
+def uninstall(*, home: Path | None = None) -> list[str]:
     return _DEFAULT_ADAPTER.uninstall(home=home)
 
 

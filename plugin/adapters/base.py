@@ -30,13 +30,13 @@ CLI capable of driving any subclass without per-harness boilerplate.
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
-import sys
+import shutil
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Sequence
+from typing import Any
 
 import yaml
 
@@ -72,7 +72,7 @@ class InstallPlan:
         return lines
 
 
-def _resolve_home(home: Optional[Path]) -> Path:
+def _resolve_home(home: Path | None) -> Path:
     if home is not None:
         return home
     env = os.environ.get("HOME")
@@ -153,9 +153,18 @@ def substitute_home_tool_dir(text: str, harness_dir: Path) -> str:
     return text.replace(HOME_TOOL_DIR_MARKER, str(harness_dir))
 
 
+def skills_dir_of(dst: Path) -> Path:
+    """The ``<harness>/skills`` dir an installed path lives under, whatever
+    its depth (``skills/<name>/SKILL.md``, ``skills/<name>/hooks/x.json``)."""
+    for parent in dst.parents:
+        if parent.name == "skills":
+            return parent
+    return dst.parents[1]
+
+
 def harness_dir_of(dst: Path) -> Path:
-    """``<harness>/skills/<name>/SKILL.md`` -> ``<harness>``."""
-    return dst.parents[2]
+    """``<harness>/skills/<name>/...`` -> ``<harness>``."""
+    return skills_dir_of(dst).parent
 
 
 # ``${CLAUDE_PLUGIN_ROOT}`` anchors inside SKILL.md bodies. Claude Code's plugin
@@ -166,22 +175,27 @@ def harness_dir_of(dst: Path) -> Path:
 # plugin-root resources live under the reflect umbrella skill
 # (``plugin/<sub>/`` -> ``<skills>/reflect/<sub>/``). ``(?::-[^}]*)?`` tolerates
 # every parameter-default form the shell accepts.
+# Both spellings occur: ``${CLAUDE_PLUGIN_ROOT}/plugin/...`` (this repo's
+# layout) and ``${CLAUDE_PLUGIN_ROOT}/hooks/...`` (a plugin root that is the
+# plugin dir itself, as the hooks README documents).
 PLUGIN_SKILL_ANCHOR = re.compile(
-    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/skills/([A-Za-z0-9_-]+)/"
+    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/(?:plugin/)?skills/([A-Za-z0-9_-]+)/"
     r"(assets|references|scripts|hooks)/"
 )
 PLUGIN_ROOT_ANCHOR = re.compile(
-    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/(assets|references|scripts|hooks)/"
+    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/(?:plugin/)?(assets|references|scripts|hooks)/"
 )
-# Anything of either marker kind that survives rendering.
-UNRESOLVED_MARKER = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
+# Either install-time marker kind surviving rendering. Runtime template
+# variables ({{DATE}} in an asset template) are not install-time markers and
+# are left alone, so only the two rendered shapes count.
+UNRESOLVED_MARKER = re.compile(r"\{\{HOME_TOOL_DIR\}\}|\$\{CLAUDE_PLUGIN_ROOT")
 
 
 def render_for_layout(text: str, dst: Path) -> str:
     """Render every install-time marker in a skill body for the layout at
     ``dst`` (``<harness>/skills/<name>/SKILL.md``): the HOME_TOOL_DIR marker
     and both ``${CLAUDE_PLUGIN_ROOT}`` anchor shapes."""
-    skills_dir = dst.parents[1]
+    skills_dir = skills_dir_of(dst)
     text = PLUGIN_SKILL_ANCHOR.sub(lambda m: f"{skills_dir}/{m.group(1)}/{m.group(2)}/", text)
     text = PLUGIN_ROOT_ANCHOR.sub(lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text)
     return substitute_home_tool_dir(text, harness_dir_of(dst))
@@ -382,8 +396,8 @@ class AdapterBase:
     def build_plan(
         self,
         *,
-        home: Optional[Path] = None,
-        plugin_root: Optional[Path] = None,
+        home: Path | None = None,
+        plugin_root: Path | None = None,
         **kwargs: Any,
     ) -> InstallPlan:
         resolved_home = _resolve_home(home)
@@ -416,7 +430,7 @@ class AdapterBase:
         Claude). Default implementation does nothing.
         """
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
         """Render the pointer SKILL.md body using upstream metadata.
 
         ``dst`` is the install destination; the base renderer ignores it, but
@@ -456,11 +470,28 @@ class AdapterBase:
             harness_label=self.HARNESS_LABEL,
         )
 
+    @staticmethod
+    def install_file(src: Path, dst: Path) -> None:
+        """Copy one plugin file into the layout, rendering install-time
+        markers in text files. Every synced file goes through here, so a
+        hook snippet or a reference doc cannot ship with a literal
+        {{HOME_TOOL_DIR}} while the SKILL.md next to it is rendered. Bytes
+        that are not UTF-8 are copied unchanged; the mode bit is kept."""
+        raw = src.read_bytes()
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            dst.write_bytes(raw)
+        else:
+            dst.write_text(render_for_layout(text, dst), encoding="utf-8")
+        shutil.copymode(src, dst)
+
     def render_for_layout(self, text: str, dst: Path) -> str:
         """Overridable hook: render install-time markers for the layout at ``dst``."""
         return render_for_layout(text, dst)
 
-    def _full_skill_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
+    def _full_skill_body(self, source_skill: Path, dst: Path | None = None) -> str:
         """Full upstream SKILL.md with ``managed_by:`` injected (stub on read failure)."""
         try:
             text = source_skill.read_text(encoding="utf-8")
@@ -536,7 +567,7 @@ class AdapterBase:
         return [], 0
 
     def uninstall(
-        self, *, home: Optional[Path] = None, **kwargs: Any,
+        self, *, home: Path | None = None, **kwargs: Any,
     ) -> list[str]:
         """Remove pointer files. Idempotent. Foreign files left untouched."""
         actions: list[str] = []
@@ -588,7 +619,7 @@ class AdapterBase:
         """Hook: subclasses turn extra uninstall flags into kwargs."""
         return {}
 
-    def _cli(self, argv: Optional[Sequence[str]] = None) -> int:
+    def _cli(self, argv: Sequence[str] | None = None) -> int:
         parser = argparse.ArgumentParser(
             prog=f"{self.HARNESS_DIR.lstrip('.')}-adapter",
             description=(
@@ -647,6 +678,6 @@ class AdapterBase:
         return 2
 
 
-def run_cli(adapter: AdapterBase, argv: Optional[Sequence[str]] = None) -> int:
+def run_cli(adapter: AdapterBase, argv: Sequence[str] | None = None) -> int:
     """Entry point used by per-harness ``__main__`` blocks."""
     return adapter._cli(argv)

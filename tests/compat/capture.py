@@ -46,7 +46,9 @@ HARNESS_DIR = {"claude": ".claude", "codex": ".codex", "copilot": ".copilot", "h
 _TS_RE = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?")
 _DOC_HASH_RE = re.compile(r"-[0-9a-f]{6}(\.(?:md|entities\.yaml))$")
 # Any install-time marker that survived rendering, of either kind.
-_UNRESOLVED_RE = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
+# The two install-time marker shapes rendering resolves; runtime template
+# variables in asset templates ({{DATE}}) are not markers.
+_UNRESOLVED_RE = re.compile(r"\{\{HOME_TOOL_DIR\}\}|\$\{CLAUDE_PLUGIN_ROOT")
 FAKE_TOKEN = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
 
 
@@ -133,13 +135,11 @@ class Capture:
             else:
                 entry["sha"] = hashlib.sha256(text.encode()).hexdigest()[:16]
             tree[rel] = entry
-            # Install-time markers are rendered in skill bodies only; asset
-            # templates carry runtime {{VARS}} by design and hook docstrings
-            # quote the marker as documentation.
-            if path.name == "SKILL.md":
-                found = sorted(set(_UNRESOLVED_RE.findall(text)))
-                if found:
-                    unresolved[rel] = found
+            # Every installed text file must be free of install-time markers:
+            # hook snippets and reference docs are handed to the model too.
+            found = sorted(set(_UNRESOLVED_RE.findall(text)))
+            if found:
+                unresolved[rel] = found
         hooks: dict[str, list[str]] = {}
         for cfg in sorted(list(root.glob("*.json")) + list((root / "hooks").glob("*.json"))):
             hooks[str(cfg.relative_to(root))] = self._hook_commands(cfg)

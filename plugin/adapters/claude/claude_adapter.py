@@ -39,25 +39,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether the script is invoked directly
 # (``python claude_adapter.py install``) or through pytest. We deliberately
 # avoid turning ``adapters/`` into a proper package because the per-harness
 # scripts already work as standalone executables.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
-    _resolve_home,
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
-    parse_skill_frontmatter,
     run_cli,
+)
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
 )
 
 # Skill subdirs and plugin-root resources synced next to the skills so the
@@ -122,7 +120,7 @@ class ClaudeAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
         """Full plugin SKILL.md content with ``managed_by:`` injected. Written only
         when the plugin runtime does not own reflect; marker rendering for the
         ~/.claude/skills layout happens once, in AdapterBase._write_pointer.
@@ -241,7 +239,7 @@ class ClaudeAdapter(AdapterBase):
             if entry.is_dir():
                 ClaudeAdapter._sync_dir(entry, target)
             else:
-                shutil.copy2(entry, target)
+                AdapterBase.install_file(entry, target)
 
     def execute_extra(
         self, plan: InstallPlan, *, with_hooks: bool = True, **kwargs: Any,
@@ -252,7 +250,7 @@ class ClaudeAdapter(AdapterBase):
             actions.append(f"synced {dst}")
         for src, dst in plan.extras.get("file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            AdapterBase.install_file(src, dst)
             actions.append(f"copied {dst}")
         if not with_hooks:
             return actions, 0
@@ -494,8 +492,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
     with_hooks: bool = True,
 ) -> InstallPlan:
     """Compute (but do not execute) the work the adapter would do."""
@@ -515,7 +513,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
 
 
 def uninstall(
-    *, home: Optional[Path] = None, with_hooks: bool = True,
+    *, home: Path | None = None, with_hooks: bool = True,
 ) -> list[str]:
     """Remove pointer files and our SessionStart hook entry. Idempotent."""
     return _DEFAULT_ADAPTER.uninstall(home=home, with_hooks=with_hooks)
