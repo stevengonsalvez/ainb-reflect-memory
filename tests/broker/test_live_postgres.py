@@ -33,6 +33,9 @@ def live_dsn() -> str:
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Postgres not reachable ({exc})")
     with conn, conn.cursor() as cur:
+        # 0004 reads the role passwords from session settings.
+        cur.execute("select set_config('reflect.broker_password', 'live-test-password', false)")
+        cur.execute("select set_config('reflect.writer_password', 'live-test-password', false)")
         for name in sorted(p.name for p in _MIGRATIONS.glob("000*.sql")):
             try:
                 cur.execute((_MIGRATIONS / name).read_text())

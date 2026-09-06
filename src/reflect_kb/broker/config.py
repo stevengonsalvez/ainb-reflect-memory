@@ -2,7 +2,8 @@
 
 Every value is an environment variable so a deployment is a config swap, not a
 code change. Required: REFLECT_BROKER_ISSUER, REFLECT_BROKER_AUDIENCE,
-REFLECT_PG_DSN. See the README broker section for an Entra ID example.
+REFLECT_BROKER_PG_DSN (the broker's own read-only role, never the writer's
+REFLECT_PG_DSN). See the README broker section for an Entra ID example.
 """
 
 from __future__ import annotations
@@ -17,7 +18,45 @@ from reflect_kb.postgres.dsn import assert_tls
 from .auth import OIDCConfig
 from .pinning import HttpForgeResolver, LocalGitResolver, SourceResolver
 
-__all__ = ["BrokerSettings"]
+__all__ = ["BrokerSettings", "assert_broker_role"]
+
+
+def assert_broker_role(dsn: str, *, connect=None) -> None:
+    """The broker's DSN must be a role that Row-Level Security applies to.
+
+    A superuser or a BYPASSRLS role (Supabase ``service_role``) skips every
+    policy, and the table owner is exempt unless FORCE is on; the broker
+    relies on RLS as the layer under its explicit tenant scoping, so all
+    three are refused at startup with a message naming the reason. ``connect``
+    is psycopg.connect unless a test injects one.
+    """
+    if connect is None:
+        import psycopg
+
+        connect = psycopg.connect
+    conn = connect(dsn)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("select current_user, rolsuper, rolbypassrls from pg_roles where rolname = current_user")
+            row = cur.fetchone()
+            if row is None:
+                raise RuntimeError("REFLECT_BROKER_PG_DSN: could not read the connected role from pg_roles")
+            user, superuser, bypassrls = row[0], bool(row[1]), bool(row[2])
+            cur.execute(
+                "select tablename from pg_tables where schemaname = 'reflect_memory' and tableowner = current_user"
+            )
+            owned = [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+    if superuser:
+        raise RuntimeError(f"REFLECT_BROKER_PG_DSN: role {user!r} is a superuser; RLS would not apply")
+    if bypassrls:
+        raise RuntimeError(f"REFLECT_BROKER_PG_DSN: role {user!r} has BYPASSRLS; RLS would not apply")
+    if owned:
+        raise RuntimeError(
+            f"REFLECT_BROKER_PG_DSN: role {user!r} owns reflect_memory tables ({', '.join(sorted(owned))}); "
+            "use the reflect_broker role from migration 0004, never the owner"
+        )
 
 _PREFIX = "REFLECT_BROKER_"
 
@@ -40,7 +79,7 @@ class BrokerSettings:
     def __post_init__(self) -> None:
         # Notes, vectors and graph cross the network on this DSN: the same
         # rule the writer path applies (reflect_kb.postgres.dsn).
-        assert_tls(self.pg_dsn, what="REFLECT_PG_DSN")
+        assert_tls(self.pg_dsn, what="REFLECT_BROKER_PG_DSN")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BrokerSettings:
@@ -73,7 +112,7 @@ class BrokerSettings:
         return cls(
             issuer=need(_PREFIX + "ISSUER"),
             audience=need(_PREFIX + "AUDIENCE"),
-            pg_dsn=need("REFLECT_PG_DSN"),
+            pg_dsn=need("REFLECT_BROKER_PG_DSN"),
             tenant_claim=e.get(_PREFIX + "TENANT_CLAIM", "workspace_id").strip() or "workspace_id",
             jwks_url=e.get(_PREFIX + "JWKS_URL", "").strip() or None,
             algorithms=algorithms or ("RS256",),
@@ -85,6 +124,10 @@ class BrokerSettings:
             host=e.get(_PREFIX + "HOST", "127.0.0.1").strip() or "127.0.0.1",
             port=int(e.get(_PREFIX + "PORT", "8787")),
         )
+
+    def assert_role(self) -> None:
+        """Refuse a DSN whose role would make RLS moot (see assert_broker_role)."""
+        assert_broker_role(self.pg_dsn)
 
     def oidc(self) -> OIDCConfig:
         return OIDCConfig(

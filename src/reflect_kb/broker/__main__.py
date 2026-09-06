@@ -11,6 +11,7 @@ from .config import BrokerSettings
 
 def main() -> None:
     settings = BrokerSettings.from_env()
+    settings.assert_role()  # a superuser, BYPASSRLS or owner DSN fails here, before anything is served
     verifier = OIDCVerifier(settings.oidc())
     verifier.warm()  # a broken issuer fails here, before anything is served
     app = create_app(
