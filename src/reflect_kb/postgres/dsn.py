@@ -39,24 +39,34 @@ def _conninfo(dsn: str) -> dict[str, str]:
 
 
 def is_local_dsn(dsn: str, env: Mapping[str, str] | None = None) -> bool:
-    """True when every host the DSN can reach is this machine."""
+    """True when every host the DSN can reach is this machine, resolved the
+    way libpq resolves it: the DSN's host and hostaddr, then PGHOST and
+    PGHOSTADDR from the environment. A ``service=`` name (or PGSERVICE) is
+    resolved from pg_service.conf, which this check cannot read, so it is
+    never treated as local: an empty host counts as local only when nothing
+    anywhere names a server."""
     env = os.environ if env is None else env
     info = _conninfo(dsn)
+    if info.get("service") or env.get("PGSERVICE"):
+        return False
     hosts = [h for h in info.get("host", "").split(",") if h] or [env.get("PGHOST", "")]
     addrs = [a for a in info.get("hostaddr", "").split(",") if a] or [env.get("PGHOSTADDR", "")]
     return all(h.strip("[]").lower() in _LOCAL_HOSTS or h.startswith("/") for h in hosts + addrs)
 
 
-def requires_tls(dsn: str) -> bool:
-    """True when the DSN pins an encrypting sslmode."""
-    return _conninfo(dsn).get("sslmode", "") in TLS_MODES
+def requires_tls(dsn: str, env: Mapping[str, str] | None = None) -> bool:
+    """True when the DSN, or PGSSLMODE when the DSN says nothing, pins an
+    encrypting sslmode (the same precedence libpq applies)."""
+    env = os.environ if env is None else env
+    mode = _conninfo(dsn).get("sslmode", "") or env.get("PGSSLMODE", "")
+    return mode in TLS_MODES
 
 
 def assert_tls(dsn: str, *, what: str = "Postgres DSN", env: Mapping[str, str] | None = None) -> None:
     """Raise :class:`InsecureDSNError` for a network DSN without TLS, unless
     ``REFLECT_PG_ALLOW_INSECURE=1``. Loopback and socket servers pass."""
     env = os.environ if env is None else env
-    if requires_tls(dsn) or is_local_dsn(dsn, env) or env.get(ALLOW_INSECURE_VAR, "").strip() == "1":
+    if requires_tls(dsn, env) or is_local_dsn(dsn, env) or env.get(ALLOW_INSECURE_VAR, "").strip() == "1":
         return
     raise InsecureDSNError(
         f"{what} reaches another host without sslmode=require, verify-ca or verify-full; "

@@ -43,3 +43,20 @@ def test_pghost_override_counts_when_the_dsn_names_no_host() -> None:
     assert not is_local_dsn("dbname=reflect", env={"PGHOST": "db.example.com"})
     assert requires_tls("postgresql://u@h/x?sslmode=verify-ca")
     assert not requires_tls("postgresql://u@h/x")
+
+
+def test_service_names_are_never_local_and_pgsslmode_counts() -> None:
+    """service=<name> resolves through pg_service.conf, so an empty host is
+    not local; PGSSLMODE from the environment is the sslmode libpq applies."""
+    from reflect_kb.postgres.dsn import InsecureDSNError, assert_tls, is_local_dsn, requires_tls
+
+    assert not is_local_dsn("service=prod", env={})
+    assert not is_local_dsn("dbname=reflect", env={"PGSERVICE": "prod"})
+    assert is_local_dsn("dbname=reflect", env={})
+    with pytest.raises(InsecureDSNError):
+        assert_tls("service=prod sslmode=disable", env={})
+    assert requires_tls("postgresql://u@db.example.com/reflect", env={"PGSSLMODE": "require"})
+    assert_tls("postgresql://u@db.example.com/reflect", env={"PGSSLMODE": "verify-full"})
+    with pytest.raises(InsecureDSNError):
+        assert_tls("postgresql://u@db.example.com/reflect", env={"PGSSLMODE": "prefer"})
+
