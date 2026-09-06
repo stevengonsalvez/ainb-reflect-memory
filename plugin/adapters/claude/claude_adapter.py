@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from pathlib import Path
 from typing import Any, Optional
@@ -60,6 +61,11 @@ from base import (  # noqa: E402
     run_cli,
     substitute_home_tool_dir,
 )
+
+# Skill subdirs and plugin-root resources synced next to the skills so the
+# SessionStart hook command and the rendered skill commands resolve on disk.
+_SKILL_SUBDIRS: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
+_PLUGIN_ROOT_RESOURCES: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 
 # Sentinel written into the pointer file's ``managed_by:`` field so subsequent
 # runs (or uninstall) can tell the file belongs to us and is safe to replace.
@@ -188,6 +194,30 @@ class ClaudeAdapter(AdapterBase):
                 f"reflect; skills resolve as reflect:<name> from the plugin cache"
             )
 
+        # The SessionStart hook command points at
+        # ``~/.claude/skills/recall/hooks/session_start_recall.py`` and the
+        # rendered skills name ``~/.claude/skills/reflect/scripts/...``. Those
+        # files must exist there, so (like the codex and copilot adapters) the
+        # per-skill hooks/scripts/assets/references dirs and the plugin-root
+        # resources are synced into the layout. Skipped when the plugin
+        # runtime owns reflect: the cache already holds them.
+        plugin_root = self.find_plugin_root()
+        dir_syncs: list[tuple[Path, Path]] = []
+        if not owns:
+            skills_dir = plan.target_harness_dir / "skills"
+            for name in PLUGIN_SKILLS:
+                for subdir in _SKILL_SUBDIRS:
+                    src = plugin_root / "skills" / name / subdir
+                    if src.is_dir():
+                        dir_syncs.append((src, skills_dir / name / subdir))
+            for resource in _PLUGIN_ROOT_RESOURCES:
+                src = plugin_root / resource
+                if src.is_dir():
+                    dir_syncs.append((src, skills_dir / "reflect" / resource))
+        plan.extras["dir_syncs"] = dir_syncs
+        for src, dst in dir_syncs:
+            describe_extra.append(f"sync dir: {src} -> {dst}")
+
         # Only advertise the hook when execute_extra will actually write it.
         # Under the plugin runtime execute_extra skips the settings.json merge,
         # so a dry-run must not promise a SessionStart hook the real install
@@ -199,11 +229,29 @@ class ClaudeAdapter(AdapterBase):
         if describe_extra:
             plan.extras["describe_extra"] = describe_extra
 
+    @staticmethod
+    def _sync_dir(src: Path, dst: Path) -> None:
+        """Mirror ``src`` into ``dst`` (same rules as the codex adapter: never
+        delete user-dropped siblings, skip build and IDE noise)."""
+        dst.mkdir(parents=True, exist_ok=True)
+        for entry in src.iterdir():
+            if entry.name in ("__pycache__", ".DS_Store"):
+                continue
+            target = dst / entry.name
+            if entry.is_dir():
+                ClaudeAdapter._sync_dir(entry, target)
+            else:
+                shutil.copy2(entry, target)
+
     def execute_extra(
         self, plan: InstallPlan, *, with_hooks: bool = True, **kwargs: Any,
     ) -> tuple[list[str], int]:
+        actions: list[str] = []
+        for src, dst in plan.extras.get("dir_syncs", []):
+            self._sync_dir(src, dst)
+            actions.append(f"synced {dst}")
         if not with_hooks:
-            return [], 0
+            return actions, 0
         settings_path: Path = plan.extras["settings_path"]
 
         # Detect whether Claude Code's plugin runtime has already installed
@@ -231,7 +279,7 @@ class ClaudeAdapter(AdapterBase):
             )
             if removed:
                 msg += " — cleaned up legacy duplicate left by older installs"
-            return [msg], 0
+            return actions + [msg], 0
 
         try:
             changed = self._merge_session_start_hook(settings_path)
@@ -239,10 +287,10 @@ class ClaudeAdapter(AdapterBase):
             # Settings parse failure is fatal: refuse to silently continue,
             # otherwise we leave the user with broken JSON they can't trace.
             print(str(exc), file=sys.stderr)
-            return [], 2
+            return actions, 2
         if changed:
-            return [f"added SessionStart hook to {settings_path}"], 0
-        return [f"SessionStart hook already present in {settings_path}"], 0
+            return actions + [f"added SessionStart hook to {settings_path}"], 0
+        return actions + [f"SessionStart hook already present in {settings_path}"], 0
 
     def _plugin_runtime_owns_reflect(self, claude_dir: Path) -> bool:
         """Return True iff Claude Code's plugin runtime has installed the

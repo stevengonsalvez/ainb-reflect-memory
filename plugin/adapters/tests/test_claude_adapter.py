@@ -452,3 +452,23 @@ def test_install_errors_on_corrupt_settings_json(tmp_path):
     # Error surfaces as an unhandled exception from _merge_session_start_hook;
     # users shouldn't lose their hand-edited settings.
     assert "settings.json" in result.stderr.lower()
+
+
+def test_install_puts_the_session_start_hook_file_where_settings_points(tmp_path):
+    """The SessionStart hook command names ~/.claude/skills/recall/hooks/
+    session_start_recall.py. Before this fix the adapter wrote only SKILL.md
+    files, so on a clean HOME without the plugin runtime the hook fired against
+    a missing file at every session start."""
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
+    commands = [h["command"] for e in settings["hooks"]["SessionStart"] for h in e["hooks"]]
+    for cmd in commands:
+        path = cmd.split()[-1]
+        assert Path(path).exists(), f"hook command targets a missing file: {cmd}"
+    # The recall hook shells out to ../scripts/recall.py; the rendered reflect
+    # skill names skills/reflect/scripts/*.py. Both dirs must be there.
+    assert (tmp_path / ".claude" / "skills" / "recall" / "scripts" / "recall.py").exists()
+    assert (tmp_path / ".claude" / "skills" / "reflect" / "scripts" / "reflect_cascade.py").exists()
