@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from reflect_kb.postgres.dsn import assert_tls
+from reflect_kb.postgres.dsn import connect_secure
 
 from .auth import OIDCConfig
 from .pinning import HttpForgeResolver, LocalGitResolver, SourceResolver
@@ -30,11 +30,9 @@ def assert_broker_role(dsn: str, *, connect=None) -> None:
     three are refused at startup with a message naming the reason. ``connect``
     is psycopg.connect unless a test injects one.
     """
-    if connect is None:
-        import psycopg
-
-        connect = psycopg.connect
-    conn = connect(dsn)
+    # One connection: the transport is judged on it (TLS, or loopback or a
+    # socket, or the explicit opt-out; dsn.py), then the role.
+    conn = connect_secure(dsn, what="REFLECT_BROKER_PG_DSN", connect=connect)
     try:
         with conn.cursor() as cur:
             cur.execute("select current_user, rolsuper, rolbypassrls from pg_roles where rolname = current_user")
@@ -75,11 +73,6 @@ class BrokerSettings:
     max_limit: int = 50
     host: str = "127.0.0.1"
     port: int = 8787
-
-    def __post_init__(self) -> None:
-        # Notes, vectors and graph cross the network on this DSN: the same
-        # rule the writer path applies (reflect_kb.postgres.dsn).
-        assert_tls(self.pg_dsn, what="REFLECT_BROKER_PG_DSN")
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> BrokerSettings:

@@ -43,34 +43,34 @@ def test_git_resolver_needs_repos_and_http_does_not() -> None:
     assert isinstance(BrokerSettings.from_env(env).resolver(), HttpForgeResolver)
 
 
-@pytest.mark.parametrize(
-    "dsn",
-    [
-        "postgresql://u:p@db.example.com/reflect",
-        "postgresql://u:p@db.example.com/reflect?sslmode=prefer",
-        "host=db.example.com dbname=reflect sslmode=disable",
-    ],
-)
-def test_plaintext_network_dsn_is_refused_unless_opted_out(dsn: str, monkeypatch) -> None:
+def test_settings_do_not_judge_the_dsn_string() -> None:
+    """The transport is judged on the open connection at startup
+    (assert_broker_role), never on the string: a keyword-form DSN used to
+    slip past a string check."""
+    for dsn in ("postgresql://u:p@db.example.com/reflect", "host=prod.example.com user=x dbname=reflect", "service=prod"):
+        assert BrokerSettings.from_env({**BASE, "REFLECT_BROKER_PG_DSN": dsn}).pg_dsn == dsn
+
+
+@pytest.mark.parametrize("host,ssl", [("db.example.com", False), ("prod.internal", False)])
+def test_plaintext_network_connection_is_refused_unless_opted_out(host, ssl, monkeypatch) -> None:
+    from reflect_kb.broker.config import assert_broker_role
+    from reflect_kb.postgres.dsn import InsecureDSNError
+
     monkeypatch.delenv("REFLECT_PG_ALLOW_INSECURE", raising=False)
-    with pytest.raises(RuntimeError, match="sslmode"):
-        BrokerSettings.from_env({**BASE, "REFLECT_BROKER_PG_DSN": dsn})
+    connect = _connect(("reflect_broker", False, False), host=host, ssl=ssl)
+    with pytest.raises(InsecureDSNError, match="without TLS"):
+        assert_broker_role("host=prod.example.com user=x", connect=connect)
+    assert connect.conns and connect.conns[0].closed
     monkeypatch.setenv("REFLECT_PG_ALLOW_INSECURE", "1")  # the one opt-out, shared with the writer path
-    assert BrokerSettings.from_env({**BASE, "REFLECT_BROKER_PG_DSN": dsn}).pg_dsn == dsn
+    assert_broker_role("host=prod.example.com user=x", connect=_connect(("reflect_broker", False, False), host=host))
 
 
-@pytest.mark.parametrize(
-    "dsn",
-    [
-        "postgresql://u:p@db.example.com/reflect?sslmode=verify-full",
-        "host=db.example.com dbname=reflect sslmode=require",
-        "postgresql://reflect@127.0.0.1:54321/reflect_test",  # loopback: nothing leaves the machine
-        "postgresql://reflect@/reflect_test?host=/tmp",  # unix socket
-    ],
-)
-def test_tls_or_local_dsn_is_accepted(dsn: str, monkeypatch) -> None:
+@pytest.mark.parametrize("host,ssl", [("db.example.com", True), ("127.0.0.1", False), ("/tmp", False), ("localhost", False)])
+def test_tls_or_local_connection_is_accepted(host, ssl, monkeypatch) -> None:
+    from reflect_kb.broker.config import assert_broker_role
+
     monkeypatch.delenv("REFLECT_PG_ALLOW_INSECURE", raising=False)
-    assert BrokerSettings.from_env({**BASE, "REFLECT_BROKER_PG_DSN": dsn}).pg_dsn == dsn
+    assert_broker_role("postgresql://x", connect=_connect(("reflect_broker", False, False), host=host, ssl=ssl))
 
 
 def test_hmac_algorithms_are_refused_at_config_time() -> None:
@@ -108,9 +108,12 @@ class _Cursor:
 
 
 class _Conn:
-    def __init__(self, role_row, owned):
+    def __init__(self, role_row, owned, host="localhost", ssl=False):
+        from types import SimpleNamespace
+
         self._c = _Cursor(role_row, owned)
         self.closed = False
+        self.info = SimpleNamespace(host=host, hostaddr="", ssl_in_use=ssl)
 
     def cursor(self):
         return self._c
@@ -119,11 +122,11 @@ class _Conn:
         self.closed = True
 
 
-def _connect(role_row, owned=()):
+def _connect(role_row, owned=(), host="localhost", ssl=False):
     conns = []
 
-    def connect(dsn):
-        c = _Conn(role_row, owned)
+    def connect(dsn, **kwargs):
+        c = _Conn(role_row, owned, host=host, ssl=ssl)
         conns.append(c)
         return c
 
