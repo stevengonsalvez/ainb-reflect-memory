@@ -54,9 +54,13 @@ granted the headless model every tool with no prompt. Now:
   are not repeated here.
 - A denied tool call is logged with the tool and command and counted in the
   ledger. A denial on a step the drain does not grant (git commit, memory
-  files, the skill-index loop) never changes the outcome; a denial on a call
-  the rules should cover poisons the entry as `allowlist_misconfigured`
-  instead of re-billing it.
+  files, the skill-index loop) never changes the outcome; a denial on the
+  exact command a rule names, or on a listed script under another absolute
+  path, poisons the entry as `allowlist_misconfigured` instead of re-billing
+  it; a denial on a listed script under a spelling no rule can match (an
+  unrendered marker, a relative name, quotes, `uv run`, a compound command)
+  is a prompt fault: the run is never recorded OK and the entry retries under
+  the normal cap.
 - Whatever file the writer is pointed at is redacted first: the cascade
   slice and the bounded copy where they are cut, and the raw transcript
   (cascade off, missing or crashed) as a redacted copy; if that copy cannot
