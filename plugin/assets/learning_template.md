@@ -53,6 +53,11 @@ superseded_by: null
 # ("avoid X service during the incident", "valid for the current migration /
 # sprint / quarter") — durable rules must stay null.
 forget_after: null
+# Provenance the Context Broker pins on (repo@sha:path). Write all three when
+# the learning is about a file in a git checkout; omit them otherwise.
+repo: {{REPO}}
+commit: {{COMMIT}}
+source_path: {{SOURCE_PATH}}
 provenance:
   source_tool: "{{SOURCE_TOOL}}"      # claude | codex | copilot | gemini
   source_path: "{{SOURCE_PATH}}"

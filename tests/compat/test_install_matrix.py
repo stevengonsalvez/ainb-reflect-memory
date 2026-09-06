@@ -92,6 +92,8 @@ ALLOWED_PLUGIN_CHANGES: dict[str, str] = {
     "scripts/reflect_db.py": "#38: add_learning redacts the title and quote at the reflect.db boundary",
     "scripts/kb_export.py": "#38: the export re-redacts every text cell as defence in depth",
     "scripts/skill_index.py": "#38: the skill summary is redacted before it is stored",
+    # #39 broker route
+    "assets/learning_template.md": "#39: top-level repo, commit and source_path keys a pin is built from",
 }
 
 

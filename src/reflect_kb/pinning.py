@@ -92,6 +92,20 @@ _PATH_KEYS = ("path", "source_path", "file", "source_file")
 
 
 def _first(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
+    """The first non-empty string under ``keys``, at the top level or, as a
+    fallback, under a ``provenance`` mapping (the skill's note template nests
+    it there)."""
+    nested = mapping.get("provenance")
+    scopes = [mapping] + ([nested] if isinstance(nested, Mapping) else [])
+    for scope in scopes:
+        for key in keys:
+            value = scope.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return None
+
+
+def _first_top_level(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> str | None:
     for key in keys:
         value = mapping.get(key)
         if isinstance(value, str) and value.strip():
