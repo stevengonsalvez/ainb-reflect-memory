@@ -472,8 +472,10 @@ def add(file_path: str, entities: str | None, force: bool):
     # A note added before redaction existed has the id of its unredacted body;
     # --force replaces that leaked copy instead of leaving it next to a clean one.
     if redacted.total_redactions and force:
-        _, raw_body = parse_frontmatter(raw_note)
-        old_id = generate_document_id(frontmatter["title"], raw_body)
+        # Both halves of the old id come from the unredacted note: a secret
+        # in the title changed the slug as well as the hash.
+        raw_frontmatter, raw_body = parse_frontmatter(raw_note)
+        old_id = generate_document_id(str(raw_frontmatter.get("title") or frontmatter["title"]), raw_body)
         if old_id != doc_id:
             for old in (repo / DOCUMENTS_DIR / f"{old_id}.md", repo / DOCUMENTS_DIR / f"{old_id}.entities.yaml"):
                 if old.exists():

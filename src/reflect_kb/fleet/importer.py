@@ -371,13 +371,16 @@ def _iter_docs(root: Path, kinds: list[str], result: ImportResult) -> Iterable[_
 
 
 def _bump_occurrences(dest: Path, occurrences: int) -> None:
-    """Rewrite the ``occurrences`` frontmatter field on an existing doc.
+    """Rewrite the ``occurrences`` frontmatter field on an existing doc, and
+    pass the note through the capture gate on the way: a note imported
+    before the gate existed can still carry a secret, and this is the one
+    read and write the dedupe path makes. Its sidecar is checked too.
 
     The dedupe key (``content_hash``) is over title+body only, so touching a
     frontmatter field never changes the hash or the filename.
     """
     try:
-        content = dest.read_text(encoding="utf-8")
+        content = redact_secrets(dest.read_text(encoding="utf-8")).text
         frontmatter, body = parse_frontmatter(content)
     except OSError:
         return
@@ -385,7 +388,15 @@ def _bump_occurrences(dest: Path, occurrences: int) -> None:
         return
     frontmatter["occurrences"] = occurrences
     front = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
-    dest.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8")
+    dest.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8", newline="")
+    sidecar = dest.with_suffix(".entities.yaml")
+    if sidecar.exists():
+        try:
+            clean = redact_secrets(sidecar.read_text(encoding="utf-8"))
+        except OSError:
+            return
+        if clean.total_redactions:
+            sidecar.write_text(clean.text, encoding="utf-8", newline="")
 
 
 def _redacted(doc: ImportResult) -> ImportResult:
@@ -398,21 +409,6 @@ def _redacted(doc: ImportResult) -> ImportResult:
         if isinstance(value, str):
             fields[name] = redact_secrets(value).text
     return replace(doc, **fields) if fields else doc
-
-
-def _re_redact_in_place(dest: Path) -> None:
-    """A note imported before the gate existed can still carry a secret; on
-    dedupe it and its sidecar are rewritten clean instead of only bumped."""
-    for path in (dest, dest.with_suffix(".entities.yaml")):
-        if not path.exists():
-            continue
-        try:
-            text = path.read_text(encoding="utf-8")
-        except OSError:
-            continue
-        clean = redact_secrets(text)
-        if clean.total_redactions:
-            path.write_text(clean.text, encoding="utf-8", newline="")
 
 
 def _write_sidecar(dest: Path, content: str, frontmatter: dict) -> None:
@@ -449,16 +445,21 @@ def ingest(
         try:
             # Capture gate first, so the id and the dedupe hash are computed
             # from the bytes that are written, never from a body a secret
-            # still sits in.
+            # still sits in. The id the raw note would have had is kept so a
+            # copy imported before the gate (stored under that id, secret
+            # included) is replaced by the clean one, not left beside it.
+            raw_id = generate_document_id(doc.title, doc.body)
             doc = _redacted(doc)
             doc_id = generate_document_id(doc.title, doc.body)
             dest = docs_dir / f"{doc_id}.md"
             hash_ = doc.content_hash()
+            leaky = [p for p in (docs_dir / f"{raw_id}.md", docs_dir / f"{raw_id}.entities.yaml")
+                     if raw_id != doc_id and p.exists()]
 
             if dry_run:
                 # Existence check only — a filename collision means the same
                 # content is already imported (dedupe), not an error.
-                if dest.exists():
+                if dest.exists() and not leaky:
                     result.deduped += 1
                 else:
                     result.imported += 1
@@ -468,9 +469,10 @@ def ingest(
             entry = ledger_mod.record_occurrence(hash_, doc_id, path=ledger_file)
             occurrences = int(entry.get("count", 1))
 
+            for stale in leaky:
+                stale.unlink()
             if dest.exists():
                 _bump_occurrences(dest, occurrences)
-                _re_redact_in_place(dest)
                 result.deduped += 1
             else:
                 # The rendered frontmatter can carry a secret too (a tag, a

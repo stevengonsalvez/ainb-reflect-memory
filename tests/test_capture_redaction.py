@@ -373,6 +373,56 @@ def test_reflect_add_round_trips_non_ascii_bytes(tmp_path: Path, monkeypatch) ->
     assert written.read_bytes() == src.read_bytes()
 
 
+def test_force_replaces_a_note_whose_secret_was_in_the_title(tmp_path: Path, monkeypatch) -> None:
+    """Item 11: the old id is built from the raw title and body, so a pre-gate
+    copy whose secret sat in the title is matched and removed."""
+    kb = _kb(tmp_path, monkeypatch)
+    raw = f"---\ntitle: rotate {GITHUB_TOKEN} nightly\ncategory: ops\nkey_insight: rotate the token\n---\n\nbody\n"
+    fm, body = learnings_cli.parse_frontmatter(raw)
+    old_id = learnings_cli.generate_document_id(fm["title"], body)
+    (kb / "documents" / f"{old_id}.md").write_text(raw, encoding="utf-8")
+    src = tmp_path / "note.md"
+    src.write_text(raw, encoding="utf-8")
+    result = CliRunner().invoke(learnings_cli.cli, ["add", str(src), "--force"])
+    assert result.exit_code == 0, result.output
+    notes = sorted((kb / "documents").glob("*.md"))
+    assert len(notes) == 1 and notes[0].name != f"{old_id}.md", [n.name for n in notes]
+    assert GITHUB_TOKEN not in notes[0].read_text(encoding="utf-8")
+
+
+def test_fleet_import_replaces_a_pre_gate_note_stored_under_its_raw_id(tmp_path: Path, monkeypatch) -> None:
+    """Item 11: a note imported before the gate sits under the raw-body id;
+    a fresh import computes both ids, removes the leaky file and writes one
+    clean copy instead of a clean duplicate beside it."""
+    import json
+
+    from reflect_kb import metrics
+    from reflect_kb.fleet import importer as importer_mod
+
+    kb = tmp_path / "kb"
+    docs = kb / "documents"
+    docs.mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(kb))
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(metrics, "METRICS_PATH", tmp_path / "state" / "metrics.jsonl")
+    root = tmp_path / "fleet"
+    root.mkdir()
+    (root / "patterns.jsonl").write_text(
+        json.dumps({"title": "Leaky pattern", "description": f"export GH={GITHUB_TOKEN}"}) + "\n")
+    raw = next(iter(importer_mod._iter_docs(root, ["patterns"], importer_mod.ImportResult())))
+    raw_id = learnings_cli.generate_document_id(raw.title, raw.body)
+    (docs / f"{raw_id}.md").write_text(raw.render(raw_id, 1), encoding="utf-8")
+    (docs / f"{raw_id}.entities.yaml").write_text("entities: []\n", encoding="utf-8")
+    assert GITHUB_TOKEN in (docs / f"{raw_id}.md").read_text(encoding="utf-8")
+
+    result = importer_mod.ingest(root, ["patterns"])
+    notes = sorted(docs.glob("*.md"))
+    assert len(notes) == 1, [n.name for n in notes]
+    assert notes[0].name != f"{raw_id}.md" and GITHUB_TOKEN not in notes[0].read_text(encoding="utf-8")
+    assert not (docs / f"{raw_id}.entities.yaml").exists()
+    assert result.imported == 1 and result.deduped == 0, result
+
+
 def test_fleet_dedupe_re_redacts_a_leaky_existing_note(tmp_path: Path, monkeypatch) -> None:
     import json
 
