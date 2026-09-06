@@ -147,7 +147,7 @@ supabase db push          # applies supabase/migrations/*.sql, no session settin
 python scripts/provision_roles.py   # then the provisioning step above, same variables
 ```
 
-> ⚠️ **This migration defines Row-Level Security policies.** Per the issue's
+> ⚠️ **These migrations define Row-Level Security policies.** Per the issue's
 > security requirements, RLS/security-sensitive migrations require **partner
 > review before merge — do not self-merge.**
 
@@ -250,14 +250,9 @@ community store, so the same memory is queryable from every machine. See
 
 ### Migration
 
-`0002_nanographrag_pgvector.sql` is step 2 of the ordered list in section 3;
-apply it from there. `pgvector` is enabled by the migration (`create extension
-vector`). It is available on Supabase by default; locally, install the
-`pgvector` package for your Postgres (e.g. `brew install pgvector`, then it
-lands in PostgreSQL 17's extension dir). The embedding column is `vector(768)`
-to match all-mpnet-base-v2.
-
-> ⚠️ RLS policies again — **partner review before merge, no self-merge.**
+Apply the ordered list in [section 3](#3-apply-the-migrations); nothing is
+repeated here. The one Mode 2 fact that is not in that table: the embedding
+column is `vector(768)` to match all-mpnet-base-v2.
 
 ### Enable the backend in reflect-kb
 
@@ -271,20 +266,17 @@ export REFLECT_PG_DSN="postgresql://USER:PASS@HOST:5432/DBNAME"
 export REFLECT_WORKSPACE_ID="<workspace-uuid>"
 ```
 
-**DSN roles:** for writes (ingest/index) the DSN must authenticate as
-`service_role` / the table owner, the trusted-worker path; the adapter sets the
-`app.current_workspace` GUC on connect, and the tenant resolver treats a signed
-JWT claim as authoritative over that GUC. Direct clients (`authenticated`) are
-granted **read-only** SELECT plus EXECUTE on the search functions, and direct
-writes go through the worker, not PostgREST. `MemoryStore` binds
-`app.current_workspace` to the tenant it acts for before every statement, so
-the owner or `reflect_writer` role writes under FORCE RLS. The Context Broker
-reads its own `REFLECT_BROKER_PG_DSN`, the `reflect_broker` role from 0004
-(SELECT and EXECUTE, no BYPASSRLS, never owner): it binds `SET LOCAL
-app.current_workspace` per request and relies on FORCE RLS as the second layer
-under its explicit scoping, and it refuses a superuser, BYPASSRLS or owner
-role at startup. Both DSNs refuse plaintext to a remote host unless
-`REFLECT_PG_ALLOW_INSECURE=1`.
+**Tenant binding.** Which role each DSN carries is the "Roles" table in
+section 3; this paragraph is only the mechanics. `MemoryStore` and the
+nano-graphrag adapter bind `app.current_workspace` with `SET LOCAL` inside
+the transaction of every statement, so the owner or `reflect_writer` writes
+under FORCE RLS and a transaction-mode pooler cannot lose the binding. The
+tenant resolver treats a signed JWT claim as authoritative over that GUC, so
+PostgREST clients (`authenticated`: read-only SELECT plus EXECUTE on the
+search functions) are scoped by their token. The Context Broker binds the
+same GUC per request on `REFLECT_BROKER_PG_DSN`. Both DSNs are judged on the
+open connection, not on the string: TLS, or a loopback or Unix-socket
+server, else refused unless `REFLECT_PG_ALLOW_INSECURE=1`.
 
 The `reflect` client needs nano-graphrag + its embedding stack (the `[graph]`
 extra); the Postgres adapters add the `[postgres]` extra (psycopg). Install both:
