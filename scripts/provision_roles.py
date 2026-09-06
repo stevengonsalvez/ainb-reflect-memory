@@ -52,6 +52,9 @@ def provision(dsn: str, passwords: dict[str, str], *, connect=None) -> list[str]
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--only", choices=sorted(ROLES), help="provision one role")
+    ap.add_argument("--role-suffix", default="",
+                    help="append to every role name (the compat tests provision reflect_broker_<hex> on a shared "
+                         "cluster and drop it afterwards; production never sets this)")
     args = ap.parse_args(argv)
     dsn = os.environ.get("DATABASE_URL", "")
     if not dsn:
@@ -63,7 +66,7 @@ def main(argv: list[str] | None = None) -> int:
             continue
         value = os.environ.get(var, "")
         if value:
-            passwords[role] = value
+            passwords[role + args.role_suffix] = value
     if not passwords:
         print("nothing to do: set REFLECT_BROKER_PASSWORD and/or REFLECT_WRITER_PASSWORD", file=sys.stderr)
         return 2
