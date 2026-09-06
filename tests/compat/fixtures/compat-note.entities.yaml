@@ -1,0 +1,14 @@
+document_id: compat-gate-fixture-note
+extracted_at: "2026-09-06T00:00:00+00:00"
+entities:
+  - name: compat gate
+    type: technology
+    description: "Backward-compatibility test suite"
+  - name: reflect skill
+    type: technology
+    description: "The /reflect skill"
+relationships:
+  - source: compat gate
+    target: reflect skill
+    type: uses
+    description: "The gate runs the skill's commands"
