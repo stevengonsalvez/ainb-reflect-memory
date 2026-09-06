@@ -117,7 +117,9 @@ def permission_rules(argv: list[str]) -> list[str]:
     for value in flag_values(argv, "--allowedTools") + flag_values(argv, "--allowed-tools"):
         rules.extend(r.strip() for r in value.split(",") if r.strip())
     for value in flag_values(argv, "--settings"):
-        text = Path(value).read_text(encoding="utf-8") if Path(value).exists() else value
+        # Inline JSON starts with "{"; anything else is a settings file path.
+        # (Path.exists on a long inline document raises ENAMETOOLONG.)
+        text = value if value.lstrip().startswith("{") else Path(value).read_text(encoding="utf-8")
         rules.extend(json.loads(text).get("permissions", {}).get("allow", []) or [])
     return rules
 
