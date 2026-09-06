@@ -23,7 +23,7 @@ ADAPTER = ADAPTER_DIR / "copilot_adapter.py"
 
 sys.path.insert(0, str(ADAPTER_DIR))
 
-import copilot_adapter  # noqa: E402
+import copilot_adapter
 
 
 def _hooks_path(home: Path) -> Path:

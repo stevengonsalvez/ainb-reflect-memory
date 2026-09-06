@@ -55,17 +55,18 @@ from base import (  # noqa: E402
     PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     _resolve_home,
     find_plugin_root as _shared_find_plugin_root,
-    harness_dir_of,
     inject_managed_by as _inject_managed_by,
     parse_skill_frontmatter,
     run_cli,
-    substitute_home_tool_dir,
 )
 
 # Skill subdirs and plugin-root resources synced next to the skills so the
 # SessionStart hook command and the rendered skill commands resolve on disk.
 _SKILL_SUBDIRS: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 _PLUGIN_ROOT_RESOURCES: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
+# reflect.toml carries the plugin defaults reflect_config reads; without it
+# every default is dropped on an adapter-only install.
+_PLUGIN_ROOT_FILES: tuple[str, ...] = ("reflect.toml",)
 
 # Sentinel written into the pointer file's ``managed_by:`` field so subsequent
 # runs (or uninstall) can tell the file belongs to us and is safe to replace.
@@ -122,21 +123,11 @@ class ClaudeAdapter(AdapterBase):
     )
 
     def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Overrides :meth:`AdapterBase._pointer_body` which produces a
-        pointer-stub. See the module docstring for the rationale. Claude keeps
-        the upstream ``${CLAUDE_PLUGIN_ROOT}`` anchors verbatim: the runtime
-        sets that variable, so no rewrite is needed.
+        """Full plugin SKILL.md content with ``managed_by:`` injected. Written only
+        when the plugin runtime does not own reflect; marker rendering for the
+        ~/.claude/skills layout happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
-        if dst is not None:
-            text = substitute_home_tool_dir(text, harness_dir_of(dst))
-        return text
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 
@@ -214,9 +205,18 @@ class ClaudeAdapter(AdapterBase):
                 src = plugin_root / resource
                 if src.is_dir():
                     dir_syncs.append((src, skills_dir / "reflect" / resource))
+        file_copies: list[tuple[Path, Path]] = []
+        if not owns:
+            for filename in _PLUGIN_ROOT_FILES:
+                src = plugin_root / filename
+                if src.is_file():
+                    file_copies.append((src, plan.target_harness_dir / "skills" / "reflect" / filename))
         plan.extras["dir_syncs"] = dir_syncs
+        plan.extras["file_copies"] = file_copies
         for src, dst in dir_syncs:
             describe_extra.append(f"sync dir: {src} -> {dst}")
+        for src, dst in file_copies:
+            describe_extra.append(f"copy file: {src} -> {dst}")
 
         # Only advertise the hook when execute_extra will actually write it.
         # Under the plugin runtime execute_extra skips the settings.json merge,
@@ -250,6 +250,10 @@ class ClaudeAdapter(AdapterBase):
         for src, dst in plan.extras.get("dir_syncs", []):
             self._sync_dir(src, dst)
             actions.append(f"synced {dst}")
+        for src, dst in plan.extras.get("file_copies", []):
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            actions.append(f"copied {dst}")
         if not with_hooks:
             return actions, 0
         settings_path: Path = plan.extras["settings_path"]

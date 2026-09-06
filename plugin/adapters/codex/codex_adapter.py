@@ -59,12 +59,10 @@ from base import (  # noqa: E402
     InstallPlan,
     PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     find_plugin_root as _shared_find_plugin_root,
-    harness_dir_of,
     inject_managed_by as _inject_managed_by,
     merge_hook_commands,
     remove_hook_commands,
     run_cli,
-    substitute_home_tool_dir,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/codex"
@@ -252,55 +250,12 @@ class CodexAdapter(AdapterBase):
 
     # ${CLAUDE_PLUGIN_ROOT}/plugin/<assets|references|scripts>/ — the anchor a
     # SKILL.md uses to point at plugin-root resources on a Claude cache install.
-    # Codex has no such runtime variable, and augment_plan copies those three
-    # dirs under the reflect umbrella skill, so the anchor must be rewritten to
-    # the resolved umbrella path or the model is left reading unresolvable paths
-    # (the exact turn-wasting hunt this convention is meant to prevent).
-    # Per-skill resources: augment_plan copies plugin/skills/<name>/<sub>/ to
-    # <home>/skills/<name>/<sub>/ (the "plugin/" segment is dropped).
-    # ``(?::-[^}]*)?`` tolerates every parameter-default form the shell accepts:
-    # bare ${VAR}, empty ${VAR:-}, and valued ${VAR:-/fallback}.
-    _PER_SKILL_ANCHOR = re.compile(
-        r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/skills/([A-Za-z0-9_-]+)/"
-        r"(assets|references|scripts|hooks)/"
-    )
-    # Plugin-root shared resources: copied under the reflect umbrella skill.
-    # Covers the same four subdirs as PLUGIN_ROOT_RESOURCES / the per-skill
-    # regex so a plugin-root hooks anchor is not left behind.
-    _PLUGIN_ROOT_ANCHOR = re.compile(
-        r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/(assets|references|scripts|hooks)/"
-    )
-
     def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Codex's skill loader reads file content directly (no ``source:``
-        dereference). Mirrors :meth:`ClaudeAdapter._pointer_body`, then rewrites
-        the ``${CLAUDE_PLUGIN_ROOT}`` resource anchors into the installed Codex
-        layout since that variable is unset under Codex.
+        """Full plugin SKILL.md content with ``managed_by:`` injected. Codex reads
+        file content directly (no ``source:`` dereference); marker rendering for
+        the installed layout happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
-        if dst is not None:
-            # dst == <home>/skills/<name>/SKILL.md, so dst.parents[1] is the
-            # skills/ dir. Per-skill resources keep their skill name; shared
-            # plugin-root resources live under skills/reflect/. Rewrite the
-            # more specific per-skill anchor first.
-            skills_dir = dst.parents[1]
-            text = self._PER_SKILL_ANCHOR.sub(
-                lambda m: f"{skills_dir}/{m.group(1)}/{m.group(2)}/", text
-            )
-            text = self._PLUGIN_ROOT_ANCHOR.sub(
-                lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text
-            )
-            # The bootstrap-time marker for the harness home: without this an
-            # adapter-only install hands the model literal
-            # ``{{HOME_TOOL_DIR}}/skills/reflect/scripts/...`` commands.
-            text = substitute_home_tool_dir(text, harness_dir_of(dst))
-        return text
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 

@@ -58,6 +58,8 @@ SKILL_SUBDIRS: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 # Single-file plugin-root resources copied next to the reflect skill (reflect.toml
 # carries the plugin defaults, including the [providers.hermes] block).
 PLUGIN_ROOT_FILES: tuple[str, ...] = ("reflect.toml",)
+# Plugin-root shared dirs synced under skills/reflect/ (see augment_plan).
+PLUGIN_ROOT_RESOURCES: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 
 
 class HermesAdapter(AdapterBase):
@@ -80,19 +82,11 @@ class HermesAdapter(AdapterBase):
     )
 
     def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Hermes reads skill file content directly (no ``source:`` dereference),
-        so mirror the Codex adapter and copy the whole document. ``dst`` is
-        accepted for interface parity; Hermes does not yet rewrite the
-        ``${CLAUDE_PLUGIN_ROOT}`` resource anchors (see CodexAdapter for the
-        rewrite; the same treatment applies here as a follow-up).
+        """Full plugin SKILL.md content with ``managed_by:`` injected; marker
+        rendering (HOME_TOOL_DIR and the plugin-root anchors) happens once, in
+        AdapterBase._write_pointer, so Hermes is covered like every harness.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        return self._full_skill_body(source_skill, dst)
 
     # --- plan augmentation + extras --------------------------------------
 
@@ -115,6 +109,15 @@ class HermesAdapter(AdapterBase):
 
         reflect_umbrella = plan.target_harness_dir / "skills" / "reflect"
 
+        # Plugin-level shared resources (hooks/scripts/assets/references) land
+        # under the reflect umbrella skill, where the rendered SKILL.md anchors
+        # and HOME_TOOL_DIR commands point (same layout as codex and copilot).
+        root_resource_syncs: list[tuple[Path, Path]] = []
+        for resource in PLUGIN_ROOT_RESOURCES:
+            src_dir = plugin_root / resource
+            if src_dir.is_dir():
+                root_resource_syncs.append((src_dir, reflect_umbrella / resource))
+
         # Plugin-root single files (reflect.toml) land under the reflect skill.
         root_file_copies: list[tuple[Path, Path]] = []
         for filename in PLUGIN_ROOT_FILES:
@@ -130,11 +133,14 @@ class HermesAdapter(AdapterBase):
             shim_syncs.append((src_shim, reflect_umbrella / "shim"))
 
         plan.extras["subdir_syncs"] = subdir_syncs
+        plan.extras["root_resource_syncs"] = root_resource_syncs
         plan.extras["root_file_copies"] = root_file_copies
         plan.extras["shim_syncs"] = shim_syncs
 
         describe_extra: list[str] = []
         for src, dst in subdir_syncs:
+            describe_extra.append(f"sync dir: {src} → {dst}")
+        for src, dst in root_resource_syncs:
             describe_extra.append(f"sync dir: {src} → {dst}")
         for src, dst in shim_syncs:
             describe_extra.append(f"sync dir: {src} → {dst}")
@@ -149,6 +155,11 @@ class HermesAdapter(AdapterBase):
 
         # 1. Sync per-skill subdirs (merge copy; user-dropped siblings survive).
         for src, dst in plan.extras.get("subdir_syncs", []):
+            self._sync_dir(src, dst)
+            actions.append(f"synced {dst}")
+
+        # 1b. Sync plugin-root shared dirs into the reflect umbrella.
+        for src, dst in plan.extras.get("root_resource_syncs", []):
             self._sync_dir(src, dst)
             actions.append(f"synced {dst}")
 

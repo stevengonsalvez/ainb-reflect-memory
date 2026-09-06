@@ -158,6 +158,35 @@ def harness_dir_of(dst: Path) -> Path:
     return dst.parents[2]
 
 
+# ``${CLAUDE_PLUGIN_ROOT}`` anchors inside SKILL.md bodies. Claude Code's plugin
+# runtime sets that variable; no other harness does, and an adapter-only
+# install (Claude included) has no runtime either, so the anchors must be
+# rewritten into the installed layout. Per-skill resources keep their skill
+# name (``plugin/skills/<name>/<sub>/`` -> ``<skills>/<name>/<sub>/``); shared
+# plugin-root resources live under the reflect umbrella skill
+# (``plugin/<sub>/`` -> ``<skills>/reflect/<sub>/``). ``(?::-[^}]*)?`` tolerates
+# every parameter-default form the shell accepts.
+PLUGIN_SKILL_ANCHOR = re.compile(
+    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/skills/([A-Za-z0-9_-]+)/"
+    r"(assets|references|scripts|hooks)/"
+)
+PLUGIN_ROOT_ANCHOR = re.compile(
+    r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/(assets|references|scripts|hooks)/"
+)
+# Anything of either marker kind that survives rendering.
+UNRESOLVED_MARKER = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
+
+
+def render_for_layout(text: str, dst: Path) -> str:
+    """Render every install-time marker in a skill body for the layout at
+    ``dst`` (``<harness>/skills/<name>/SKILL.md``): the HOME_TOOL_DIR marker
+    and both ``${CLAUDE_PLUGIN_ROOT}`` anchor shapes."""
+    skills_dir = dst.parents[1]
+    text = PLUGIN_SKILL_ANCHOR.sub(lambda m: f"{skills_dir}/{m.group(1)}/{m.group(2)}/", text)
+    text = PLUGIN_ROOT_ANCHOR.sub(lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text)
+    return substitute_home_tool_dir(text, harness_dir_of(dst))
+
+
 def merge_hook_commands(
     config: dict,
     *,
@@ -427,6 +456,18 @@ class AdapterBase:
             harness_label=self.HARNESS_LABEL,
         )
 
+    def render_for_layout(self, text: str, dst: Path) -> str:
+        """Overridable hook: render install-time markers for the layout at ``dst``."""
+        return render_for_layout(text, dst)
+
+    def _full_skill_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
+        """Full upstream SKILL.md with ``managed_by:`` injected (stub on read failure)."""
+        try:
+            text = source_skill.read_text(encoding="utf-8")
+        except OSError:
+            return AdapterBase._pointer_body(self, source_skill, dst)
+        return inject_managed_by(text, self.POINTER_MANAGED_BY)
+
     def _write_pointer(
         self, src: Path, dst: Path, *, force: bool = False,
     ) -> tuple[bool, str]:
@@ -456,7 +497,9 @@ class AdapterBase:
                 f"(use --force to replace)"
             )
         dst.parent.mkdir(parents=True, exist_ok=True)
-        dst.write_text(self._pointer_body(src, dst), encoding="utf-8")
+        # The one place a skill body reaches disk: render its markers here so
+        # every adapter (and every future one) gets the same transform.
+        dst.write_text(self.render_for_layout(self._pointer_body(src, dst), dst), encoding="utf-8")
         if is_foreign:
             return True, f"replaced non-pointer file at {dst}"
         return True, f"wrote pointer {dst}"

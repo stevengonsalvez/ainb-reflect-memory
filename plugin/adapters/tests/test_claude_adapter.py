@@ -20,7 +20,7 @@ ADAPTER = ADAPTER_DIR / "claude_adapter.py"
 # Make ``claude_adapter`` importable regardless of where pytest runs from.
 sys.path.insert(0, str(ADAPTER_DIR))
 
-import claude_adapter  # noqa: E402
+import claude_adapter
 
 
 @pytest.fixture(autouse=True)
@@ -472,3 +472,19 @@ def test_install_puts_the_session_start_hook_file_where_settings_points(tmp_path
     # skill names skills/reflect/scripts/*.py. Both dirs must be there.
     assert (tmp_path / ".claude" / "skills" / "recall" / "scripts" / "recall.py").exists()
     assert (tmp_path / ".claude" / "skills" / "reflect" / "scripts" / "reflect_cascade.py").exists()
+
+
+def test_install_copies_reflect_toml_and_renders_every_marker(tmp_path):
+    """reflect.toml carries the plugin defaults reflect_config reads; without
+    it every default is dropped. And no marker of either kind may survive."""
+    import re
+
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    skills = tmp_path / ".claude" / "skills"
+    assert (skills / "reflect" / "reflect.toml").exists()
+    marker = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
+    for skill_md in skills.glob("*/SKILL.md"):
+        assert not marker.search(skill_md.read_text(encoding="utf-8")), skill_md

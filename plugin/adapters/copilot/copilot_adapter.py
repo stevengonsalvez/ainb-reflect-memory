@@ -75,8 +75,6 @@ from base import (  # noqa: E402
     find_plugin_root as _shared_find_plugin_root,
     inject_managed_by as _inject_managed_by,
     run_cli,
-    harness_dir_of,
-    substitute_home_tool_dir,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/copilot"
@@ -368,22 +366,10 @@ class CopilotAdapter(AdapterBase):
     )
 
     def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Copilot's skill loader reads file content directly (no ``source:``
-        dereference). Mirrors :meth:`CodexAdapter._pointer_body`. ``dst`` is
-        accepted for interface parity; Copilot does not yet rewrite the
-        ``${CLAUDE_PLUGIN_ROOT}`` resource anchors (see CodexAdapter for the
-        rewrite; the same treatment applies here as a follow-up).
+        """Full plugin SKILL.md content with ``managed_by:`` injected; marker
+        rendering happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
-        if dst is not None:
-            text = substitute_home_tool_dir(text, harness_dir_of(dst))
-        return text
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 

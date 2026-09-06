@@ -16,7 +16,7 @@ ADAPTER = ADAPTER_DIR / "codex_adapter.py"
 
 sys.path.insert(0, str(ADAPTER_DIR))
 
-import codex_adapter  # noqa: E402
+import codex_adapter
 
 
 @pytest.fixture(autouse=True)
