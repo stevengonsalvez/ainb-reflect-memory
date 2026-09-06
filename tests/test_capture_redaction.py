@@ -211,6 +211,24 @@ CREDENTIALS = [
     "password: Tr0ub4dor3xyzabcdefgh",
     "api_key=AbCd3fGh1jK2LmN0pQrStUv",
     'DB_PASSWORD: "x9Lm2qR8vT4wY7zA1bC3"',
+    # Item 13: all-caps seeds and keys, 12 to 15 character values, hyphenated
+    # credentials with short mixed segments.
+    "totp_secret: JBSWY3DPEHPK3PXP",
+    "api_key: DEADBEEFCAFEBABE1234",
+    "licence_key: AB12C-DE34F-GH56I-JK78L",
+    "password: Tr0ub4dor3xy",
+    "auth_token=x9Lm2qR8vT4w",
+    "secret_key: gh-Ab12Cd34-Ef56Gh78",
+]
+LEGITIMATE += [
+    # The other direction of item 13: identifiers, versions and words that
+    # share a shape with the credentials above.
+    "api_key_env: GH_TOKEN_ENV",
+    "token_kind: DEADBEEF",
+    "key_name: REGISTRY-HOST",
+    "secret_version: v1.2.3-beta.4",
+    "auth_provider: 2fa-required",
+    "password_hint: correcthorsebatterystaple",
 ]
 
 

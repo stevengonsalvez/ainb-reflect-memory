@@ -50,7 +50,7 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     (re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"), "<REDACTED:slack_token>", "slack_token"),
     # Slack incoming-webhook URLs carry a posting credential in the path.
     (
-        re.compile(r"https://hooks\.slack\.com/services/\S+"),
+        re.compile(r"https://hooks\.slack\.com/services/[^\s)\]\"',]+"),
         "<REDACTED:slack_webhook>",
         "slack_webhook",
     ),
@@ -127,6 +127,9 @@ _GENERIC_SECRET_RE = re.compile(
 _ALL_CAPS_IDENT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 _SLUG_RE = re.compile(r"^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+$")
 _NUMBER_RE = re.compile(r"^[0-9][0-9._-]*$")
+# A numeral prefix on a word (1password, 2fa, 3rd): letters and digits, but
+# not the shape of a credential segment.
+_NUMERAL_WORD_RE = re.compile(r"^\d{1,2}[A-Za-z]+$")
 # A path: slash-separated segments of at most 15 word characters each
 # (exports/2026/report.csv, ~/.config/gh/hosts.yml). A base64 credential with
 # slashes has long segments and never looks like this.
@@ -143,24 +146,33 @@ def _shannon_bits(value: str) -> float:
     return -sum(c / n * math.log2(c / n) for c in counts.values())
 
 
+def _mixes_letters_and_digits(text: str) -> bool:
+    return any(ch.isalpha() for ch in text) and any(ch.isdigit() for ch in text)
+
+
 def looks_like_credential(value: str) -> bool:
     """The capture posture: never lose a legitimate value. A generic
     KEY=value match is treated as a credential only when the value has the
-    shape of one: 16 or more characters that are not an ALL_CAPS identifier,
-    not a plain slug of hyphen, underscore or dot separated words, not a
-    number, and either mix letters with digits or carry high entropy."""
+    shape of one: 12 or more characters that are not a number or a path; an
+    ALL_CAPS identifier only counts as one when it carries an underscore or
+    is shorter than 16 (a base32 seed, upper hex or a licence key is all
+    caps too); a hyphen, underscore or dot separated slug is a credential
+    when any segment of four or more characters mixes letters and digits
+    (a numeral-prefixed word such as 1password is not); otherwise a value
+    that mixes letters and digits, or a long high-entropy one, is one."""
     v = value.strip()
-    if len(v) < 16 or _ALL_CAPS_IDENT_RE.match(v) or _NUMBER_RE.match(v) or _PATH_RE.match(v):
+    if len(v) < 12 or _NUMBER_RE.match(v) or _PATH_RE.match(v):
         return False
-    if _SLUG_RE.match(v) and not any(ch.isdigit() for ch in v.replace("-", "").replace("_", "").replace(".", "")):
+    if _ALL_CAPS_IDENT_RE.match(v) and ("_" in v or len(v) < 16):
         return False
     if _SLUG_RE.match(v):
-        segments = re.split(r"[-_.]", v)
-        if all(len(seg) <= 8 and (seg.isalpha() or seg.isdigit() or seg[0].isalpha()) for seg in segments):
-            return False  # user-123-profile-v2: a slug with a counter, not a credential
-    letters = any(ch.isalpha() for ch in v)
-    digits = any(ch.isdigit() for ch in v)
-    if letters and digits and not v.startswith(("/", "./", "~/")) and "(" not in v:
+        return any(
+            len(seg) >= 4 and _mixes_letters_and_digits(seg) and not _NUMERAL_WORD_RE.match(seg)
+            for seg in re.split(r"[-_.]", v)
+        )
+    if v.startswith(("/", "./", "~/")) or "(" in v:
+        return False
+    if _mixes_letters_and_digits(v):
         return True
     return len(v) >= 20 and _shannon_bits(v) >= 3.9
 
