@@ -87,6 +87,11 @@ ALLOWED_PLUGIN_CHANGES: dict[str, str] = {
     "hooks/lib/writer_argv.sh": "gate PR: side-effect-free writer argv library, new file",
     "adapters/hermes/hermes_adapter.py": "gate PR: hermes renders and syncs plugin-root resources",
     "scripts/drain_extract.py": "gate PR: writer_argv extracted so the gate reads the exact argv the extract writer runs",
+    # #38 capture redaction
+    "scripts/secret_redact.py": "#38: stdlib copy of the engine's secret tables for the plugin's own scripts",
+    "scripts/reflect_db.py": "#38: add_learning redacts the title and quote at the reflect.db boundary",
+    "scripts/kb_export.py": "#38: the export re-redacts every text cell as defence in depth",
+    "scripts/skill_index.py": "#38: the skill summary is redacted before it is stored",
 }
 
 
