@@ -323,7 +323,9 @@ def _strip_secrets(text: str, tally: dict[str, int], *, keep_value) -> str:
         if keep_value(m.group(1), m.group(4)):
             return m.group(0)
         rewrites += 1
-        return f"{m.group(1)}{m.group(2)}<REDACTED:generic_secret>"
+        # The value's quote (group 3, closed by the backreference) is kept
+        # around the placeholder, so a redacted JSON cell still parses.
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}<REDACTED:generic_secret>{m.group(3)}"
 
     out = _GENERIC_SECRET_RE.sub(_generic, out)
     _bump(tally, "generic_secret", rewrites)

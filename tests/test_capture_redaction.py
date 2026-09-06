@@ -225,6 +225,26 @@ def test_capture_rule_keeps_every_legitimate_value_and_drops_credentials() -> No
     assert "<REDACTED:generic_secret>" in sanitize("secret_name: my-app-db-credentials").text
 
 
+def test_redacted_json_still_parses_and_delimiters_survive() -> None:
+    """Item 12: the value's quotes stay around the placeholder, and the
+    webhook rule stops at a closing delimiter, so a redacted JSON cell or
+    markdown link is still well formed in both postures."""
+    import json
+
+    from reflect_kb.issues.sanitize import sanitize
+
+    cell = json.dumps({"api_key": "AbCd1234efgh5678ijklMNOP", "hook": "https://hooks.slack.com/services/T0/B0/x1y2z3",
+                       "note": "see (https://hooks.slack.com/services/T0/B0/x1y2z3), then [x]"})
+    for posture in (lambda t: redact_secrets(t).text, lambda t: sanitize(t).text):
+        out = posture(cell)
+        parsed = json.loads(out)
+        assert parsed["api_key"] == "<REDACTED:generic_secret>"
+        assert parsed["hook"] == "<REDACTED:slack_webhook>"
+        assert parsed["note"] == "see (<REDACTED:slack_webhook>), then [x]"
+    assert redact_secrets("password: 'Tr0ub4dor3xyzabcdefgh'").text == "password: '<REDACTED:generic_secret>'"
+    assert redact_secrets("password: Tr0ub4dor3xyzabcdefgh").text == "password: <REDACTED:generic_secret>"
+
+
 def test_generic_rule_matches_the_json_form_a_transcript_uses() -> None:
     """Transcripts are JSONL, so the key carries a closing quote before the
     separator and the value an opening one; both postures must match it."""
