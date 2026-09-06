@@ -224,10 +224,39 @@ def git_provenance(cwd: str) -> dict:
     url = _git("remote", "get-url", "origin")
     if not (sha and url):
         return {}
-    m = _re.search(r"[:/]([A-Za-z0-9._-]+/[A-Za-z0-9._-]+?)(?:\.git)?/?$", url)
-    if not m:
+    repo = repo_from_remote(url)
+    if not repo:
         return {}
-    return {"repo": m.group(1), "commit": sha}
+    return {"repo": repo, "commit": sha}
+
+
+def repo_from_remote(url: str) -> str:
+    """The repository name a pin carries, from any remote spelling: the full
+    path minus ``.git`` (gitlab subgroups and Azure DevOps ``_git/<repo>``
+    keep every segment), for ``https://``, ``ssh://``, ``git://``, ``file://``
+    and the scp form ``git@host:path``. Empty when the URL has no path."""
+    import re as _re
+    from urllib.parse import urlsplit
+
+    url = url.strip()
+    if "://" in url:
+        parts = urlsplit(url)
+        path = parts.path
+    else:
+        m = _re.match(r"^(?:[^@/\s]+@)?[^:/\s]+:(?P<path>.+)$", url)  # scp form
+        if not m:
+            return ""
+        path = m.group("path")
+    path = path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    path = path.strip("/")
+    segments = [s for s in path.split("/") if s]
+    if len(segments) < 2 or any(seg in (".", "..") for seg in segments):
+        return ""
+    if not all(_re.fullmatch(r"[A-Za-z0-9._-]+", seg) for seg in segments):
+        return ""
+    return "/".join(segments)
 
 
 def render_md(learning: dict, *, source_path: str, session_id: str, provenance: dict | None = None) -> str:

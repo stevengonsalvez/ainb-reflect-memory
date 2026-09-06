@@ -6,6 +6,10 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 import drain_extract
 
@@ -30,6 +34,21 @@ def test_git_provenance_normalises_ssh_and_https_remotes(tmp_path: Path) -> None
     subprocess.run(["git", "-C", str(root), "remote", "set-url", "origin", "https://github.com/acme/widgets"], check=True)
     assert drain_extract.git_provenance(str(root))["repo"] == "acme/widgets"
     assert drain_extract.git_provenance(str(tmp_path)) == {}
+
+
+@pytest.mark.parametrize("url,repo", [
+    ("https://github.com/acme/widgets.git", "acme/widgets"),
+    ("git@github.com:acme/widgets.git", "acme/widgets"),
+    ("https://gitlab.example.com/group/subgroup/project.git", "group/subgroup/project"),
+    ("git@gitlab.example.com:group/subgroup/project.git", "group/subgroup/project"),
+    ("https://dev.azure.com/org/project/_git/repo", "org/project/_git/repo"),
+    ("git@ssh.dev.azure.com:v3/org/project/repo", "v3/org/project/repo"),
+    ("ssh://git@github.com:22/acme/widgets.git/", "acme/widgets"),
+    ("https://github.com/acme", ""),  # no repository segment
+    ("not a remote", ""),
+])
+def test_repo_from_remote_keeps_the_full_path(url: str, repo: str) -> None:
+    assert drain_extract.repo_from_remote(url) == repo
 
 
 def test_render_md_writes_the_pin_keys_only_when_all_three_are_known(tmp_path: Path) -> None:
