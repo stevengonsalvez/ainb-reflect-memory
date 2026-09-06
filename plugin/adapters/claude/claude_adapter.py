@@ -54,9 +54,11 @@ from base import (  # noqa: E402
     PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     _resolve_home,
     find_plugin_root as _shared_find_plugin_root,
+    harness_dir_of,
     inject_managed_by as _inject_managed_by,
     parse_skill_frontmatter,
     run_cli,
+    substitute_home_tool_dir,
 )
 
 # Sentinel written into the pointer file's ``managed_by:`` field so subsequent
@@ -125,7 +127,10 @@ class ClaudeAdapter(AdapterBase):
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
             return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        if dst is not None:
+            text = substitute_home_tool_dir(text, harness_dir_of(dst))
+        return text
 
     # --- CLI flags -------------------------------------------------------
 

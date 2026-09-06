@@ -75,6 +75,8 @@ from base import (  # noqa: E402
     find_plugin_root as _shared_find_plugin_root,
     inject_managed_by as _inject_managed_by,
     run_cli,
+    harness_dir_of,
+    substitute_home_tool_dir,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/copilot"
@@ -378,7 +380,10 @@ class CopilotAdapter(AdapterBase):
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
             return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        if dst is not None:
+            text = substitute_home_tool_dir(text, harness_dir_of(dst))
+        return text
 
     # --- CLI flags -------------------------------------------------------
 

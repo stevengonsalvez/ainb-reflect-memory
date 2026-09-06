@@ -141,6 +141,23 @@ def inject_managed_by(text: str, sentinel: str) -> str:
     return f"---{new_fm}---{trailing}{rest}"
 
 
+# Bootstrap-time template marker used inside the plugin's SKILL.md bodies for
+# "the harness home dir" (``~/.claude``, ``~/.codex``, ``~/.copilot``). The
+# toolkit bootstrap renders it; an adapter-only install must render it too, or
+# the model is handed literal ``{{HOME_TOOL_DIR}}/skills/...`` commands.
+HOME_TOOL_DIR_MARKER = "{{HOME_TOOL_DIR}}"
+
+
+def substitute_home_tool_dir(text: str, harness_dir: Path) -> str:
+    """Render ``{{HOME_TOOL_DIR}}`` as the resolved harness dir."""
+    return text.replace(HOME_TOOL_DIR_MARKER, str(harness_dir))
+
+
+def harness_dir_of(dst: Path) -> Path:
+    """``<harness>/skills/<name>/SKILL.md`` -> ``<harness>``."""
+    return dst.parents[2]
+
+
 def merge_hook_commands(
     config: dict,
     *,

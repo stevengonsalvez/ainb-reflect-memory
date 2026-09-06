@@ -456,3 +456,19 @@ def test_install_force_replaces_non_pointer_skill_marker(tmp_path):
     assert "replaced non-pointer file" in result.stdout
     body = target.read_text(encoding="utf-8")
     assert copilot_adapter.POINTER_MANAGED_BY in body
+
+
+def test_installed_skill_bodies_have_no_home_tool_dir_placeholder(tmp_path):
+    """Same contract as Codex: the adapter renders the harness home itself."""
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    copilot_dir = tmp_path / ".copilot"
+    for skill_md in (copilot_dir / "skills").glob("*/SKILL.md"):
+        assert "{{HOME_TOOL_DIR}}" not in skill_md.read_text(encoding="utf-8"), skill_md
+    reflect = (copilot_dir / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    assert f"{copilot_dir}/skills/reflect/scripts/reflect_cascade.py" in reflect

@@ -59,10 +59,12 @@ from base import (  # noqa: E402
     InstallPlan,
     PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     find_plugin_root as _shared_find_plugin_root,
+    harness_dir_of,
     inject_managed_by as _inject_managed_by,
     merge_hook_commands,
     remove_hook_commands,
     run_cli,
+    substitute_home_tool_dir,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/codex"
@@ -294,6 +296,10 @@ class CodexAdapter(AdapterBase):
             text = self._PLUGIN_ROOT_ANCHOR.sub(
                 lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text
             )
+            # The bootstrap-time marker for the harness home: without this an
+            # adapter-only install hands the model literal
+            # ``{{HOME_TOOL_DIR}}/skills/reflect/scripts/...`` commands.
+            text = substitute_home_tool_dir(text, harness_dir_of(dst))
         return text
 
     # --- CLI flags -------------------------------------------------------

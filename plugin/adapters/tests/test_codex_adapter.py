@@ -596,3 +596,23 @@ def test_installed_skills_have_no_unresolved_plugin_root(tmp_path):
     # Guard against a vacuous pass: at least one skill must actually cite
     # rewritten resource paths, or the assertions above proved nothing.
     assert checked_paths > 0, "no rewritten resource paths found in any installed skill"
+
+
+def test_installed_skill_bodies_have_no_home_tool_dir_placeholder(tmp_path):
+    """An adapter-only Codex install must render {{HOME_TOOL_DIR}} itself:
+    the toolkit bootstrap is not in the loop, and a literal marker leaves the
+    model running python3 {{HOME_TOOL_DIR}}/skills/... commands that fail."""
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    codex_dir = tmp_path / ".codex"
+    for skill_md in (codex_dir / "skills").glob("*/SKILL.md"):
+        body = skill_md.read_text(encoding="utf-8")
+        assert "{{HOME_TOOL_DIR}}" not in body, skill_md
+    reflect = (codex_dir / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    scripts = codex_dir / "skills" / "reflect" / "scripts"
+    assert f"python3 {scripts}/reflect_cascade.py" in reflect
+    # Every script the rendered skill names exists in the installed layout.
+    for m in re.finditer(r"(?:python3?|uv run)\s+\"?(/[^\s\"]+\.py)\"?", reflect):
+        assert Path(m.group(1)).exists(), m.group(1)
