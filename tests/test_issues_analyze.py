@@ -74,3 +74,44 @@ def test_runner_error_degrades_gracefully():
     cands, reason = analyze(["timeline"], runner=boom)
     assert cands == []
     assert reason.startswith("claude-error")
+
+
+def test_analyzer_runs_claude_without_tools():
+    """The prompt carries untrusted transcript text: no tools, no MCP, one turn,
+    explicit permission mode (the same structural flags as the drain's extract writer)."""
+    from reflect_kb.issues.analyze import analyzer_argv
+
+    seen: list[list[str]] = []
+
+    def capture(cmd, **_):
+        seen.append(list(cmd))
+        return _runner_returning("[]")(cmd)
+
+    analyze(["timeline"], runner=capture)
+    assert seen, "runner not called"
+    argv = seen[0]
+    assert argv[:2] == ["claude", "-p"] and argv == analyzer_argv(argv[2], argv[argv.index("--model") + 1])
+    for flag, value in (("--tools", ""), ("--max-turns", "1"), ("--permission-mode", "default")):
+        assert argv[argv.index(flag) + 1] == value, argv
+    assert "--strict-mcp-config" in argv and "bypassPermissions" not in argv
+    assert "--setting-sources" not in argv  # apiKeyHelper and the env block must load
+
+
+
+def test_default_runner_marks_the_child_as_nested(monkeypatch) -> None:
+    """The analyzer's claude -p keeps the operator's setting sources (hooks
+    included); REFLECT_NESTED=1 makes every reflect hook exit at once, so the
+    analyzer never queues or drains a reflection of its own."""
+    import subprocess
+
+    from reflect_kb.issues import analyze as mod
+
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, stdout="[]", stderr="")
+
+    monkeypatch.setattr(mod.subprocess, "run", fake_run)
+    mod._default_runner(["claude", "-p", "x"], timeout=5)
+    assert seen["env"]["REFLECT_NESTED"] == "1" and seen["env"].get("PATH")

@@ -7,6 +7,11 @@
 
 set -uo pipefail
 
+# A claude that reflect spawned (REFLECT_NESTED): no hooks, no recursion.
+if [[ -n "${REFLECT_NESTED:-}" ]]; then
+    exit 0
+fi
+
 if [[ "${REFLECT_DISABLED:-0}" == "1" ]]; then
   exit 0
 fi

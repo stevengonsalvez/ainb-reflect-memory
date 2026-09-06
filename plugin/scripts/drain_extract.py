@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
@@ -102,21 +103,40 @@ def build_prompt(slice_text: str) -> str:
     return _EXTRACTION_INSTRUCTIONS % slice_text
 
 
+# The structural no-tools flags every tool-free claude -p child carries: no
+# built-in tool (--tools ""), no MCP server, one turn, and an explicit
+# permission mode the operator's settings cannot widen. The engine's
+# reflect_kb.issues.analyze.NO_TOOLS_FLAGS is the same tuple (parity test).
+NO_TOOLS_FLAGS: tuple[str, ...] = (
+    "--permission-mode", "default",
+    "--tools", "",
+    "--strict-mcp-config",
+    "--max-turns", "1",
+)
+
+# Every claude -p child runs with this set: the operator's hooks still load,
+# and each reflect hook exits at once under it, so a child never queues or
+# drains a reflection of its own (recursion).
+NESTED_ENV = {"REFLECT_NESTED": "1"}
+
+
 def writer_argv(prompt: str, *, model: str, claude_bin: str = "claude") -> list[str]:
     """The exact claude -p argv the extract writer runs.
 
     Single source of truth shared with tests/compat (the bash twin is
-    plugin/hooks/lib/writer_argv.sh), so the permission proof exercises the
-    same flags the drain uses. --allowedTools "" removes every tool, so the
-    model can only answer with text; --max-turns 1 guarantees a single billed
-    turn. Both together make the 'agentic loop' structurally impossible.
+    plugin/hooks/lib/writer_argv.sh). --tools "" removes every built-in tool
+    and --strict-mcp-config every MCP tool, so the model can only answer with
+    text (--allowedTools "" only left them unapproved, and under an inherited
+    bypassPermissions they still ran); --permission-mode default is an
+    explicit flag that takes precedence over the operator's settings.json
+    defaultMode; --max-turns 1 guarantees a single billed turn. Setting
+    sources are kept: clearing them drops apiKeyHelper and the env block
+    (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, Bedrock) from settings.json,
+    so an operator who authenticates that way would see every entry fail
+    (proven live: with "--setting-sources" cleared the helper is never run
+    and the CLI answers "Not logged in").
     """
-    return [claude_bin, "-p", prompt,
-            "--model", model,
-            "--output-format", "json",
-            "--permission-mode", "bypassPermissions",
-            "--allowedTools", "",
-            "--max-turns", "1"]
+    return [claude_bin, "-p", prompt, "--model", model, "--output-format", "json", *NO_TOOLS_FLAGS]
 
 
 def call_model(prompt: str, *, model: str, timeout: int, claude_bin: str,
@@ -125,6 +145,7 @@ def call_model(prompt: str, *, model: str, timeout: int, claude_bin: str,
     proc = subprocess.run(
         writer_argv(prompt, model=model, claude_bin=claude_bin),
         cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False,
+        env={**os.environ, **NESTED_ENV},
     )
     if not proc.stdout.strip():
         raise RuntimeError(f"claude -p produced no output (exit={proc.returncode}): "

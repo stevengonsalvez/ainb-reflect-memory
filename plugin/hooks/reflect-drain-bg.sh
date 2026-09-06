@@ -71,6 +71,13 @@
 
 set -uo pipefail
 
+# A claude the drain itself spawned (the writer, HyDE, the analyzer) fires the
+# operator's SessionStart hooks, this one included: without this line a drain
+# would start a drain. REFLECT_NESTED is exported to every claude -p child.
+if [[ -n "${REFLECT_NESTED:-}" ]]; then
+    exit 0
+fi
+
 # ── Hard kill switch ────────────────────────────────────────────────────────
 # Honoured before any work so an operator can stop all drains instantly.
 if [[ "${REFLECT_DISABLED:-0}" == "1" ]]; then
@@ -699,6 +706,8 @@ When done, summarize what you captured. Do NOT touch the queue file — the drai
     # stderr goes to a temp capture first (M3: the quota store scans it for
     # 429/529 markers) and is then appended to the drain log as before.
     stderr_tmp=$(mktemp)
+    export REFLECT_NESTED=1
+    WRITER_RULES=()
 
     # W7: single-shot extraction path. Runs one tool-free claude -p call
     # (inside drain_extract.py) and reshapes its summary into the SAME envelope
