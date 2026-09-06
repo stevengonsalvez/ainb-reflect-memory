@@ -78,16 +78,29 @@ here instead of repeating it. Each file is plain SQL and re-runnable
 | 1 | `0001_reflect_memory_phase1.sql` | `pgcrypto`, `pg_trgm` (enabled by the file) | schema, memory tables, RLS, grants |
 | 2 | `0002_nanographrag_pgvector.sql` | `pgvector` (enabled by the file; install the package locally) | `ng_*` tables for the shared nano-graphrag store |
 | 3 | `0003_classification_force_rls.sql` | 1 and 2 applied | legacy-row pre-check, FORCE RLS on all seven tables, classification floor on every label column, read functions filter before `limit` |
-| 4 | `0004_broker_and_writer_roles.sql` | `reflect.broker_password` and `reflect.writer_password` set in the session | the `reflect_broker` and `reflect_writer` LOGIN roles (see "Roles" below) |
+| 4 | `0004_broker_and_writer_roles.sql` | 1 to 3 applied; no session settings, no secrets | the `reflect_broker` and `reflect_writer` roles, NOLOGIN, grants only (see "Roles" below); their passwords come from the provisioning step |
 
-**Option A, psql (works anywhere).** Every file in the directory, in name
-order, stopping at the first failure:
+**Option A, psql (works anywhere).** One invocation, the files in order;
+`ON_ERROR_STOP` makes psql exit non-zero at the first failing statement and
+skip the files after it:
 
 ```bash
-export PGOPTIONS="-c reflect.broker_password=$BROKER_PASSWORD -c reflect.writer_password=$WRITER_PASSWORD"
-for f in supabase/migrations/*.sql; do
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || { echo "failed: $f" >&2; break; }
-done
+psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+  -f supabase/migrations/0001_reflect_memory_phase1.sql \
+  -f supabase/migrations/0002_nanographrag_pgvector.sql \
+  -f supabase/migrations/0003_classification_force_rls.sql \
+  -f supabase/migrations/0004_broker_and_writer_roles.sql
+```
+
+**Then provision the role passwords (both options).** No migration carries a
+secret: 0004 creates the roles NOLOGIN, and this step, run after the
+migrations with a CREATEROLE or superuser connection, sets a LOGIN password
+on each role whose variable is set. Re-run it to rotate a password.
+
+```bash
+export DATABASE_URL=postgresql://postgres:…@host/db
+export REFLECT_BROKER_PASSWORD=…  REFLECT_WRITER_PASSWORD=…
+python scripts/provision_roles.py            # or --only broker | --only writer
 ```
 
 Migration 0003 runs in this order: first it checks for rows already labelled
@@ -107,8 +120,13 @@ connection; an owner role without either now sees nothing, by design.
 
 | Role | Used by | Variable | Grants | RLS |
 |---|---|---|---|---|
-| `reflect_writer` | the Mode 2 writer (ingest, reindex) on deployments without a BYPASSRLS service role | `REFLECT_PG_DSN` | SELECT, INSERT, UPDATE, DELETE on every table; sequences; every function | applies; bound per connection via `app.current_workspace` |
+| `reflect_writer` | the Mode 2 writer (ingest, reindex) on deployments without a BYPASSRLS service role | `REFLECT_PG_DSN` | SELECT, INSERT, UPDATE, DELETE on every table; sequences; every function | applies; bound per statement via `SET LOCAL app.current_workspace` |
 | `reflect_broker` | the Context Broker | `REFLECT_BROKER_PG_DSN` | SELECT on every table; EXECUTE on the search functions only | applies; the broker refuses a superuser, BYPASSRLS or owner role at startup |
+
+Both are created NOLOGIN by 0004 and cannot connect until
+`scripts/provision_roles.py` sets their passwords; re-running 0004 alters an
+existing role only for an attribute that differs, so it applies under a
+CREATEROLE-only migrator (hosted Supabase) as well as locally.
 | `service_role` (Supabase) | migrations, and the writer where you accept BYPASSRLS | `REFLECT_PG_DSN` | everything | bypassed |
 
 One variable per process: the writer never reads `REFLECT_BROKER_PG_DSN`
@@ -117,7 +135,8 @@ and the broker never reads `REFLECT_PG_DSN`. Neither role owns a table.
 **Option B, Supabase CLI** (if you use it for this project):
 
 ```bash
-supabase db push          # applies supabase/migrations/*.sql
+supabase db push          # applies supabase/migrations/*.sql, no session settings needed
+python scripts/provision_roles.py   # then the provisioning step above, same variables
 ```
 
 > ⚠️ **This migration defines Row-Level Security policies.** Per the issue's
@@ -162,7 +181,7 @@ pytest -m integration   # or just `pytest` to run both tiers
 If neither var is set, or the database is unreachable, every integration test
 **skips** cleanly — they never fail for lack of credentials.
 
-The fixtures apply all three migrations. On macOS the default Unix socket
+The fixtures apply every migration in the section 3 table. On macOS the default Unix socket
 directory can exceed the 104-byte socket path limit; either run the test
 Postgres with `-c unix_socket_directories=''` and connect over
 `127.0.0.1`, or export a short `TMPDIR` (for example `/tmp/pg`) before

@@ -117,7 +117,7 @@ graph store.
 | | **Mode 1 — Local** (default) | **Mode 2 — Shared** (Postgres) |
 |---|---|---|
 | Derived store | per-machine: QMD `index.sqlite` (BM25) + nano-graphrag (hnswlib + `.graphml`) | one **Supabase Postgres** (pgvector) for everyone |
-| Setup | nothing, works out of the box | set 2 env vars + apply 3 migrations |
+| Setup | nothing, works out of the box | set 2 env vars + apply the migrations ([`docs/setup.md`, section 3](./docs/setup.md#3-apply-the-migrations)) |
 | Share across machines | git-sync the markdown KB, then `reflect reindex` on each machine (re-embeds locally) | automatic — every machine queries the same store |
 | Best for | solo / single machine / offline | laptop + desktop + CI sharing one memory |
 
