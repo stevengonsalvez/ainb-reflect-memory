@@ -12,6 +12,9 @@ is a diff.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
 from .conftest import assert_same_as_baseline, refused_diffs
@@ -48,46 +51,74 @@ def behaviour(captures):
     return captures("behaviour")
 
 
-def _sidecar_matches_extractor(note_text: str, sidecar_text: str) -> bool:
-    """reflect add auto-extracts the sidecar from the note it wrote. When the
-    note was redacted, the extractor sees the placeholder instead of the token
-    and may classify that entity differently; the proof is that the captured
-    sidecar equals the extractor's output on the captured (redacted) note."""
-    import re
+def _baseline_extractor_sidecar(baseline_tree: Path, note_text: str) -> str:
+    """The BASELINE tree's extractor run on the redacted note, so a regression
+    in this branch's extractor cannot certify its own output."""
+    import subprocess
+    import sys
 
-    import yaml
+    code = (
+        "import sys, yaml; from reflect_kb.cli.entity_store import auto_extract_entities\n"
+        "text = sys.stdin.read(); parts = text.split('---', 2)\n"
+        "fm = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}\n"
+        "print(auto_extract_entities(text, fm or {}).to_yaml())"
+    )
+    proc = subprocess.run([sys.executable, "-c", code], input=note_text, capture_output=True, text=True,
+                          env={**os.environ, "PYTHONPATH": str(baseline_tree / "src")}, timeout=300, check=False)
+    assert proc.returncode == 0, proc.stderr[-800:]
+    return proc.stdout
 
-    from reflect_kb.cli.entity_store import auto_extract_entities
 
-    parts = note_text.split("---", 2)
-    frontmatter = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
-    expected = auto_extract_entities(note_text, frontmatter or {}).to_yaml()
-    mask = lambda t: re.sub(r"extracted_at:.*", "extracted_at: <TS>", t)
-    return mask(expected).strip() == mask(sidecar_text).strip()
+def _only_redaction_apart(baseline_note: str, branch_note: str) -> bool:
+    return redact_secrets is not None and branch_note == redact_secrets(baseline_note).text
 
 
-def test_reflect_add_legacy_and_secret_notes(behaviour) -> None:
+def test_reflect_add_legacy_and_secret_notes(behaviour, baseline_tree) -> None:
     baseline, branch = behaviour
     for run in branch["add"]["runs"].values():
         assert run["exit"] == 0, run
     added = branch["add"]["added"]
     assert added, "reflect add wrote nothing"
 
-    # Whitelist bucket for this branch (redaction at capture): a sidecar may
-    # differ from the baseline only if it is exactly the extractor's output on
-    # the redacted note next to it.
+    # Whitelist buckets for this branch (redaction at capture):
+    # - a sidecar may differ from the baseline only when its sibling note
+    #   differs from the baseline note by redaction alone AND the sidecar is
+    #   exactly the BASELINE extractor's output on that redacted note;
+    # - a written id may differ only when it is the id of the redacted bytes
+    #   (slug plus hash of title and redacted body), computed here from the
+    #   captured note text, never from this branch's own id function alone.
+    import re
+
+    from reflect_kb.cli.learnings_cli import generate_document_id, parse_frontmatter
+
+    mask = lambda t: re.sub(r"extracted_at:.*", "extracted_at: <TS>", t)
     verified: set[str] = set()
+    baseline_added = baseline["add"]["added"]
     for name, text in added.items():
-        if name.endswith(".entities.yaml"):
-            note = added.get(name[: -len(".entities.yaml")] + ".md")
-            if note is not None and _sidecar_matches_extractor(note, text):
-                verified.add(f"added.{name}")
+        if not name.endswith(".entities.yaml"):
+            continue
+        note_name = name[: -len(".entities.yaml")] + ".md"
+        note, baseline_note = added.get(note_name), baseline_added.get(note_name)
+        if note is None or baseline_note is None or not _only_redaction_apart(baseline_note, note):
+            continue
+        if mask(_baseline_extractor_sidecar(baseline_tree, note)).strip() == mask(text).strip():
+            verified.add(f"added.{name}")
+    expected_ids: set[str] = set()
+    for name, text in added.items():
+        if name.endswith(".md"):
+            fm, body = parse_frontmatter(text)
+            if fm and fm.get("title"):
+                expected_ids.add(generate_document_id(fm["title"], body))
 
     def regenerated_sidecar(key: str, old, new) -> bool:
         return key in verified
 
+    def id_of_redacted_bytes(key: str, old, new) -> bool:
+        return key.startswith("ids") and isinstance(new, str) and new in expected_ids
+
     assert_same_as_baseline("add", baseline["add"], branch["add"],
-                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or regenerated_sidecar(k, o, n))
+                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or regenerated_sidecar(k, o, n)
+                            or id_of_redacted_bytes(k, o, n))
 
 
 def test_reindex_and_search_mode1(behaviour) -> None:
@@ -117,11 +148,30 @@ def test_cascade_slice_and_bounded_input(behaviour) -> None:
     assert_same_as_baseline("cascade", baseline["cascade"], branch["cascade"], allowed=ALLOWED_BEHAVIOUR_DIFF)
 
 
+def _canonical_sidecar(key: str, old, new) -> bool:
+    """reflect add now parses an explicit sidecar (after redaction) and writes
+    it back through write_sidecar, so the stored sidecar is the canonical
+    serialisation of the baseline's, not a byte copy of the extractor's file."""
+    if not key.endswith(".entities.yaml") or not isinstance(old, str) or not isinstance(new, str):
+        return False
+    import re
+
+    from reflect_kb.cli.entity_store import DocumentEntities
+
+    mask = lambda t: re.sub(r"extracted_at:.*\n?", "", t)
+    try:
+        canonical = DocumentEntities.from_yaml(redact_secrets(old).text if redact_secrets else old).to_yaml()
+    except Exception:  # noqa: BLE001, a sidecar the parser rejects is a real diff
+        return False
+    return mask(canonical).strip() == mask(new).strip()
+
+
 def test_extract_writer_with_canned_model_reply(behaviour) -> None:
     baseline, branch = behaviour
     assert branch["extract"]["exit"] == 0, branch["extract"]
     assert branch["extract"]["summary"]["created"] == 1, branch["extract"]["summary"]
-    assert_same_as_baseline("extract", baseline["extract"], branch["extract"], allowed=ALLOWED_BEHAVIOUR_DIFF)
+    assert_same_as_baseline("extract", baseline["extract"], branch["extract"],
+                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or _canonical_sidecar(k, o, n))
 
 
 # --------------------------------------------------------------------------- #
