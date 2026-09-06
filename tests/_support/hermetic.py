@@ -50,7 +50,10 @@ def hermetic_env(
     env["GLOBAL_LEARNINGS_PATH"] = str(kb_dir)
     env["REFLECT_STATE_DIR"] = str(state_dir)
     env["XDG_CACHE_HOME"] = str(cache_home)
-    env["REFLECT_NO_DAEMON"] = "1"
+    # The compat gate (base={}) gets the daemon off; the eval harness passes
+    # os.environ and may opt out with REFLECT_NO_DAEMON=0 so a shared daemon
+    # keeps the model loaded across its subprocesses.
+    env.setdefault("REFLECT_NO_DAEMON", "1")
     real_home = Path(os.environ.get("HOME", str(Path.home())))
     env.setdefault("HF_HOME", os.environ.get("HF_HOME", str(real_home / ".cache" / "huggingface")))
     env.setdefault(

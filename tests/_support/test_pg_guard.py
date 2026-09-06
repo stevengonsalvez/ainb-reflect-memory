@@ -75,3 +75,55 @@ def test_the_developers_own_database_is_never_the_target() -> None:
     fresh = _with_dbname("postgresql://reflect@localhost/reflect", "reflect_test_deadbeef")
     assert "dbname=reflect_test_deadbeef" in fresh
     assert "dbname=reflect " not in fresh + " " or fresh.count("dbname=") == 1
+
+
+class _Info:
+    def __init__(self, host, hostaddr="", dbname="reflect_test_x"):
+        self.host, self.hostaddr, self.dbname = host, hostaddr, dbname
+
+
+class _Conn:
+    def __init__(self, info):
+        self.info, self.closed = info, False
+
+    def close(self):
+        self.closed = True
+
+
+def test_resolved_host_probe_refuses_a_remote_the_string_check_cannot_see(monkeypatch) -> None:
+    """service=<name> resolves through pg_service.conf; only libpq knows the
+    host, so the probe checks conn.info and refuses before any DDL."""
+    import psycopg
+
+    from _support import pg
+
+    monkeypatch.setattr(psycopg, "connect", lambda dsn, **kw: _Conn(_Info("db.prod.internal")))
+    with pytest.raises(pg.NotDisposableDSN, match="db.prod.internal"):
+        pg.assert_resolved_local("service=prod", source_var="DATABASE_URL")
+    monkeypatch.setattr(psycopg, "connect", lambda dsn, **kw: _Conn(_Info("", hostaddr="10.0.0.5")))
+    with pytest.raises(pg.NotDisposableDSN, match="hostaddr='10.0.0.5'"):
+        pg.assert_resolved_local("service=prod", source_var="DATABASE_URL")
+    monkeypatch.setattr(psycopg, "connect", lambda dsn, **kw: _Conn(_Info("localhost")))
+    conn = pg.assert_resolved_local("service=local", source_var="DATABASE_URL")
+    assert not conn.closed
+
+
+def test_first_usable_dsn_wins_and_ci_fails_when_none_does(monkeypatch) -> None:
+    import psycopg
+
+    from _support import pg
+
+    def connect(dsn, **kw):
+        if "prod" in dsn:
+            return _Conn(_Info("db.prod.internal"))
+        return _Conn(_Info("127.0.0.1"))
+
+    monkeypatch.setattr(psycopg, "connect", connect)
+    env = {"REFLECT_TEST_DATABASE_URL": "postgresql://u@localhost/prod_stale",
+           "DATABASE_URL": "postgresql://u@localhost/reflect_test"}
+    assert pg.server_dsn(env) == ("postgresql://u@localhost/reflect_test", "DATABASE_URL")
+    with pytest.raises(pytest.skip.Exception):
+        pg.server_dsn({"DATABASE_URL": "postgresql://u@db.prod.internal/reflect"})
+    with pytest.raises(pytest.fail.Exception, match="no usable disposable Postgres"):
+        pg.server_dsn({"DATABASE_URL": "postgresql://u@db.prod.internal/reflect", "CI": "true"})
+

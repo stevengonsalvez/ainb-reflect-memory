@@ -62,15 +62,61 @@ def assert_local_server(dsn: str, *, source_var: str, env: dict[str, str] | None
     return info
 
 
+def _in_ci(env: dict[str, str]) -> bool:
+    return env.get("CI", "").lower() == "true" or bool(env.get("GITHUB_ACTIONS"))
+
+
+def assert_resolved_local(dsn: str, *, source_var: str):
+    """Connect with a read-only probe and check the host libpq actually
+    resolved (``conn.info.host`` / ``hostaddr``), which sees service=,
+    PGSERVICE, pg_service.conf and any libpq key the string pre-filter cannot.
+    Returns the open autocommit connection; raises NotDisposableDSN before
+    any DDL when the resolved server is not this host."""
+    import psycopg
+
+    conn = psycopg.connect(dsn, autocommit=True, application_name="reflect-tests-probe")
+    try:
+        info = conn.info
+        for name, value in (("host", info.host or ""), ("hostaddr", info.hostaddr or "")):
+            if not _is_local(value):
+                raise NotDisposableDSN(
+                    f"{source_var} resolved to {name}={value!r}, not this host; the integration "
+                    "tests create and drop a reflect_test_<random> database, so they only run "
+                    "against a localhost server"
+                )
+    except NotDisposableDSN:
+        conn.close()
+        raise
+    return conn
+
+
 def server_dsn(env: dict[str, str] | None = None) -> tuple[str, str] | None:
-    """``(dsn, source_var)`` of a localhost server, None when unset. Raises
-    NotDisposableDSN when the configured server is not local."""
+    """``(dsn, source_var)`` of the first configured DSN that passes the
+    disposable check (string pre-filter, then the resolved-host probe). None
+    when nothing is configured. When something is configured but nothing
+    passes: fail in CI (the service DSN is present and must work), skip
+    locally with every reason."""
     env = os.environ if env is None else env
+    reasons: list[str] = []
     for var in DSN_VARS:
         dsn = env.get(var)
-        if dsn:
+        if not dsn:
+            continue
+        try:
             assert_local_server(dsn, source_var=var, env=env)
-            return dsn, var
+            assert_resolved_local(dsn, source_var=var).close()
+        except NotDisposableDSN as exc:
+            reasons.append(str(exc))
+            continue
+        except Exception as exc:  # noqa: BLE001, unreachable server
+            reasons.append(f"{var}: not reachable ({exc})")
+            continue
+        return dsn, var
+    if reasons:
+        message = "no usable disposable Postgres: " + "; ".join(reasons)
+        if _in_ci(env):
+            pytest.fail(message)
+        pytest.skip(message)
     return None
 
 
@@ -83,31 +129,49 @@ def _with_dbname(dsn: str, dbname: str) -> str:
 @contextmanager
 def disposable_database():
     """Yield the DSN of a freshly created ``reflect_test_<random>`` database on
-    the localhost server; drop it on exit. Skips (never errors) when no local
+    the localhost server; drop it on exit. Without CREATEDB the fixture falls
+    back to the configured database when its own name says it is a test
+    database (``reflect_test*``), disposing of the ``reflect_memory`` schema
+    inside it instead; in CI the service role has CREATEDB, so a missing
+    privilege there fails loudly. Skips (never errors) locally when no local
     server is configured or reachable."""
     psycopg = pytest.importorskip("psycopg", reason="psycopg not installed")
-    try:
-        found = server_dsn()
-    except NotDisposableDSN as exc:
-        pytest.skip(str(exc))
+    found = server_dsn()
     if found is None:
         pytest.skip("no localhost REFLECT_TEST_DATABASE_URL or DATABASE_URL")
-    dsn, _ = found
-    dbname = f"reflect_test_{secrets.token_hex(4)}"
-    try:
-        admin = psycopg.connect(dsn, autocommit=True)
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"Postgres not reachable ({exc})")
+    dsn, source_var = found
+    admin = assert_resolved_local(dsn, source_var=source_var)
     try:
         with admin.cursor() as cur:
-            cur.execute(psycopg.sql.SQL("create database {}").format(psycopg.sql.Identifier(dbname)))
+            cur.execute("select rolcreatedb or rolsuper from pg_roles where rolname = current_user")
+            can_create = bool(cur.fetchone()[0])
+        if can_create:
+            dbname = f"reflect_test_{secrets.token_hex(4)}"
+            with admin.cursor() as cur:
+                cur.execute(psycopg.sql.SQL("create database {}").format(psycopg.sql.Identifier(dbname)))
+            try:
+                yield _with_dbname(dsn, dbname)
+            finally:
+                with admin.cursor() as cur:
+                    cur.execute(
+                        psycopg.sql.SQL("drop database if exists {} with (force)").format(psycopg.sql.Identifier(dbname))
+                    )
+            return
+        current = admin.info.dbname or ""
+        if _in_ci(os.environ):
+            pytest.fail(f"{source_var}: the CI role lacks CREATEDB; the disposable database cannot be created")
+        if not current.startswith("reflect_test"):
+            pytest.skip(
+                f"{source_var}: role lacks CREATEDB and database {current!r} is not a reflect_test* database; "
+                "the schema-level fallback only disposes of a database named as a test database"
+            )
+        with admin.cursor() as cur:
+            cur.execute("drop schema if exists reflect_memory cascade")
         try:
-            yield _with_dbname(dsn, dbname)
+            yield dsn
         finally:
             with admin.cursor() as cur:
-                cur.execute(
-                    psycopg.sql.SQL("drop database if exists {} with (force)").format(psycopg.sql.Identifier(dbname))
-                )
+                cur.execute("drop schema if exists reflect_memory cascade")
     finally:
         admin.close()
 
