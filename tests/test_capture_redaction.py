@@ -225,6 +225,20 @@ def test_capture_rule_keeps_every_legitimate_value_and_drops_credentials() -> No
     assert "<REDACTED:generic_secret>" in sanitize("secret_name: my-app-db-credentials").text
 
 
+def test_generic_rule_matches_the_json_form_a_transcript_uses() -> None:
+    """Transcripts are JSONL, so the key carries a closing quote before the
+    separator and the value an opening one; both postures must match it."""
+    from reflect_kb.issues.sanitize import sanitize
+
+    line = ('{"api_key": "AbCd1234efgh5678ijklMNOP", "db_password": "s3cr3tP4ssw0rdValue9", '
+            '"tool": "reflect", "token_count": 123456789012, "key_path": "~/.ssh/id_ed25519"}')
+    out = redact_secrets(line).text
+    assert "AbCd1234" not in out and "s3cr3tP4" not in out
+    assert '"tool": "reflect"' in out and "123456789012" in out and "~/.ssh/id_ed25519" in out
+    assert out.count("<REDACTED:generic_secret>") == 2
+    assert "AbCd1234" not in sanitize(line).text and "s3cr3tP4" not in sanitize(line).text
+
+
 def _corpus() -> list[Path]:
     root = Path(__file__).resolve().parents[1]
     out: list[Path] = []

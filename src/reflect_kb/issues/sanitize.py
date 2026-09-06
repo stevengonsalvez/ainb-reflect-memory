@@ -144,12 +144,15 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # after a lowercase letter). Surrounding ``\w*`` still lets the keyword match
 # anywhere inside the identifier; group 1 captures the FULL env-var name so
 # it's preserved verbatim and only the value is stripped.
+# The key may carry a closing quote before the separator and the value an
+# opening one, so the JSON form (``"api_key": "..."``) that a JSONL transcript
+# uses matches as well as ``KEY=value`` and ``key: value``.
 _GENERIC_SECRET_RE = re.compile(
     r"\b(\w*(?:"
     r"(?i:(?<![A-Za-z])(?:token|key|secret|password|passwd|api[_-]?key|auth(?:orization)?)(?![A-Za-z]))"
     r"|(?<=[a-z])(?:Token|Key|Secret|Password|Passwd|ApiKey|Auth|Authorization)(?![a-z])"
     r")\w*)"
-    r"(\s*[:=]\s*)"
+    r"(['\"]?\s*[:=]\s*)"
     r"(['\"]?)(?!<REDACTED:)([^\s'\"]{12,})\3"
 )
 
