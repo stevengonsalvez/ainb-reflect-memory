@@ -81,6 +81,18 @@ class PgKVStorage(BaseKVStorage):
     async def upsert(self, data: dict[str, dict]) -> None:
         from psycopg.types.json import Jsonb
 
+        if self.namespace == "full_docs":
+            # Defence in depth behind the graph engine's floor: a full document
+            # labelled restricted or pii is never persisted in the shared store.
+            from reflect_kb.classification import classification_of_note, may_leave_machine
+
+            data = {
+                key: value for key, value in data.items()
+                if not isinstance(value, dict)
+                or may_leave_machine({"classification": classification_of_note(str(value.get("content", "")))})
+            }
+            if not data:
+                return
         rows = [(self._ws, self.namespace, key, Jsonb(value)) for key, value in data.items()]
         self._pg.executemany(
             f"insert into {_TABLE} (workspace_id, namespace, key, value) "

@@ -316,6 +316,27 @@ class LearningsGraphEngine:
 
         self._graph = GraphRAG(**graphrag_kwargs)
 
+    @property
+    def shared_backend(self) -> bool:
+        """True when the derived store is the shared Postgres (Mode 2)."""
+        return bool(self._pg_dsn and self._workspace_id)
+
+    def _local_only(self, text: str) -> bool:
+        """Classification floor for the shared store: a note labelled
+        restricted or pii (or malformed) never reaches ng_kv or ng_vectors.
+        Local Mode 1 stores index everything."""
+        if not self.shared_backend:
+            return False
+        from reflect_kb.classification import classification_of_note, may_leave_machine
+
+        label = classification_of_note(text)
+        if may_leave_machine({"classification": label}):
+            return False
+        logger.warning(
+            "LearningsGraphEngine: skipping a %s note; it never leaves the local store", label
+        )
+        return True
+
     def insert_document(self, text: str, entities_formatted: Optional[str] = None):
         """Insert a single document into the graph.
 
@@ -324,7 +345,12 @@ class LearningsGraphEngine:
             entities_formatted: Pre-extracted entities in nano-graphrag format.
                 If provided, the passthrough LLM returns these instead of
                 calling an external API.
+
+        On the shared Postgres backend a restricted or pii note is skipped
+        (see ``_local_only``); the caller's local markdown copy is untouched.
         """
+        if self._local_only(text):
+            return
         self._init_graph()
         self._pending_entities = entities_formatted
         try:
@@ -347,6 +373,9 @@ class LearningsGraphEngine:
             docs_with_entities: List of (text, entities_formatted) tuples.
                 entities_formatted can be None for docs without sidecars.
         """
+        docs_with_entities = [
+            (text, entities) for text, entities in docs_with_entities if not self._local_only(text)
+        ]
         if not docs_with_entities:
             return
 

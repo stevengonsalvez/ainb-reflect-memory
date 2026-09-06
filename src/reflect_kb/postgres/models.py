@@ -13,7 +13,12 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Mapping, Optional, Sequence
 
-from reflect_kb.classification import CLASSIFICATIONS, LOCAL_ONLY, classification_of
+from reflect_kb.classification import (
+    CLASSIFICATIONS,
+    INVALID_CLASSIFICATION,
+    LOCAL_ONLY,
+    classification_of,
+)
 
 from .errors import TenantScopeError, ValidationError
 
@@ -98,6 +103,11 @@ class InsertMemoryInput:
         # restricted and pii items are refused here, before any SQL is built.
         # Migration 0003 enforces the same rule as a check constraint.
         label = classification_of(self.metadata)
+        if label == INVALID_CLASSIFICATION:
+            raise ValidationError(
+                "metadata.classification must be a non-empty string when present; "
+                f"got {self.metadata.get('classification')!r}"
+            )
         if label not in CLASSIFICATIONS:
             raise ValidationError(
                 f"metadata.classification must be one of {sorted(CLASSIFICATIONS)}; got {label!r}"

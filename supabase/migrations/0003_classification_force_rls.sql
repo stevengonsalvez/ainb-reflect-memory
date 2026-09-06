@@ -10,8 +10,8 @@
 --      InsertMemoryInput refuses them before SQL is built; this constraint
 --      makes the database refuse them regardless of client.
 --
---   2. FORCE ROW LEVEL SECURITY. Migration 0001 ENABLEd RLS, which exempts the
---      table owner. On a deployment where the application connects as the
+--   2. FORCE ROW LEVEL SECURITY on all seven tenant tables (0001 and 0002).
+--      ENABLE exempted the table owner. On a deployment where the application connects as the
 --      owner role, that exemption is a cross-workspace read. FORCE closes it:
 --      the owner is subject to the same policies as everyone else. Superusers
 --      and BYPASSRLS roles (Supabase service_role) are still exempt by design;
@@ -24,16 +24,11 @@
 -- Re-runnable: DROP CONSTRAINT IF EXISTS + ADD; FORCE is idempotent.
 -- ============================================================================
 
--- FORCE first: it has no data dependency, so it lands even if the floor below
--- has to stop on legacy rows.
-alter table reflect_memory.memory_items force row level security;
-alter table reflect_memory.entities     force row level security;
-alter table reflect_memory.edges        force row level security;
-
--- Pre-check with a readable error. A row already labelled restricted, pii or
--- an unknown value would make the constraint below fail with a bare check
--- violation; instead name the count and what to do. The rows are not
--- downgraded or deleted here: that is an operator decision, made explicitly.
+-- Pre-check first, with a readable error. A row already labelled restricted,
+-- pii or an unknown value would make the constraint below fail with a bare
+-- check violation; instead name the count and what to do, before anything in
+-- this migration changes. The rows are not downgraded or deleted here: that
+-- is an operator decision, made explicitly.
 do $$
 declare
   n_bad bigint;
@@ -52,6 +47,17 @@ begin
   end if;
 end;
 $$;
+
+-- FORCE ROW LEVEL SECURITY on every table that carries tenant data: the
+-- three Phase 1 tables and the four nano-graphrag tables from 0002. ENABLE
+-- exempted the table owner on all seven.
+alter table reflect_memory.memory_items   force row level security;
+alter table reflect_memory.entities       force row level security;
+alter table reflect_memory.edges          force row level security;
+alter table reflect_memory.ng_kv          force row level security;
+alter table reflect_memory.ng_graph_nodes force row level security;
+alter table reflect_memory.ng_graph_edges force row level security;
+alter table reflect_memory.ng_vectors     force row level security;
 
 alter table reflect_memory.memory_items
   drop constraint if exists memory_items_classification_floor;

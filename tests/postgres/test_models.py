@@ -177,3 +177,11 @@ def test_insert_memory_input_refuses_local_only_classification() -> None:
     for label in ("public", "internal"):
         InsertMemoryInput(tenant=t, content="ok", metadata={"classification": label})
     InsertMemoryInput(tenant=t, content="ok")  # missing means internal
+
+
+def test_insert_memory_input_names_empty_or_non_string_labels() -> None:
+    t = Tenant(workspace_id=WS)
+    for bad in ("", "   ", 7, ["public"]):
+        with pytest.raises(ValidationError, match="non-empty string"):
+            InsertMemoryInput(tenant=t, content="ok", metadata={"classification": bad})
+    InsertMemoryInput(tenant=t, content="ok", metadata={"classification": None})  # null = missing

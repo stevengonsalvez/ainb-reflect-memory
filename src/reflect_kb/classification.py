@@ -8,28 +8,64 @@ check constraint; the Context Broker refuses to return anything above the floor.
 
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from collections.abc import Mapping
+from typing import Any
 
-__all__ = ["CLASSIFICATIONS", "DEFAULT_CLASSIFICATION", "LOCAL_ONLY", "SHAREABLE", "classification_of", "may_leave_machine"]
+import yaml
+
+__all__ = [
+    "CLASSIFICATIONS",
+    "DEFAULT_CLASSIFICATION",
+    "INVALID_CLASSIFICATION",
+    "LOCAL_ONLY",
+    "SHAREABLE",
+    "classification_of",
+    "classification_of_note",
+    "may_leave_machine",
+]
 
 CLASSIFICATIONS = frozenset({"public", "internal", "restricted", "pii"})
 DEFAULT_CLASSIFICATION = "internal"
 LOCAL_ONLY = frozenset({"restricted", "pii"})
-
-
-def classification_of(metadata: Optional[Mapping[str, Any]]) -> str:
-    """Read the label from a frontmatter or metadata mapping; missing means internal."""
-    value = (metadata or {}).get("classification")
-    return str(value) if value else DEFAULT_CLASSIFICATION
-
-
 SHAREABLE = CLASSIFICATIONS - LOCAL_ONLY
+# What an empty or non-string label reads as: never a real label, so it can
+# never be shareable and an insert boundary can name the problem.
+INVALID_CLASSIFICATION = "<invalid>"
 
 
-def may_leave_machine(metadata: Optional[Mapping[str, Any]]) -> bool:
+def classification_of(metadata: Mapping[str, Any] | None) -> str:
+    """Read the label from a frontmatter or metadata mapping.
+
+    An absent key (or an explicit null) means ``internal``. An empty string or
+    a non-string value is not a missing label, it is a malformed one, and reads
+    as ``INVALID_CLASSIFICATION`` so it fails every floor check.
+    """
+    if not metadata or "classification" not in metadata or metadata["classification"] is None:
+        return DEFAULT_CLASSIFICATION
+    value = metadata["classification"]
+    if not isinstance(value, str) or not value.strip():
+        return INVALID_CLASSIFICATION
+    return value
+
+
+def classification_of_note(text: str) -> str:
+    """The label of a markdown learning note, read from its YAML frontmatter."""
+    if not text.startswith("---"):
+        return DEFAULT_CLASSIFICATION
+    parts = text.split("---", 2)
+    if len(parts) < 3:
+        return DEFAULT_CLASSIFICATION
+    try:
+        fm = yaml.safe_load(parts[1])
+    except yaml.YAMLError:
+        return INVALID_CLASSIFICATION
+    return classification_of(fm if isinstance(fm, Mapping) else None)
+
+
+def may_leave_machine(metadata: Mapping[str, Any] | None) -> bool:
     """True only for a known label below the floor (public, internal).
 
-    Unknown or malformed labels fail closed: an egress path must never treat
-    a typo as permission to share.
+    Unknown, empty or malformed labels fail closed: an egress path must never
+    treat a typo as permission to share.
     """
     return classification_of(metadata) in SHAREABLE
