@@ -48,12 +48,46 @@ def behaviour(captures):
     return captures("behaviour")
 
 
+def _sidecar_matches_extractor(note_text: str, sidecar_text: str) -> bool:
+    """reflect add auto-extracts the sidecar from the note it wrote. When the
+    note was redacted, the extractor sees the placeholder instead of the token
+    and may classify that entity differently; the proof is that the captured
+    sidecar equals the extractor's output on the captured (redacted) note."""
+    import re
+
+    import yaml
+
+    from reflect_kb.cli.entity_store import auto_extract_entities
+
+    parts = note_text.split("---", 2)
+    frontmatter = yaml.safe_load(parts[1]) if len(parts) >= 3 else {}
+    expected = auto_extract_entities(note_text, frontmatter or {}).to_yaml()
+    mask = lambda t: re.sub(r"extracted_at:.*", "extracted_at: <TS>", t)
+    return mask(expected).strip() == mask(sidecar_text).strip()
+
+
 def test_reflect_add_legacy_and_secret_notes(behaviour) -> None:
     baseline, branch = behaviour
     for run in branch["add"]["runs"].values():
         assert run["exit"] == 0, run
-    assert branch["add"]["added"], "reflect add wrote nothing"
-    assert_same_as_baseline("add", baseline["add"], branch["add"], allowed=ALLOWED_BEHAVIOUR_DIFF)
+    added = branch["add"]["added"]
+    assert added, "reflect add wrote nothing"
+
+    # Whitelist bucket for this branch (redaction at capture): a sidecar may
+    # differ from the baseline only if it is exactly the extractor's output on
+    # the redacted note next to it.
+    verified: set[str] = set()
+    for name, text in added.items():
+        if name.endswith(".entities.yaml"):
+            note = added.get(name[: -len(".entities.yaml")] + ".md")
+            if note is not None and _sidecar_matches_extractor(note, text):
+                verified.add(f"added.{name}")
+
+    def regenerated_sidecar(key: str, old, new) -> bool:
+        return key in verified
+
+    assert_same_as_baseline("add", baseline["add"], branch["add"],
+                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or regenerated_sidecar(k, o, n))
 
 
 def test_reindex_and_search_mode1(behaviour) -> None:

@@ -110,16 +110,29 @@ def test_reflect_add_rejects_unknown_classification(tmp_path: Path, monkeypatch)
     assert not list((kb / learnings_cli.DOCUMENTS_DIR).iterdir())
 
 
-def test_team_kb_copy_is_redacted(tmp_path: Path) -> None:
+def test_team_kb_copy_and_sidecar_are_redacted(tmp_path: Path) -> None:
     doc = tmp_path / "leak.md"
     doc.write_text(_note_with_secrets(), encoding="utf-8")
+    sidecar = tmp_path / "leak.entities.yaml"
+    sidecar.write_text(
+        "document_id: leak\nentities:\n"
+        f"  - name: deploy token\n    type: credential\n    description: \"was {GITHUB_TOKEN}\"\n"
+        f"  - name: aws key\n    type: credential\n    description: \"was {AWS_KEY}\"\n"
+        f"  - name: pem\n    type: credential\n    description: |\n      {PEM_BLOCK.replace(chr(10), chr(10) + '      ')}\n"
+        "relationships: []\n",
+        encoding="utf-8",
+    )
     team_root = tmp_path / "team"
     staged = write_flow._copy_into_team(doc, team_root)
-    copied = staged[0].read_text(encoding="utf-8")
-    for secret in SECRETS:
-        assert secret not in copied
+    assert len(staged) == 2
+    for path in staged:
+        copied = path.read_text(encoding="utf-8")
+        for secret in SECRETS:
+            assert secret not in copied, path
+    assert "<REDACTED:github_token>" in staged[1].read_text(encoding="utf-8")
     # The local source of truth is never rewritten by the team copy step.
     assert GITHUB_TOKEN in doc.read_text(encoding="utf-8")
+    assert GITHUB_TOKEN in sidecar.read_text(encoding="utf-8")
 
 
 def test_reflect_add_redacts_an_explicit_sidecar(tmp_path: Path, monkeypatch) -> None:

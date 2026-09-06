@@ -124,7 +124,11 @@ def _copy_into_team(doc: Path, team_root: Path) -> list[Path]:
     sidecar = _find_sidecar(doc)
     if sidecar is not None:
         dest_sidecar = docs_dir / sidecar.name
-        dest_sidecar.write_bytes(sidecar.read_bytes())
+        # The sidecar goes through the same gate: an entity description can
+        # carry a credential as easily as the note body.
+        dest_sidecar.write_text(
+            redact_secrets(sidecar.read_text(encoding="utf-8")).text, encoding="utf-8"
+        )
         staged.append(dest_sidecar)
     return staged
 
