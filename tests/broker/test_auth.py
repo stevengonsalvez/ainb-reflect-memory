@@ -141,3 +141,21 @@ def test_malformed_issuer_documents_are_503_not_500(issuer) -> None:
     with pytest.raises(AuthError) as exc:
         v.verify(f"Bearer {issuer.mint()}")
     assert exc.value.status == 503
+
+
+@pytest.mark.parametrize("configured,minted", [
+    ("https://issuer.test", "https://issuer.test/"),
+    ("https://issuer.test/", "https://issuer.test"),
+    ("https://issuer.test/", "https://issuer.test/"),
+])
+def test_issuer_trailing_slash_is_normalised_on_both_sides(issuer, configured, minted) -> None:
+    """Discovery tolerated a trailing slash while iss was compared byte-exact;
+    both sides are normalised the same way now."""
+    import dataclasses
+
+    v = issuer.verifier()
+    v._cfg = dataclasses.replace(v._cfg, issuer=configured)
+    assert v.verify(f"Bearer {issuer.mint(issuer=minted)}").workspace_id
+    with pytest.raises(AuthError):
+        v.verify(f"Bearer {issuer.mint(issuer='https://evil.test/')}")
+

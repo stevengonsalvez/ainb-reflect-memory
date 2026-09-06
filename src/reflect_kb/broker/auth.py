@@ -184,11 +184,16 @@ class OIDCVerifier:
                 key=key,
                 algorithms=list(self._cfg.algorithms),
                 audience=self._cfg.audience,
-                issuer=self._cfg.issuer,
-                options={"require": list(self._cfg.required_claims)},
+                options={"require": list(self._cfg.required_claims), "verify_iss": False},
             )
         except jwt.PyJWTError as exc:
             raise AuthError(401, f"invalid token: {exc}") from exc
+        # Discovery tolerates a trailing slash on the configured issuer; the
+        # token's iss is compared the same way, so one spelling on each side
+        # cannot pass discovery and then fail byte-exact here.
+        iss = claims.get("iss")
+        if not isinstance(iss, str) or _norm_issuer(iss) != _norm_issuer(self._cfg.issuer):
+            raise AuthError(401, f"invalid token: issuer {iss!r} is not {self._cfg.issuer!r}")
 
         tenant = claims.get(self._cfg.tenant_claim)
         if not isinstance(tenant, str) or not tenant.strip():
@@ -216,6 +221,10 @@ def _json_object(resp: httpx.Response, what: str) -> Mapping[str, Any]:
     if not isinstance(doc, Mapping):
         raise AuthError(503, f"{what} is not a JSON object")
     return doc
+
+
+def _norm_issuer(value: str) -> str:
+    return value.strip().rstrip("/")
 
 
 def _bearer_token(authorization: str | None) -> str:
