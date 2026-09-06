@@ -3,12 +3,14 @@
 --
 -- Two independent guards, both fail closed:
 --
---   1. Classification floor. memory_items.metadata->>'classification' is the
---      data label of a memory item (vocabulary: public, internal, restricted,
---      pii; missing means internal). The shared store is an egress path, so
---      restricted and pii rows may NOT exist here at all. The Python
---      InsertMemoryInput refuses them before SQL is built; this constraint
---      makes the database refuse them regardless of client.
+--   1. Classification floor. The 'classification' key of a row's JSON label
+--      column (metadata on memory_items, entities and edges; value on ng_kv;
+--      attrs on ng_graph_nodes and ng_graph_edges; meta on ng_vectors) is the
+--      data label (vocabulary: public, internal, restricted, pii; missing
+--      means internal). The shared store is an egress path, so restricted and
+--      pii rows may NOT exist here at all, in any table. The Python inputs
+--      refuse them before SQL is built; these constraints make the database
+--      refuse them regardless of client.
 --
 --   2. FORCE ROW LEVEL SECURITY on all seven tenant tables (0001 and 0002).
 --      ENABLE exempted the table owner. On a deployment where the application connects as the
@@ -31,20 +33,28 @@
 -- is an operator decision, made explicitly.
 do $$
 declare
+  t record;
   n_bad bigint;
 begin
-  select count(*) into n_bad
-  from reflect_memory.memory_items
-  where metadata->>'classification' is not null
-    and metadata->>'classification' not in ('public', 'internal');
-  if n_bad > 0 then
-    raise exception using
-      message = format('%s memory_items row(s) carry a classification above the floor '
-                       '(restricted, pii or unknown). Delete them from the shared store, '
-                       'or relabel them deliberately, then re-run 0003.', n_bad),
-      hint = 'select id, metadata->>''classification'' from reflect_memory.memory_items '
-             'where metadata->>''classification'' not in (''public'', ''internal'');';
-  end if;
+  for t in
+    select * from (values
+      ('memory_items', 'metadata'), ('entities', 'metadata'), ('edges', 'metadata'),
+      ('ng_kv', 'value'), ('ng_graph_nodes', 'attrs'), ('ng_graph_edges', 'attrs'), ('ng_vectors', 'meta')
+    ) as v(tbl, col)
+  loop
+    execute format(
+      'select count(*) from reflect_memory.%I where %I->>''classification'' is not null '
+      'and %I->>''classification'' not in (''public'', ''internal'')', t.tbl, t.col, t.col)
+      into n_bad;
+    if n_bad > 0 then
+      raise exception using
+        message = format('%s %s row(s) carry a classification above the floor '
+                         '(restricted, pii or unknown). Delete them from the shared store, '
+                         'or relabel them deliberately, then re-run 0003.', n_bad, t.tbl),
+        hint = format('select * from reflect_memory.%I where %I->>''classification'' '
+                      'not in (''public'', ''internal'');', t.tbl, t.col);
+    end if;
+  end loop;
 end;
 $$;
 
@@ -59,11 +69,23 @@ alter table reflect_memory.ng_graph_nodes force row level security;
 alter table reflect_memory.ng_graph_edges force row level security;
 alter table reflect_memory.ng_vectors     force row level security;
 
-alter table reflect_memory.memory_items
-  drop constraint if exists memory_items_classification_floor;
-alter table reflect_memory.memory_items
-  add constraint memory_items_classification_floor
-  check (
-    metadata->>'classification' is null
-    or metadata->>'classification' in ('public', 'internal')
-  );
+-- One check per table that carries a label column, same predicate each time.
+do $$
+declare
+  t record;
+begin
+  for t in
+    select * from (values
+      ('memory_items', 'metadata'), ('entities', 'metadata'), ('edges', 'metadata'),
+      ('ng_kv', 'value'), ('ng_graph_nodes', 'attrs'), ('ng_graph_edges', 'attrs'), ('ng_vectors', 'meta')
+    ) as v(tbl, col)
+  loop
+    execute format('alter table reflect_memory.%I drop constraint if exists %I',
+                   t.tbl, t.tbl || '_classification_floor');
+    execute format(
+      'alter table reflect_memory.%I add constraint %I check ('
+      '%I->>''classification'' is null or %I->>''classification'' in (''public'', ''internal''))',
+      t.tbl, t.tbl || '_classification_floor', t.col, t.col);
+  end loop;
+end;
+$$;

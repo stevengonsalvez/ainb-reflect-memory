@@ -275,14 +275,13 @@ def test_check_constraint_refuses_restricted_and_pii_rows(conn) -> None:
     import psycopg
 
     for label in ("restricted", "pii", "top-secret"):
-        with pytest.raises(psycopg.errors.CheckViolation):
-            with conn.cursor() as cur:
-                cur.execute(
-                    "insert into reflect_memory.memory_items "
-                    "(workspace_id, source_type, content, content_hash, metadata) "
-                    "values (%s, 'note', %s, %s, %s::jsonb)",
-                    (WS_A, f"{label} row", f"hash-{label}", f'{{"classification": "{label}"}}'),
-                )
+        with pytest.raises(psycopg.errors.CheckViolation), conn.cursor() as cur:
+            cur.execute(
+                "insert into reflect_memory.memory_items "
+                "(workspace_id, source_type, content, content_hash, metadata) "
+                "values (%s, 'note', %s, %s, %s::jsonb)",
+                (WS_A, f"{label} row", f"hash-{label}", f'{{"classification": "{label}"}}'),
+            )
         conn.rollback()
     with conn.cursor() as cur:
         cur.execute(
@@ -350,3 +349,29 @@ def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, st
             cur.execute("drop owned by reflect_owner_test;")
             cur.execute("drop role reflect_owner_test;")
             conn.commit()
+
+
+@pytest.mark.integration
+def test_floor_constraint_refuses_restricted_rows_in_every_label_table(conn) -> None:
+    """The check constraint from 0003 covers every table with a label column,
+    so a restricted row cannot exist anywhere in the shared store even when a
+    client bypasses the Python inputs."""
+    import psycopg
+
+    with conn.cursor() as cur:
+        cur.execute("select conname from pg_constraint where conname like '%_classification_floor' order by 1")
+        names = {r["conname"] for r in cur.fetchall()}
+    assert names == {f"{t}_classification_floor" for t in
+                     ("memory_items", "entities", "edges", "ng_kv", "ng_graph_nodes", "ng_graph_edges", "ng_vectors")}, names
+    restricted_entity = (
+        "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+        "values (%s, 'Secret Component', 'component', '{\"classification\":\"restricted\"}'::jsonb)"
+    )
+    pii_doc = (
+        "insert into reflect_memory.ng_kv (workspace_id, namespace, key, value) "
+        "values (%s, 'full_docs', 'doc-r', '{\"classification\":\"pii\",\"content\":\"x\"}'::jsonb)"
+    )
+    for stmt in (restricted_entity, pii_doc):
+        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
+            cur.execute(stmt, (WS_A,))
+
