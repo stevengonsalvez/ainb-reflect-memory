@@ -33,11 +33,13 @@ slice of the transcript that carries signal (not the whole transcript) is sent
 to Anthropic's API under your Claude subscription, and the model's answer comes
 back as JSON actions that are executed locally.
 
-What travels: the gated transcript slice (or the bounded transcript on the
-extract path) plus the related-learning titles used for belief revision.
-Redaction runs in both directions: the slice and the bounded input are passed
-through the secret redactor before they leave the machine, and `redact_secrets`
-runs again on every note before `reflect add` writes it. Redaction is
+What travels: the gated transcript slice (or, when no slice exists, the
+bounded view of the transcript: the dialogue rendered, `<private>` spans
+stripped, secrets redacted, size capped) plus the related-learning titles
+used for belief revision. Redaction runs in both directions: the slice and
+the bounded view are passed through the secret redactor before they leave
+the machine, and `redact_secrets` runs again on every note before
+`reflect add` writes it. Redaction is
 pattern-based; a credential in a shape the tables do not know can still be in
 the prompt. If a transcript must never reach the API, delete its queue entry or
 set `REFLECT_DISABLED=1`.
@@ -47,27 +49,34 @@ granted the headless model every tool with no prompt. Now:
 
 - The default writer is the single-shot extract path: `--tools ""` plus
   `--strict-mcp-config`, so it has no tools at all, one turn.
-- The agentic fallback (`REFLECT_DRAIN_WRITER=agentic`) runs with the
-  explicit `--permission-mode default`, which takes precedence over the
-  operator's settings.json `defaultMode` (proven live against a
-  `bypassPermissions` HOME), plus its own allow rules passed via `--settings`
-  and `--strict-mcp-config`. Setting sources stay loaded so `/reflect` and
-  personal skills resolve. The rules and their override variable are
-  documented once, in `plugin/hooks/README.md` (circuit-breaker table); they
-  are not repeated here.
-- A denied tool call is logged with the tool and command and counted in the
-  ledger. A denial on a step the drain does not grant (git commit, memory
-  files, the skill-index loop) never changes the outcome; a denial on the
-  exact command a rule names, or on a listed script under another absolute
-  path, poisons the entry as `allowlist_misconfigured` instead of re-billing
-  it; a denial on a listed script under a spelling no rule can match (an
-  unrendered marker, a relative name, quotes, `uv run`, a compound command)
-  is a prompt fault: the run is never recorded OK and the entry retries under
-  the normal cap.
-- Whatever file the writer is pointed at is redacted first: the cascade
-  slice and the bounded copy where they are cut, and the raw transcript
-  (cascade off, missing or crashed) as a redacted copy; if that copy cannot
-  be made the entry stays queued.
+- The agentic writer (`REFLECT_DRAIN_WRITER=agentic`, and every entry with
+  no cascade slice) runs with the explicit `--permission-mode default`,
+  which takes precedence over the operator's settings.json `defaultMode`
+  (proven live against a `bypassPermissions` HOME), plus one inline
+  `--settings` document carrying its allow rules and a PreToolUse guard
+  (`plugin/scripts/drain_guard.py`), and `--strict-mcp-config`. Setting
+  sources stay loaded so `/reflect` and personal skills resolve. The rules
+  and their override variable are documented once, in
+  `plugin/hooks/README.md` (circuit-breaker table, checked against the
+  library by `tests/test_docs_contracts.py`); they are not repeated here.
+- Every scripted step of the skill is one command, `reflect skill-step
+  <step> ...`, so the rules carry no path. The guard decides every Bash call
+  before it runs: the command is normalised (a leading `cd`, `env` and
+  `NAME=value` prefixes) and allowed when it is `reflect skill-step`,
+  `reflect add` or `reflect search`, else denied with a reason naming that
+  surface. A denial is a step the drain does not grant (git commit, memory
+  files, the skill-index loop, a new skill, the global CLAUDE.md): logged,
+  counted in the ledger, never a failure. What landed is read from a receipt
+  `reflect skill-step index` writes, not from file mtimes.
+- The writer never reads the raw transcript: the cascade slice is cut and
+  redacted, and an entry with no slice (cascade off, missing or crashed) is
+  handed the bounded view; if that view cannot be produced the entry stays
+  queued.
+- Every `claude -p` child runs with `REFLECT_NESTED=1`. The operator's hooks
+  still load (setting sources are kept for `apiKeyHelper` and the env
+  block), and every reflect hook exits at once under that variable, so a
+  child never queues or drains a reflection of its own: no drain inside a
+  drain, no recall inside HyDE.
 
 The compat gate (`tests/compat/test_drain_permissions_live.py`) asserts this
 against the real CLI when a key is present.
@@ -77,12 +86,17 @@ Off switch: `REFLECT_DISABLED=1` (everything) or `REFLECT_DRAIN_DRY_RUN=1`
 
 ### Every `claude -p` path
 
+Every row runs with `REFLECT_NESTED=1` and keeps the operator's setting
+sources. `plugin/tests/test_claude_p_call_sites.py` finds every call site in
+the tree and fails on one that is not in this table.
+
 | Path | When | What travels | Tools |
 |---|---|---|---|
-| drain, extract writer (`plugin/scripts/drain_extract.py`) | default drain | redacted bounded transcript, related titles | none (`--tools ""`) |
-| drain, agentic writer (`plugin/hooks/lib/writer_argv.sh`) | `REFLECT_DRAIN_WRITER=agentic` | redacted transcript slice | hook-owned allow rules, default mode |
+| drain, extract writer (`plugin/scripts/drain_extract.py`) | default drain, when the cascade produced a slice | redacted transcript slice, related titles | none (`--tools ""`, one turn) |
+| drain, agentic writer (`plugin/hooks/lib/writer_argv.sh`) | `REFLECT_DRAIN_WRITER=agentic`, and any entry without a slice (cascade off, missing, crashed) | the path of the redacted slice or bounded view, which the writer reads with its Read tool; on a `skill_refresh` entry the path of the stale `SKILL.md`, which the writer reads and edits in place, unredacted (it is the operator's own skill text, never a transcript) | hook-owned allow rules plus the PreToolUse guard, default mode, no MCP |
 | recall HyDE (`plugin/skills/recall/scripts/recall.py`) | `REFLECT_RECALL_HYDE=1`, off by default | the recall query text | none (`--tools ""`, one turn) |
-| issues analyzer (`src/reflect_kb/issues/analyze.py`) | `reflect issues run`, manual | distilled transcript timelines | none (`--tools ""`, one turn) |
+| issues analyzer (`src/reflect_kb/issues/analyze.py`) | `reflect issues run`, manual | distilled transcript timelines (redacted by `issues/sanitize.py` first) | none (`--tools ""`, one turn) |
+| synthesis (`plugin/scripts/reflect_synthesis.py`) | the launchd job `com.reflect.synthesis` fires hourly with `--check-auto` and no `--dry-run`: unattended, it calls the model once per near-duplicate cluster when 30+ learnings landed since the last pass or the weekly floor passed | the titles of the clustered learning notes | none (`--tools ""`, one turn) |
 
 ## 2. Model weights (inbound, once)
 
