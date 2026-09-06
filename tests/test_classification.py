@@ -36,3 +36,7 @@ def test_note_classification_from_frontmatter() -> None:
     assert classification_of_note("---\ntitle: t\n---\nbody") == "internal"
     assert classification_of_note("no frontmatter") == "internal"
     assert classification_of_note("---\ntitle: t\nclassification: ''\n---\n") == "<invalid>"
+    # A dash run inside a value used to truncate the block and drop the label.
+    assert classification_of_note("---\ntitle: a --- b\nclassification: restricted\n---\nbody") == "restricted"
+    assert classification_of_note("---\ntitle: t\nclassification: pii\n---\nbody\n---\nrule") == "pii"
+    assert classification_of_note("---\n- not\n- a mapping\n---\n") == "<invalid>"

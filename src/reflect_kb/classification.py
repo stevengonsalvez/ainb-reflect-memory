@@ -11,7 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-import yaml
+from reflect_kb.frontmatter import split_frontmatter
 
 __all__ = [
     "CLASSIFICATIONS",
@@ -49,17 +49,16 @@ def classification_of(metadata: Mapping[str, Any] | None) -> str:
 
 
 def classification_of_note(text: str) -> str:
-    """The label of a markdown learning note, read from its YAML frontmatter."""
-    if not text.startswith("---"):
-        return DEFAULT_CLASSIFICATION
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return DEFAULT_CLASSIFICATION
-    try:
-        fm = yaml.safe_load(parts[1])
-    except yaml.YAMLError:
+    """The label of a markdown learning note, read from its YAML frontmatter.
+
+    The block is split on delimiter lines (``reflect_kb.frontmatter``), so a
+    ``---`` inside a value cannot truncate it and drop the label. A block
+    that is not valid YAML, or not a mapping, reads as malformed.
+    """
+    fm = split_frontmatter(text)
+    if fm.malformed:
         return INVALID_CLASSIFICATION
-    return classification_of(fm if isinstance(fm, Mapping) else None)
+    return classification_of(fm.mapping)
 
 
 def may_leave_machine(metadata: Mapping[str, Any] | None) -> bool:

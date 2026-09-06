@@ -87,19 +87,15 @@ def index_is_stale() -> bool:
 
 
 def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
-    if not content.startswith("---"):
-        return {}, content
+    """(frontmatter, body). No block, invalid YAML or a non-mapping block
+    gives ``({}, content)``. Split on delimiter lines, never on a ``---``
+    inside a value (``reflect_kb.frontmatter``)."""
+    from reflect_kb.frontmatter import split_frontmatter
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    fm = split_frontmatter(content)
+    if fm.mapping is None:
         return {}, content
-
-    try:
-        frontmatter = yaml.safe_load(parts[1])
-        body = parts[2].strip()
-        return frontmatter or {}, body
-    except yaml.YAMLError:
-        return {}, content
+    return dict(fm.mapping), fm.body.strip()
 
 
 def generate_document_id(title: str, body: str = "") -> str:
