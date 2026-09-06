@@ -147,16 +147,40 @@ def _git(*args: str, cwd: Path = REPO) -> subprocess.CompletedProcess:
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
 
 
+def _in_ci() -> bool:
+    return os.environ.get("CI", "").lower() == "true" or bool(os.environ.get("GITHUB_ACTIONS"))
+
+
+def _unavailable(reason: str) -> None:
+    """The baseline cannot be built: a hard failure in CI (the gate must
+    never pass by asserting nothing), a skip with the reason locally."""
+    if _in_ci():
+        pytest.fail(f"compat gate cannot build its baseline: {reason}")
+    print(f"\ncompat gate skipped: {reason}")
+    pytest.skip(reason)
+
+
 def merge_base_with_main() -> str:
-    """The commit the gate compares against: merge-base(origin/main, HEAD)."""
+    """The commit the gate compares against: merge-base(origin/main, HEAD).
+    On main itself that is HEAD, which would compare a capture to itself, so
+    the baseline becomes HEAD's first parent (the merge's first parent for a
+    merge commit); a root commit has no baseline and skips loudly."""
     if _git("rev-parse", "--verify", "--quiet", "origin/main").returncode != 0:
         fetched = _git("fetch", "--quiet", "origin", "main:refs/remotes/origin/main")
         if fetched.returncode != 0:
-            pytest.skip(f"origin/main not available for the baseline: {fetched.stderr.strip()}")
+            _unavailable(f"origin/main not available: {fetched.stderr.strip()}")
     proc = _git("merge-base", "origin/main", "HEAD")
     if proc.returncode != 0:
-        pytest.skip(f"no merge-base with origin/main: {proc.stderr.strip()}")
-    return proc.stdout.strip()
+        _unavailable(f"no merge-base with origin/main: {proc.stderr.strip()}")
+    base = proc.stdout.strip()
+    head = _git("rev-parse", "HEAD").stdout.strip()
+    if base == head:
+        parent = _git("rev-parse", "--verify", "--quiet", "HEAD^1")
+        if parent.returncode != 0:
+            print("\ncompat gate: HEAD is a root commit, there is no previous main to diff against")
+            pytest.skip("HEAD has no parent to use as the baseline")
+        base = parent.stdout.strip()
+    return base
 
 
 @pytest.fixture(scope="session")
@@ -166,7 +190,7 @@ def baseline_tree(tmp_path_factory) -> Path:
     root = tmp_path_factory.mktemp("baseline") / "tree"
     proc = _git("worktree", "add", "--detach", "--quiet", str(root), sha)
     if proc.returncode != 0:
-        pytest.skip(f"could not create the baseline worktree: {proc.stderr.strip()}")
+        _unavailable(f"could not create the baseline worktree: {proc.stderr.strip()}")
     try:
         yield root
     finally:

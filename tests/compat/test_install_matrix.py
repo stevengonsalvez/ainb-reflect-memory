@@ -78,7 +78,29 @@ def _source_sha(path: Path) -> str:
         return hashlib.sha256(raw).hexdigest()[:16]
 
 
-def _make_whitelist(harness: str):
+# Item-level review surface: plugin source files a PR is allowed to change
+# in the installed layout, each with the reason. Anything else that differs
+# from the baseline install is a diff, even if it matches the branch's own
+# source (that comparison would be a tautology: the adapter copied it).
+ALLOWED_PLUGIN_CHANGES: dict[str, str] = {
+    "hooks/reflect-drain-bg.sh": "gate PR: sources hooks/lib/writer_argv.sh with an explicit check",
+    "hooks/lib/writer_argv.sh": "gate PR: side-effect-free writer argv library, new file",
+    "adapters/hermes/hermes_adapter.py": "gate PR: hermes renders and syncs plugin-root resources",
+    "scripts/drain_extract.py": "gate PR: writer_argv extracted so the gate reads the exact argv the extract writer runs",
+}
+
+
+def _rendered_source_sha(source: Path, dst: Path) -> str:
+    """The digest capture.py records for a rendered copy of ``source`` at ``dst``."""
+    raw = source.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return hashlib.sha256(raw).hexdigest()[:16]
+    return hashlib.sha256(_TS_RE.sub("<TS>", render_for_layout(text, dst)).encode()).hexdigest()[:16]
+
+
+def _make_whitelist(harness: str, baseline_tree: Path):
     harness_dir = f"$HOME/{HARNESS_DIR[harness]}"
 
     def rendered_skill(key: str, old, new) -> bool:
@@ -89,8 +111,11 @@ def _make_whitelist(harness: str):
         dst = Path(f"{harness_dir}/{split[0]}")
         return new == render_for_layout(old, dst)
 
-    def mirrors_plugin_source(key: str, old, new) -> bool:
-        """A new or changed non-skill file must be byte-identical to its plugin source."""
+    def mirrors_unchanged_source(key: str, old, new) -> bool:
+        """A new or changed non-skill file must equal its plugin source AS IT
+        IS ON THE BASELINE (byte-identical, or rendered for this layout), so
+        the proof is that the adapter installs what main already had. A source
+        the PR changed must be named in ALLOWED_PLUGIN_CHANGES instead."""
         split = _split(key)
         if not split or split[1] == "text":
             return False
@@ -98,9 +123,18 @@ def _make_whitelist(harness: str):
         source = _source_for(harness, rel)
         if source is None or not source.exists():
             return False
+        source_rel = source.relative_to(PLUGIN)
+        baseline_source = baseline_tree / "plugin" / source_rel
+        if str(source_rel) in ALLOWED_PLUGIN_CHANGES:
+            reference = source  # the PR names this file and its reason
+        elif baseline_source.exists() and baseline_source.read_bytes() == source.read_bytes():
+            reference = baseline_source
+        else:
+            return False  # changed on the branch and not whitelisted
         if field == "sha":
-            return new == _source_sha(source)
-        return new == os.access(source, os.X_OK)
+            dst = Path(f"{harness_dir}/{rel}")
+            return new in (_source_sha(reference), _rendered_source_sha(reference, dst))
+        return new == os.access(reference, os.X_OK)
 
     def hook_target_now_exists(key: str, old, new) -> bool:
         return key.startswith("hook_paths.") and old is False and new is True
@@ -110,17 +144,14 @@ def _make_whitelist(harness: str):
             return new == {}
         return key.startswith("unresolved.") and new == "<absent>"
 
-    return any_of(rendered_skill, mirrors_plugin_source, hook_target_now_exists, marker_rendered_away)
-
-
-# The review surface: one whitelist per harness, each bucket a proof.
-ALLOWED_INSTALL_DIFF = {h: _make_whitelist(h) for h in HARNESSES}
+    return any_of(rendered_skill, mirrors_unchanged_source, hook_target_now_exists, marker_rendered_away)
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
-def test_install_matches_baseline(harness: str, captures) -> None:
+def test_install_matches_baseline(harness: str, captures, baseline_tree: Path) -> None:
     baseline, branch = captures(f"install-{harness}")
-    assert_same_as_baseline(f"install-{harness}", baseline, branch, allowed=ALLOWED_INSTALL_DIFF[harness])
+    assert_same_as_baseline(f"install-{harness}", baseline, branch,
+                            allowed=_make_whitelist(harness, baseline_tree))
 
 
 @pytest.mark.parametrize("harness", HARNESSES)
