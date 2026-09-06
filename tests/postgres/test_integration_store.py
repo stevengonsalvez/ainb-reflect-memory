@@ -247,6 +247,10 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
 
         cur.execute("set role reflect_rls_test;")
 
+        # MemoryStore binds app.current_workspace per call, so this connection
+        # still carries the last tenant it wrote for; clear it to test the
+        # unbound case.
+        cur.execute("select set_config('app.current_workspace', '', false);")
         # No workspace resolvable -> resolver returns NULL -> deny all.
         cur.execute("select count(*) as n from reflect_memory.memory_items;")
         assert cur.fetchone()["n"] == 0
@@ -331,6 +335,10 @@ def test_rls_is_forced_so_the_table_owner_cannot_read_across_workspaces(conn, st
         conn.commit()
         try:
             cur.execute("set role reflect_owner_test;")
+            # MemoryStore binds app.current_workspace per call, so this connection
+            # still carries the last tenant it wrote for; clear it to test the
+            # unbound case.
+            cur.execute("select set_config('app.current_workspace', '', false);")
             # The owner, with no workspace resolvable, sees nothing.
             cur.execute("select count(*) as n from reflect_memory.memory_items;")
             assert cur.fetchone()["n"] == 0

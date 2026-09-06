@@ -56,6 +56,7 @@ class MemoryStore:
 
     def __init__(self, conn: Any) -> None:
         self._conn = conn
+        self._bound: Optional[str] = None
 
     # ----------------------------------------------------------------- #
     # low-level execution helpers
@@ -76,12 +77,30 @@ class MemoryStore:
         if callable(commit):
             commit()
 
+    def _bind(self, tenant: Any) -> None:
+        """Bind ``app.current_workspace`` on this connection to the tenant the
+        next statement acts for (session level, the way the nano-graphrag
+        adapter binds on connect). Under FORCE RLS (migration 0003) an owner
+        role that is not BYPASSRLS is subject to the policies too, so an
+        unbound write fails with "new row violates row-level security policy";
+        binding here keeps the documented worker DSN working on every call
+        while the explicit ``workspace_id`` parameters remain the first layer.
+        Re-issued only when the tenant changes; parameterized, never interpolated.
+        """
+        workspace_id = str(tenant.workspace_id)
+        if workspace_id == self._bound:
+            return
+        with self._conn.cursor() as cur:
+            cur.execute("select set_config('app.current_workspace', %s, false)", (workspace_id,))
+        self._bound = workspace_id
+
     # ----------------------------------------------------------------- #
     # writes
     # ----------------------------------------------------------------- #
 
     def insert_memory(self, inp: InsertMemoryInput) -> MemoryItem:
         """Insert (or idempotently refresh) a memory item; return the row."""
+        self._bind(inp.tenant)
         sql_text, params = sql.insert_memory(inp)
         row = self._fetchone(sql_text, params)
         self._commit()
@@ -89,6 +108,7 @@ class MemoryStore:
         return MemoryItem.from_row(row)
 
     def upsert_entity(self, inp: UpsertEntityInput) -> Entity:
+        self._bind(inp.tenant)
         sql_text, params = sql.upsert_entity(inp)
         row = self._fetchone(sql_text, params)
         self._commit()
@@ -96,6 +116,7 @@ class MemoryStore:
         return Entity.from_row(row)
 
     def upsert_edge(self, inp: UpsertEdgeInput) -> Edge:
+        self._bind(inp.tenant)
         sql_text, params = sql.upsert_edge(inp)
         row = self._fetchone(sql_text, params)
         self._commit()
@@ -108,6 +129,7 @@ class MemoryStore:
 
     def search_memory(self, inp: SearchMemoryInput) -> List[SearchResult]:
         """Ranked full-text search within the tenant."""
+        self._bind(inp.tenant)
         sql_text, params = sql.search_memory(inp)
         rows = self._fetchall(sql_text, params)
         return [
@@ -121,6 +143,7 @@ class MemoryStore:
 
     def lookup_entities(self, tenant, query: str, limit: int = 10) -> List[EntityHit]:
         """Fuzzy entity lookup by canonical name / alias within the tenant."""
+        self._bind(tenant)
         sql_text, params = sql.search_entities(tenant, query, limit)
         rows = self._fetchall(sql_text, params)
         return [
@@ -135,6 +158,7 @@ class MemoryStore:
 
     def neighborhood(self, tenant, entity_id: str, depth: int = 1) -> GraphNeighborhood:
         """Entities + edges within ``depth`` hops of ``entity_id`` (same tenant)."""
+        self._bind(tenant)
         sql_text, params = sql.entity_neighborhood(tenant, entity_id, depth)
         edge_rows = self._fetchall(sql_text, params)
         edges = [Edge.from_row(r) for r in edge_rows]
@@ -162,6 +186,7 @@ class MemoryStore:
         the local agent synthesizes the final answer from it.
         """
         tenant = q.tenant
+        self._bind(tenant)
 
         # 1. lexical hits
         lexical_rows = self._fetchall(
