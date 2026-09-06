@@ -29,7 +29,10 @@ STOP_HOOK = PLUGIN_ROOT / "hooks" / "stop_reflect.py"
 
 
 def _run(hook: Path, stdin: str, state_dir: Path, *, extra_env=None) -> subprocess.CompletedProcess[str]:
-    env = {**os.environ, "REFLECT_STATE_DIR": str(state_dir)}
+    # The user-prompt hook shells out to recall (a cold model load can take
+    # longer than this harness waits); its result is not what these tests
+    # assert, so give it a short budget and let it return empty.
+    env = {**os.environ, "REFLECT_STATE_DIR": str(state_dir), "REFLECT_RECALL_TIMEOUT": "3"}
     if extra_env:
         env.update(extra_env)
     return subprocess.run(

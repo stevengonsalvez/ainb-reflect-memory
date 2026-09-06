@@ -12,6 +12,7 @@ adds small model-visible context or denies exact high-confidence deny rules.
 
 from __future__ import annotations
 
+import os
 import sys
 import traceback
 
@@ -73,4 +74,6 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    if os.environ.get("REFLECT_NESTED"):  # a claude that reflect spawned: no hooks, no recursion
+        sys.exit(0)
     main()

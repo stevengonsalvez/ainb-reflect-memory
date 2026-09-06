@@ -46,6 +46,12 @@
 # REFLECT_DRAIN_TOKEN_MAX     Poison a transcript whose run reports   Default: 2000000
 #                             more than this many total tokens.
 # REFLECT_DRAIN_MODEL         Model alias for claude -p (--model).    Default: sonnet
+# REFLECT_DRAIN_ALLOWED_TOOLS Override of the agentic writer's allow rules (comma-separated,
+#                             passed via --settings). Default: Read, Grep, Glob,
+#                             Write(docs/solutions/**), Edit(docs/solutions/**),
+#                             Bash(reflect add:*), and python3 running each of the skill's
+#                             own scripts by exact path. See lib/writer_argv.sh. The extract
+#                             path runs with --tools "" (no tools at all).
 # REFLECT_DRAIN_DEBOUNCE_SEC  Min seconds between drain runs.         Default: 600
 # REFLECT_DRAIN_INVALID_THRESHOLD  Consecutive non-valid writer       Default: 3
 #                             outputs before the writer-drift breaker
@@ -70,6 +76,13 @@
 # so a burst of session starts triggers at most one drain per window.
 
 set -uo pipefail
+
+# A claude the drain itself spawned (the writer, HyDE, the analyzer) fires the
+# operator's SessionStart hooks, this one included: without this line a drain
+# would start a drain. REFLECT_NESTED is exported to every claude -p child.
+if [[ -n "${REFLECT_NESTED:-}" ]]; then
+    exit 0
+fi
 
 # ── Hard kill switch ────────────────────────────────────────────────────────
 # Honoured before any work so an operator can stop all drains instantly.
@@ -115,6 +128,14 @@ CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
 # once so the extract writer's `reflect add` calls find it even when the drain's
 # environment lacks that dir on PATH.
 REFLECT_BIN="${REFLECT_DRAIN_REFLECT_BIN:-$(command -v reflect 2>/dev/null || echo "${HOME}/.local/bin/reflect")}"
+# The writer's own calls (reflect skill-step, reflect add, reflect search) run
+# in the claude -p child: it must find the same binary. Exported, and its
+# directory first on the child's PATH, so a `uv tool install` layout
+# (~/.local/bin off the hook's PATH) indexes instead of failing every step.
+export REFLECT_BIN
+if [[ -x "$REFLECT_BIN" ]]; then
+    export PATH="$(cd "$(dirname "$REFLECT_BIN")" && pwd -P):$PATH"
+fi
 # Raised 180 -> 300 alongside MAX_TURNS 8 -> 16: the wall-clock cap must stay
 # above the turn budget's worst case, or a run that would cleanly stop at
 # max_turns (return 2, dropped) instead gets SIGTERMed with no envelope and is
@@ -128,9 +149,9 @@ TIMEOUT_RETRIES="${REFLECT_DRAIN_TIMEOUT_RETRIES:-1}"
 # .entities.yaml, reflect add, summarize), so a cap of 8 could never complete
 # it: every real run hit max_turns and wrote nothing while still costing ~$0.6.
 # 16 completes with headroom (measured: 13 turns to a written learning).
-MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-16}"
+# MAX_TURNS and DRAIN_MODEL are set below the lib source: their defaults live
+# in lib/writer_argv.sh (the one home the compat gate reads too).
 TOKEN_MAX="${REFLECT_DRAIN_TOKEN_MAX:-2000000}"
-DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-sonnet}"
 DEBOUNCE_SEC="${REFLECT_DRAIN_DEBOUNCE_SEC:-600}"
 CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
 # W7: writer path. "extract" = single tool-free claude -p call that emits JSON
@@ -149,6 +170,9 @@ CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
 # is fixed at (baseline + slice), so it cannot grow into that wall at all.
 # Set REFLECT_DRAIN_WRITER=agentic to opt back into the legacy loop.
 DRAIN_WRITER="${REFLECT_DRAIN_WRITER:-extract}"
+# The agentic writer's permission surface (mode, allow rules, no operator
+# settings, no MCP) is pinned in lib/writer_argv.sh, sourced below, and can be
+# overridden only through REFLECT_DRAIN_ALLOWED_TOOLS.
 DRAIN_CWD="${REFLECT_DRAIN_CWD:-$HOME}"          # W5: neutral cwd for claude -p
 INVALID_THRESHOLD="${REFLECT_DRAIN_INVALID_THRESHOLD:-3}"  # M2: writer-drift breaker
 QUOTA_GATE_ENABLED="${REFLECT_QUOTA_GATE:-1}"    # M3: subscription-quota gate
@@ -167,6 +191,11 @@ source "${SCRIPT_DIR}/lib/writer_argv.sh" || {
     echo "reflect drain: missing ${SCRIPT_DIR}/lib/writer_argv.sh" >&2
     exit 1
 }
+MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-$DRAIN_DEFAULT_MAX_TURNS}"
+DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-$DRAIN_DEFAULT_MODEL}"
+# The writer's children resolve the skill's scripts through this (reflect
+# skill-step), the same directory the lib's guard hook names.
+export REFLECT_SKILL_SCRIPTS_DIR="$(drain_writer_scripts_dir)"
 CASCADE_SCRIPT="${SCRIPT_DIR}/../scripts/reflect_cascade.py"
 EXTRACT_SCRIPT="${SCRIPT_DIR}/../scripts/drain_extract.py"   # W7: single-shot writer
 CLASSIFIER_SCRIPT="${SCRIPT_DIR}/../scripts/output_classifier.py"
@@ -337,7 +366,7 @@ PY
 
 record_cost_event() {
     # record_cost_event <entries> <transcript> <outcome> \
-    #   [tokens] [cost_usd] [turns] [model] [cache_read] [cache_creation] [input] [output] [writer_class]
+    #   [tokens] [cost_usd] [turns] [model] [cache_read] [cache_creation] [input] [output] [writer_class] [denials] [notes_landed] [indexed]
     # The token/cost fields default to 0 so pre-run outcomes (stale/poison) and
     # the legacy 3-arg call shape still emit valid JSON. `reflect cost` reads
     # these for the cached-vs-uncached timeline (W3). writer_class (M2) is the
@@ -346,7 +375,7 @@ record_cost_event() {
     local entry_count="$1" transcript="$2" outcome="$3"
     local tokens="${4:-0}" cost="${5:-0}" turns="${6:-0}" model="${7:-}"
     local cache_read="${8:-0}" cache_creation="${9:-0}" input_tok="${10:-0}" output_tok="${11:-0}"
-    local writer_class="${12:-}"
+    local writer_class="${12:-}" denials="${13:-0}" notes_landed="${14:-0}" indexed="${15:-0}"
     # Coerce anything non-numeric to 0/valid so the JSON line never breaks.
     [[ "$tokens"         =~ ^[0-9]+$        ]] || tokens=0
     [[ "$cost"           =~ ^[0-9]+([.][0-9]+)?$ ]] || cost=0
@@ -355,6 +384,9 @@ record_cost_event() {
     [[ "$cache_creation" =~ ^[0-9]+$        ]] || cache_creation=0
     [[ "$input_tok"      =~ ^[0-9]+$        ]] || input_tok=0
     [[ "$output_tok"     =~ ^[0-9]+$        ]] || output_tok=0
+    [[ "$denials"        =~ ^[0-9]+$        ]] || denials=0
+    [[ "$notes_landed"   =~ ^[0-9]+$        ]] || notes_landed=0
+    [[ "$indexed"        =~ ^[0-9]+$        ]] || indexed=0
     local today ts
     today=$(date -u +%Y-%m-%d)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -365,11 +397,11 @@ record_cost_event() {
     # are already coerced above so they serialise as bare numbers.
     python3 - "$ts" "$today" "$entry_count" "$transcript" "$outcome" "$model" \
         "$turns" "$tokens" "$cost" "$input_tok" "$output_tok" "$cache_read" "$cache_creation" \
-        "$writer_class" \
+        "$writer_class" "$denials" "$notes_landed" "$indexed" \
         >> "$COST_FILE" <<'PY'
 import json, sys
 (ts, day, entries, transcript, outcome, model,
- turns, tokens, cost, inp, out, cr, cc, writer_class) = sys.argv[1:15]
+ turns, tokens, cost, inp, out, cr, cc, writer_class, denials, notes_landed, indexed) = sys.argv[1:18]
 def _num(x):
     try:
         return int(x)
@@ -385,6 +417,7 @@ print(json.dumps({
     "input": _num(inp), "output": _num(out),
     "cache_read": _num(cr), "cache_creation": _num(cc),
     "writer_class": writer_class,
+    "denials": _num(denials), "notes_landed": _num(notes_landed), "indexed": _num(indexed),
 }))
 PY
 }
@@ -570,7 +603,11 @@ process_entry() {
     # windows (~10x) so /reflect runs cheap on Sonnet with a low turn budget.
     # skill_refresh entries (R13) bypass it: a SKILL.md is not a transcript and
     # the gate would always skip it as no-signal.
-    local reflect_target="$transcript" slice_path=""
+    # slice_path names a real signal slice (the cascade's), which is what the
+    # extract writer needs; bounded_target names the bounded view of a raw
+    # transcript, which the agentic writer reads (a whole-session rendering
+    # is not a signal slice). Both are removed after the run.
+    local reflect_target="$transcript" slice_path="" bounded_target=""
     if [[ "$CASCADE_ENABLED" == "1" && -f "$CASCADE_SCRIPT" && "$trigger" != "skill_refresh" ]]; then
         local prep_json prep_action prep_reason prep_slice
         # prepare exits 0=reflect / 1=skip but ALWAYS prints valid JSON to
@@ -594,30 +631,44 @@ process_entry() {
         fi
     fi
 
-    # ── Bounded writer input (last resort) ────────────────────────────────────
-    # The cascade slice is the normal bound, but it is not universal: the gate
+    # ── Bounded view of a raw transcript (fail closed) ────────────────────────
+    # The cascade slice is the normal input, but it is not universal: the gate
     # can be disabled (REFLECT_DRAIN_CASCADE=0), the signal detector can be
-    # missing, and a crashing cascade fails open — each of which hands the
-    # writer the WHOLE transcript. Sessions crossed ~1MB in July 2026 and every
-    # such entry came back "Prompt is too long" before the model did any work.
-    # Cap whatever we are about to hand over; a bounded input is always better
-    # than a rejected one. skill_refresh targets a SKILL.md, never a transcript.
-    if [[ "$reflect_target" == "$transcript" && "$trigger" != "skill_refresh" && -f "$CASCADE_SCRIPT" ]]; then
-        local target_bytes
+    # missing, and a crashing cascade fails open, each of which leaves the
+    # target equal to the raw transcript. The writer never reads that file:
+    # `reflect_cascade.py bound` renders the dialogue, strips <private> spans
+    # and redacts secrets, and caps the size (MAX_INPUT_CHARS; sessions past
+    # ~1MB came back "Prompt is too long" before any work). Over the cap the
+    # bounded view is a genuine reduction and counts as the slice, so the
+    # extract writer (the default) runs on it; under the cap it is the whole
+    # dialogue and the agentic writer reads it (a whole-session rendering is
+    # not a signal slice). If bound cannot produce it, nothing is sent and
+    # the entry stays queued.
+    # skill_refresh targets a SKILL.md the writer edits in place, not a
+    # transcript, so it is not bounded.
+    if [[ "$reflect_target" == "$transcript" && "$trigger" != "skill_refresh" ]]; then
+        local bound_json="" bound_path="" target_bytes
         target_bytes=$(wc -c < "$reflect_target" 2>/dev/null | tr -d '[:space:]')
         [[ "$target_bytes" =~ ^[0-9]+$ ]] || target_bytes=0
-        if [[ "$target_bytes" -gt "$MAX_INPUT_CHARS" ]]; then
-            local bound_json bound_path
+        if [[ -f "$CASCADE_SCRIPT" ]]; then
             bound_json=$(python3 "$CASCADE_SCRIPT" bound "$reflect_target" \
                 --max-chars "$MAX_INPUT_CHARS" 2>>"$LOG_FILE")
             bound_path=$(printf '%s' "$bound_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path",""))' 2>/dev/null || echo "")
-            if [[ -n "$bound_path" && -s "$bound_path" ]]; then
-                reflect_target="$bound_path"
-                slice_path="$bound_path"   # same lifecycle: consumed then removed
-                log "  bounded input: ${target_bytes} bytes > ${MAX_INPUT_CHARS} cap -> $bound_path"
+        fi
+        if [[ -n "$bound_path" && -s "$bound_path" ]]; then
+            reflect_target="$bound_path"
+            if [[ "$target_bytes" -gt "$MAX_INPUT_CHARS" ]]; then
+                slice_path="$bound_path"       # a real reduction: the extract writer may run on it
             else
-                log "  bounded input FAILED for $reflect_target (${target_bytes} bytes); handing the raw transcript to the writer"
+                bounded_target="$bound_path"   # the whole dialogue, rendered: agentic path
             fi
+            log "  bounded input: raw transcript (${target_bytes} bytes) -> $bound_path (cap ${MAX_INPUT_CHARS} chars)"
+        else
+            log "  BOUND FAILED for $transcript; not sending raw bytes, entry stays queued"
+            emit_error error drain_bound_failed "could not produce the bounded view of the transcript" "$transcript"
+            bump_retry_count "$transcript" >/dev/null
+            record_cost_event 1 "$transcript" "fail_bound"
+            return 1
         fi
     fi
 
@@ -628,6 +679,7 @@ process_entry() {
             log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect $reflect_target"
         fi
         [[ -n "$slice_path" ]] && rm -f "$slice_path"
+        [[ -n "$bounded_target" ]] && rm -f "$bounded_target"
         record_cost_event 1 "$transcript" "dry_run"
         return 0
     fi
@@ -699,6 +751,15 @@ When done, summarize what you captured. Do NOT touch the queue file — the drai
     # stderr goes to a temp capture first (M3: the quota store scans it for
     # 429/529 markers) and is then appended to the drain log as before.
     stderr_tmp=$(mktemp)
+    # Landing evidence: `reflect skill-step index` (and the extract writer's
+    # reflect add) append one JSON line per indexed note to this receipt, so
+    # the count is this run's own, never another session's writes under the
+    # shared docs tree. REFLECT_NESTED keeps the child's reflect hooks quiet.
+    local receipt
+    receipt=$(mktemp "${TMPDIR:-/tmp}/reflect-receipt.XXXXXX")
+    export REFLECT_DRAIN_RECEIPT="$receipt"
+    export REFLECT_NESTED=1
+    WRITER_RULES=()
 
     # W7: single-shot extraction path. Runs one tool-free claude -p call
     # (inside drain_extract.py) and reshapes its summary into the SAME envelope
@@ -751,7 +812,10 @@ print(json.dumps({
     "rate_limit_info": s.get("rate_limit_info"),
 }))' 2>/dev/null)
     else
-        drain_agentic_writer_argv "$prompt"
+        # The addendum names the resolved scripts dir (so a raw plugin-runtime
+        # SKILL.md's {{HOME_TOOL_DIR}} marker and the python3 allow rules agree)
+        # and the steps the drain does not grant, so the writer skips them.
+        drain_agentic_writer_argv "$(drain_writer_prompt "$prompt")"
         out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "${WRITER_ARGV[@]}" 2>"$stderr_tmp")
         exit_code=$?
         cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
@@ -763,8 +827,41 @@ print(json.dumps({
     quota_ingest "$out_json" "$stderr_tmp"
     rm -f "$stderr_tmp"
 
-    # Slice is consumed — remove it regardless of how the run turns out.
+    # Slice and bounded view are consumed — removed regardless of the outcome.
     [[ -n "$slice_path" ]] && rm -f "$slice_path"
+    [[ -n "$bounded_target" ]] && rm -f "$bounded_target"
+
+    # ── Landing evidence ──────────────────────────────────────────────────────
+    # From the receipt: notes_landed = distinct notes indexed by this run,
+    # indexed = receipt lines with a document id. Read here, straight after
+    # the run, so the receipt is removed on every path out of this function.
+    # Logged and put in the ledger; a clean run that captured nothing is
+    # still a clean run.
+    local notes_landed=0 indexed=0 receipt_counts=""
+    if [[ -s "$receipt" ]]; then
+        receipt_counts=$(python3 - "$receipt" <<'PY' 2>/dev/null || echo "0 0"
+import json, sys
+notes, docs = set(), 0
+for line in open(sys.argv[1], encoding="utf-8"):
+    try:
+        row = json.loads(line)
+    except ValueError:
+        continue
+    if not isinstance(row, dict):
+        continue
+    if row.get("note"):
+        notes.add(row["note"])
+    if row.get("doc_id"):
+        docs += 1
+print(len(notes), docs)
+PY
+)
+        read -r notes_landed indexed <<< "$receipt_counts"
+        [[ "$notes_landed" =~ ^[0-9]+$ ]] || notes_landed=0
+        [[ "$indexed" =~ ^[0-9]+$ ]] || indexed=0
+    fi
+    rm -f "$receipt"
+    unset REFLECT_DRAIN_RECEIPT
 
     # We expect a JSON object on stdout regardless of exit code (claude -p
     # writes the result envelope even on max_turns / errors).
@@ -847,7 +944,7 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         log "    WRITER RESPAWN (writer_drift): ${writer_streak} consecutive invalid outputs, categories=[${writer_cats}]; killing writer + archiving transcript. writer_result=${result_summary}"
         emit_error error drain_poison "writer_drift: ${writer_streak} consecutive invalid writer outputs (categories: ${writer_cats})" "$transcript"
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
-        record_cost_event 1 "$transcript" "poison_writer_drift" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "poison_writer_drift" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 2
     fi
 
@@ -868,6 +965,33 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         return 1
     fi
 
+    # ── Permission denials ────────────────────────────────────────────────────
+    # Every call was decided before it ran: the allow rules and the PreToolUse
+    # guard in the same settings document (lib/writer_argv.sh, scripts/
+    # drain_guard.py). A denial is therefore a step the drain does not grant,
+    # logged with what was asked and counted in the ledger; it never changes
+    # the outcome, which the run's own result and the receipt decide.
+    local denials=0 denial_lines=""
+    denial_lines=$(printf '%s' "$out_json" | python3 -c '
+import json, sys
+try:
+    denied = json.load(sys.stdin).get("permission_denials") or []
+except Exception:
+    denied = []
+for d in denied:
+    if not isinstance(d, dict):
+        continue
+    ti = d.get("tool_input") or {}
+    what = ti.get("command") or ti.get("file_path") or ti.get("path") or ""
+    print("%s\t%s" % (d.get("tool_name", "?"), str(what)[:160].replace(chr(10), " ")))
+' 2>/dev/null || true)
+    if [[ -n "$denial_lines" ]]; then
+        denials=$(printf '%s\n' "$denial_lines" | wc -l | tr -d ' ')
+        while IFS=$'\t' read -r tool detail; do
+            log "    DENIED ${tool}: ${detail}"
+        done <<< "$denial_lines"
+    fi
+
     # ── Token-budget circuit breaker (post-hoc poison) ─────────────────────────
     # claude -p only reports usage at completion, so turns + wall-clock are the
     # mid-run hard stops; this catches a run that finished but cost too much and
@@ -876,8 +1000,12 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         log "    BUDGET poison: run used ${total_tokens} tokens (> ${TOKEN_MAX}); archiving transcript"
         emit_error error drain_budget_exceeded "run used ${total_tokens} tokens (> ${TOKEN_MAX})" "$transcript"
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
-        record_cost_event 1 "$transcript" "poison_budget" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "poison_budget" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 2
+    fi
+
+    if [[ "$denials" -gt 0 ]]; then
+        emit_error warn drain_permission_denied "${denials} denied call(s) on steps the drain does not grant" "$transcript"
     fi
 
     # max_turns: claude probably did useful work — write_flow may have already
@@ -885,23 +1013,23 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
     # from queue immediately; retrying the same giant session just re-spends
     # budget and blocks younger entries.
     if [[ "$terminal_reason" == "max_turns" ]]; then
-        log "    partial terminal: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens}; removing from queue"
+        log "    partial terminal: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens} notes_landed=${notes_landed} indexed=${indexed} denials=${denials}; removing from queue"
         emit_error warn drain_max_turns_partial "max_turns after ${num_turns} turns; treated as terminal partial progress" "$transcript"
-        record_cost_event 1 "$transcript" "partial_max_turns" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "partial_max_turns" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}" "${indexed:-0}"
         return 2
     fi
 
     if [[ "$is_error" == "True" || "$is_error" == "true" ]]; then
         log "    claude reported is_error=true terminal=${terminal_reason} result=${result_summary}"
         bump_retry_count "$transcript" >/dev/null
-        record_cost_event 1 "$transcript" "fail_is_error" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_is_error" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 1
     fi
 
     if [[ $exit_code -ne 0 ]]; then
         log "    claude -p exit=$exit_code (but is_error=false; treating as soft fail)"
         bump_retry_count "$transcript" >/dev/null
-        record_cost_event 1 "$transcript" "fail_exit_${exit_code}" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_exit_${exit_code}" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 1
     fi
 
@@ -928,12 +1056,12 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
     if [[ "$num_turns" == "0" ]]; then
         log "    NO-OP RUN (exit=0, turns=0, tokens=${total_tokens}): model never reached: ${result_summary}"
         emit_error error drain_unknown_command "drain produced no model turns; plugin command likely unresolved: ${result_summary}" "$transcript"
-        record_cost_event 1 "$transcript" "fail_unknown_command" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_unknown_command" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 3
     fi
 
-    log "    OK turns=${num_turns} cost=\$${cost} tokens=${total_tokens} result=${result_summary}"
-    record_cost_event 1 "$transcript" "ok" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+    log "    OK turns=${num_turns} cost=\$${cost} tokens=${total_tokens} notes_landed=${notes_landed} indexed=${indexed} denials=${denials} result=${result_summary}"
+    record_cost_event 1 "$transcript" "ok" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "$denials" "$notes_landed" "$indexed"
 
     # R13: a completed skill-refresh clears the staleness flag so the skill
     # re-enters the inject matcher. refresh_if_stale re-parses the (likely

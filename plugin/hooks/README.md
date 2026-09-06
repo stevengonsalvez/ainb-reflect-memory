@@ -79,6 +79,14 @@ learnings (2026-05-31 incident). The drain now defends in depth:
 | Model | `REFLECT_DRAIN_MODEL` | `sonnet` | Drain model; Opus reserved for escalation + weekly synthesis |
 | Neutral cwd | `REFLECT_DRAIN_CWD` | `$HOME` | The `claude -p` cwd (not the triggering repo) |
 | Kill switch | `REFLECT_DISABLED` | unset | Set `1` for a hard no-op |
+| Writer permission mode | (pinned) | `--permission-mode default` plus `--settings` (hook-owned rules) | The explicit flag takes precedence over the operator's settings.json `defaultMode` (proven live); setting sources stay loaded so `/reflect` and personal skills still resolve |
+| Denied tool call | (decided before the call) | `plugin/scripts/drain_guard.py` | A PreToolUse hook in the writer's own `--settings` document decides every Bash call before it runs: the command is normalised (a leading `cd`, `env` and `NAME=value` prefixes) and allowed when it is `reflect skill-step`, `reflect add` or `reflect search`, else denied with a reason naming that surface; the rules decide the other tools. A denial is a step the drain does not grant: logged, counted in the ledger (`denials`), never a failure |
+| Raw transcript | (fail closed) | `reflect_cascade.py bound` | The writer never reads the raw transcript: with the cascade off, missing or crashed, the hook hands it the bounded view (dialogue rendered, `<private>` spans stripped, secrets redacted, size capped); if that view cannot be produced the entry stays queued |
+| Writer allow rules | `REFLECT_DRAIN_ALLOWED_TOOLS` | `Read`, `Grep`, `Glob`, `Write(docs/solutions/**)`, `Edit(docs/solutions/**)`, `Write(~/.reflect/episodes/**)`, `Edit(~/.claude/agents/**)`, `Edit(~/.claude/skills/**/SKILL.md)`, `Bash(reflect skill-step:*)`, `Bash(reflect add:*)`, `Bash(reflect search:*)` | Passed as one inline `--settings` document with the PreToolUse guard (see `lib/writer_argv.sh`); no path spelling: every scripted step is `reflect skill-step <step>`. The override replaces the whole list; the guard stays |
+| Landing evidence | `REFLECT_DRAIN_RECEIPT` | one JSON line per indexed note | `reflect skill-step index` and the extract writer append to the receipt; the ledger's `notes_landed` and `indexed` come from it, never from file mtimes under the shared docs tree |
+| Nested children | `REFLECT_NESTED=1` | exported to every `claude -p` child | Every reflect hook exits at once under it, so the writer, HyDE, the analyzer and synthesis never queue or drain a reflection of their own |
+| Writer MCP | (pinned) | `--strict-mcp-config` | No MCP servers from the operator's config reach the writer |
+| Extract writer tools | (pinned) | `--tools ""` | The single-shot writer has no tools at all, not merely unapproved ones |
 
 An atomic `mkdir` lock (`~/.reflect/drain.lock.d/`) replaces the old PID file so
 concurrent session-start spawns can't each slip past the daily cap. Spend is
