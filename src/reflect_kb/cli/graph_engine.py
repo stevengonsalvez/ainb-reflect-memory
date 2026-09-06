@@ -13,12 +13,13 @@ import os
 import shutil
 from collections import deque
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Any
 
 # Install graspologic shim BEFORE any nano-graphrag import.
 # This avoids the broken transitive dependency chain:
 # graspologic -> hyppo -> numba -> llvmlite (Python <3.10 only)
 from reflect_kb.cli.graspologic_shim import install_shim as _install_graspologic_shim
+
 _install_graspologic_shim()
 
 from reflect_kb.cli.entity_store import COMPLETION_DELIMITER
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 # The name lives in model_daemon (single source shared with the daemon key
 # and the daemon's own loader) and is re-exported here for callers.
 from reflect_kb.model_daemon import EMBEDDING_MODEL_NAME
+
 # Cap inputs so giant chunks don't waste tokenizer time (mirrors
 # cross_encoder._MAX_CANDIDATE_CHARS). 2000 chars ≈ 512 tokens, the window
 # of mpnet and the bge/gte/e5 family alike.
@@ -59,14 +61,14 @@ class LearningsGraphEngine:
     def __init__(
         self,
         cache_dir: str | Path,
-        pg_dsn: Optional[str] = None,
-        workspace_id: Optional[str] = None,
+        pg_dsn: str | None = None,
+        workspace_id: str | None = None,
     ):
         self._cache_dir = Path(cache_dir)
         self._cache_dir.mkdir(parents=True, exist_ok=True)
         self._graph = None
         self._model = None
-        self._pending_entities: Optional[str] = None
+        self._pending_entities: str | None = None
         self._entity_queue: deque = deque()
         # Opt-in shared Postgres backend (reflect_kb.postgres). When BOTH a DSN
         # and a workspace id resolve, nano-graphrag's graph / vectors / community
@@ -130,7 +132,7 @@ class LearningsGraphEngine:
                 raise
         return self._model
 
-    def embed_texts(self, texts: List[str]) -> List[List[float]]:
+    def embed_texts(self, texts: list[str]) -> list[list[float]]:
         """Embed texts with the same all-mpnet-base-v2 model used for indexing.
 
         Returns unit-normalized vectors (dot product == cosine similarity),
@@ -164,6 +166,7 @@ class LearningsGraphEngine:
 
         import numpy as np
         from nano_graphrag._utils import wrap_embedding_func_with_attrs
+
         from reflect_kb.model_daemon import daemon_embed
 
         engine = self
@@ -212,7 +215,7 @@ class LearningsGraphEngine:
     async def _llm_complete(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         history_messages: list = [],
         **kwargs,
     ) -> str:
@@ -321,15 +324,25 @@ class LearningsGraphEngine:
         """True when the derived store is the shared Postgres (Mode 2)."""
         return bool(self._pg_dsn and self._workspace_id)
 
-    def _local_only(self, text: str) -> bool:
-        """Classification floor for the shared store: a note labelled
-        restricted or pii (or malformed) never reaches ng_kv or ng_vectors.
+    def _local_only(self, text: str, label: str | None = None) -> bool:
+        """Classification floor for the shared store, applied once, before
+        chunking: a note labelled restricted or pii (or malformed) is never
+        handed to nano-graphrag, so no ng_* namespace (full_docs, text_chunks,
+        vectors, graph) sees it. ``label`` is the already-parsed frontmatter
+        value when the caller has it; the text is parsed only otherwise.
         Local Mode 1 stores index everything."""
         if not self.shared_backend:
             return False
-        from reflect_kb.classification import classification_of_note, may_leave_machine
+        from reflect_kb.classification import (
+            classification_of,
+            classification_of_note,
+            may_leave_machine,
+        )
 
-        label = classification_of_note(text)
+        if label is None:
+            label = classification_of_note(text)
+        else:
+            label = classification_of({"classification": label})
         if may_leave_machine({"classification": label}):
             return False
         logger.warning(
@@ -337,7 +350,11 @@ class LearningsGraphEngine:
         )
         return True
 
-    def insert_document(self, text: str, entities_formatted: Optional[str] = None):
+    def local_only(self, text: str, label: str | None = None) -> bool:
+        """Public form of the floor so a caller can count what it will index."""
+        return self._local_only(text, label)
+
+    def insert_document(self, text: str, entities_formatted: str | None = None):
         """Insert a single document into the graph.
 
         Args:
@@ -361,23 +378,27 @@ class LearningsGraphEngine:
 
     def insert_documents_batch(
         self,
-        docs_with_entities: List[Tuple[str, Optional[str]]],
-    ):
-        """Insert multiple documents in a single batch.
+        docs_with_entities: list[tuple[Any, ...]],
+    ) -> int:
+        """Insert multiple documents in a single batch; return how many were
+        handed to nano-graphrag after the floor.
 
         Batching avoids nano-graphrag state issues that occur with
         sequential insert() calls (community_reports dropped, early
         return skipping KV persistence).
 
         Args:
-            docs_with_entities: List of (text, entities_formatted) tuples.
-                entities_formatted can be None for docs without sidecars.
+            docs_with_entities: List of (text, entities_formatted) or
+                (text, entities_formatted, label) tuples. entities_formatted
+                can be None for docs without sidecars; label is the
+                already-parsed classification when the caller has it.
         """
         docs_with_entities = [
-            (text, entities) for text, entities in docs_with_entities if not self._local_only(text)
+            (doc[0], doc[1]) for doc in docs_with_entities
+            if not self._local_only(doc[0], doc[2] if len(doc) > 2 else None)
         ]
         if not docs_with_entities:
-            return
+            return 0
 
         self._init_graph()
 
@@ -395,6 +416,7 @@ class LearningsGraphEngine:
         finally:
             self._entity_queue.clear()
             self._pending_entities = None
+        return len(docs_with_entities)
 
     def search(
         self,
@@ -422,7 +444,7 @@ class LearningsGraphEngine:
         result = self._graph.query(query, param=param)
         return result if result else ""
 
-    def get_typed_edges(self, link_types: Optional[List[str]] = None) -> List[dict]:
+    def get_typed_edges(self, link_types: list[str] | None = None) -> list[dict]:
         """Return stored graph edges, optionally filtered by typed link (S2).
 
         Typed causal links from sidecars survive into the GraphML as

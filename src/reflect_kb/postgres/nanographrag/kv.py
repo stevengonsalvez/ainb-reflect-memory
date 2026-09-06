@@ -8,7 +8,6 @@ key). No LLM/embedding work — pure key/value persistence, tenant-scoped.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Union
 
 from nano_graphrag.base import BaseKVStorage
 
@@ -36,7 +35,7 @@ class PgKVStorage(BaseKVStorage):
         )
         return [r["key"] for r in rows]
 
-    async def get_by_id(self, id: str) -> Union[dict, None]:
+    async def get_by_id(self, id: str) -> dict | None:
         row = self._pg.fetchone(
             f"select value from {_TABLE} where workspace_id=%s and namespace=%s and key=%s",
             (self._ws, self.namespace, id),
@@ -44,8 +43,8 @@ class PgKVStorage(BaseKVStorage):
         return row["value"] if row else None
 
     async def get_by_ids(
-        self, ids: list[str], fields: Union[set[str], None] = None
-    ) -> list[Union[dict, None]]:
+        self, ids: list[str], fields: set[str] | None = None
+    ) -> list[dict | None]:
         if not ids:
             return []
         rows = self._pg.fetchall(
@@ -54,7 +53,7 @@ class PgKVStorage(BaseKVStorage):
             (self._ws, self.namespace, list(ids)),
         )
         by_key = {r["key"]: r["value"] for r in rows}
-        out: list[Union[dict, None]] = []
+        out: list[dict | None] = []
         for k in ids:
             v = by_key.get(k)
             if v is None:
@@ -81,18 +80,11 @@ class PgKVStorage(BaseKVStorage):
     async def upsert(self, data: dict[str, dict]) -> None:
         from psycopg.types.json import Jsonb
 
-        if self.namespace == "full_docs":
-            # Defence in depth behind the graph engine's floor: a full document
-            # labelled restricted or pii is never persisted in the shared store.
-            from reflect_kb.classification import classification_of_note, may_leave_machine
-
-            data = {
-                key: value for key, value in data.items()
-                if not isinstance(value, dict)
-                or may_leave_machine({"classification": classification_of_note(str(value.get("content", "")))})
-            }
-            if not data:
-                return
+        # The classification floor for the ng_* tables is applied once, in the
+        # graph engine, before chunking: a restricted or pii document is never
+        # handed to nano-graphrag, so no namespace (full_docs, text_chunks,
+        # vectors) sees it. Filtering here again would drop it from full_docs
+        # only, and nano-graphrag would then re-chunk it as new on every run.
         rows = [(self._ws, self.namespace, key, Jsonb(value)) for key, value in data.items()]
         self._pg.executemany(
             f"insert into {_TABLE} (workspace_id, namespace, key, value) "

@@ -7,26 +7,25 @@ using nano-graphrag for vector + graph-based retrieval.
 """
 
 import glob
+import hashlib
 import json
 import os
-import hashlib
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 import click
 import yaml
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from reflect_kb import __version__
-from reflect_kb.metrics import write_metric
 from reflect_kb import errors as _err
+from reflect_kb.metrics import write_metric
 
 console = Console(stderr=True)
 
@@ -87,7 +86,7 @@ def index_is_stale() -> bool:
         return False
 
 
-def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
+def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
     if not content.startswith("---"):
         return {}, content
 
@@ -122,7 +121,7 @@ def generate_document_id(title: str, body: str = "") -> str:
     return f"{slug}-{hash_suffix}"
 
 
-def get_all_documents() -> List[Dict[str, Any]]:
+def get_all_documents() -> list[dict[str, Any]]:
     repo = get_repo_path()
     docs_dir = repo / DOCUMENTS_DIR
     documents = []
@@ -144,7 +143,7 @@ def get_all_documents() -> List[Dict[str, Any]]:
 
 def _get_graph_engine():
     """Create a LearningsGraphEngine instance."""
-    from reflect_kb.cli.graph_engine import LearningsGraphEngine, GraphEngineError
+    from reflect_kb.cli.graph_engine import LearningsGraphEngine
 
     repo = get_repo_path()
     cache_dir = repo / CACHE_DIR
@@ -172,7 +171,7 @@ def cli():
     "--format", "-f", "output_format", default="rich",
     type=click.Choice(["rich", "json", "simple"]),
 )
-def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
+def search(query: str, mode: str, tags: str | None, category: str | None,
            limit: int, output_format: str):
     """Search learnings using GraphRAG.
 
@@ -271,7 +270,7 @@ def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
     "--model", "model_name", default=None,
     help="Override the cross-encoder model (default: ms-marco-MiniLM-L-6-v2)",
 )
-def rerank(query: str, batch_size: int, model_name: Optional[str]):
+def rerank(query: str, batch_size: int, model_name: str | None):
     """Score (query, candidate) pairs with a local cross-encoder (R2).
 
     Reads JSON from stdin:  {"candidates": [{"id": "...", "text": "..."}]}
@@ -306,8 +305,8 @@ def rerank(query: str, batch_size: int, model_name: Optional[str]):
         }))
         return
 
-    ids: List[str] = []
-    texts: List[str] = []
+    ids: list[str] = []
+    texts: list[str] = []
     for cand in candidates:
         if isinstance(cand, dict) and "id" in cand and isinstance(cand.get("text"), str):
             ids.append(str(cand["id"]))
@@ -369,8 +368,8 @@ def embed(query: str):
         click.echo(json.dumps({"available": False, "error": "invalid payload"}))
         return
 
-    ids: List[str] = []
-    texts: List[str] = []
+    ids: list[str] = []
+    texts: list[str] = []
     for cand in candidates:
         if isinstance(cand, dict) and "id" in cand and isinstance(cand.get("text"), str):
             ids.append(str(cand["id"]))
@@ -417,7 +416,7 @@ def embed(query: str):
     "--force", "-f", is_flag=True, default=False,
     help="Overwrite an existing document with the same generated ID without prompting.",
 )
-def add(file_path: str, entities: Optional[str], force: bool):
+def add(file_path: str, entities: str | None, force: bool):
     """Add a learning document to the knowledge base.
 
     The document should have YAML frontmatter with at least:
@@ -483,7 +482,11 @@ def add(file_path: str, entities: Optional[str], force: bool):
     entity_count = 0
     rel_count = 0
 
-    from reflect_kb.cli.entity_store import DocumentEntities, find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import (
+        DocumentEntities,
+        auto_extract_entities,
+        write_sidecar,
+    )
 
     if entities:
         # Explicit sidecar provided — use it as-is
@@ -517,7 +520,7 @@ def add(file_path: str, entities: Optional[str], force: bool):
         engine = _get_graph_engine()
         with console.status("[bold green]Indexing document..."):
             engine.insert_document(content, entities_formatted=entities_formatted)
-        console.print(f"[green]Indexed into graph[/green]")
+        console.print("[green]Indexed into graph[/green]")
     except Exception as e:
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")
@@ -580,7 +583,12 @@ def reindex(force: bool):
 
     console.print(f"[bold]Reindexing {len(documents)} documents...[/bold]")
 
-    from reflect_kb.cli.entity_store import DocumentEntities, find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import (
+        DocumentEntities,
+        auto_extract_entities,
+        find_sidecar,
+        write_sidecar,
+    )
 
     # Auto-generate missing sidecars before batch indexing
     generated_count = 0
@@ -613,10 +621,18 @@ def reindex(force: bool):
     batch = []
     entity_total = 0
     rel_total = 0
+    skipped_local_only = 0
 
     for doc in documents:
         doc_path = Path(doc["_path"])
         title = doc.get("title", doc.get("name", doc_path.name))
+        label = doc.get("classification")
+        # The floor decides here, from the label already parsed with the
+        # frontmatter, so the counters below describe what is indexed.
+        if engine.local_only(doc["_full_content"], label):
+            skipped_local_only += 1
+            console.print(f"  [dim]{title} - {label} stays local, not indexed in the shared store[/dim]")
+            continue
 
         entities_formatted = None
         sidecar_path = find_sidecar(doc_path)
@@ -640,12 +656,14 @@ def reindex(force: bool):
         else:
             console.print(f"  [dim]{title} - no sidecar (placeholder entities)[/dim]")
 
-        batch.append((doc["_full_content"], entities_formatted))
+        batch.append((doc["_full_content"], entities_formatted, label))
 
     try:
         with console.status("[bold green]Indexing batch..."):
-            engine.insert_documents_batch(batch)
-        console.print(f"\n[green]Indexed {len(batch)} documents[/green]")
+            indexed = engine.insert_documents_batch(batch)
+        console.print(f"\n[green]Indexed {indexed} documents[/green]")
+        if skipped_local_only:
+            console.print(f"[dim]{skipped_local_only} restricted or pii notes stay in the local store[/dim]")
     except Exception as e:
         console.print(f"\n[red]Batch indexing error: {e}[/red]")
         console.print("[dim]Try running 'learnings reindex --force' to rebuild from scratch.[/dim]")
@@ -678,7 +696,7 @@ def generate_sidecars(force: bool):
         console.print("[yellow]No documents found.[/yellow]")
         return
 
-    from reflect_kb.cli.entity_store import find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import auto_extract_entities, find_sidecar, write_sidecar
 
     generated = 0
     skipped = 0
@@ -712,13 +730,13 @@ def generate_sidecars(force: bool):
             failed += 1
             console.print(f"  [yellow]{title} - failed: {e}[/yellow]")
 
-    console.print(f"\n[bold]Results:[/bold]")
+    console.print("\n[bold]Results:[/bold]")
     console.print(f"  Generated: {generated}")
     console.print(f"  Skipped:   {skipped}")
     if failed:
         console.print(f"  Failed:    {failed}")
     console.print(
-        f"\n[dim]Run 'learnings reindex --force' to rebuild the graph with new sidecars.[/dim]"
+        "\n[dim]Run 'learnings reindex --force' to rebuild the graph with new sidecars.[/dim]"
     )
 
 
@@ -760,7 +778,7 @@ def init():
     else:
         console.print("[dim]Git repository already exists[/dim]")
 
-    console.print(f"[green]Ready.[/green]")
+    console.print("[green]Ready.[/green]")
     console.print(f"[dim]Documents: {repo / DOCUMENTS_DIR}[/dim]")
     console.print(f"[dim]Graph cache: {repo / CACHE_DIR}[/dim]")
 
@@ -768,7 +786,7 @@ def init():
 @cli.command("critical-patterns")
 @click.option("--language", "-l", help="Filter by programming language")
 @click.option("--domain", "-d", help="Filter by domain (backend, frontend, etc.)")
-def critical_patterns(language: Optional[str], domain: Optional[str]):
+def critical_patterns(language: str | None, domain: str | None):
     """Show critical patterns that should always be considered.
 
     These are high-confidence, widely-applicable patterns.
@@ -851,7 +869,7 @@ def stats():
         return
 
     # Category breakdown
-    categories: Dict[str, int] = {}
+    categories: dict[str, int] = {}
     for doc in documents:
         cat = doc.get("category", "uncategorized")
         categories[cat] = categories.get(cat, 0) + 1
@@ -866,7 +884,7 @@ def stats():
     console.print(cat_table)
 
     # Confidence breakdown
-    confidence: Dict[str, int] = {}
+    confidence: dict[str, int] = {}
     for doc in documents:
         conf = doc.get("confidence", "unknown")
         confidence[conf] = confidence.get(conf, 0) + 1
@@ -972,10 +990,10 @@ def errors_append(severity, source, kind, message, context):
 
 # Register subcommand groups. Import here (after `cli` exists) to keep
 # circular-import risk at zero.
-from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group  # noqa: E402
-from reflect_kb.cli.issues_cli import issues_group as _issues_group  # noqa: E402
-from reflect_kb.cli.serve_cli import serve_command as _serve_command  # noqa: E402
-from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group  # noqa: E402
+from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group
+from reflect_kb.cli.issues_cli import issues_group as _issues_group
+from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group
+from reflect_kb.cli.serve_cli import serve_command as _serve_command
 
 cli.add_command(_metrics_group)
 cli.add_command(errors_group)

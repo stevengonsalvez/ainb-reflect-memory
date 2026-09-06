@@ -57,20 +57,34 @@ def test_mode2_skips_restricted_and_pii_notes(engine) -> None:
     assert engine._graph.inserted[1:] == [INTERNAL]
 
 
-def test_kv_adapter_refuses_a_restricted_full_doc() -> None:
-    pytest.importorskip("nano_graphrag")
+def test_mode2_uses_the_parsed_label_without_reparsing(engine, monkeypatch) -> None:
+    """The CLI hands the already-parsed label down; the engine parses the text
+    only when no label is given, and reports how many docs it indexed."""
+    engine._pg_dsn = "postgresql://x"
+    engine._workspace_id = "ws"
+    from reflect_kb import classification as cls
+
+    calls = []
+    monkeypatch.setattr(cls, "classification_of_note", lambda text: calls.append(text) or "internal")
+    n = engine.insert_documents_batch([(UNLABELLED, None, "restricted"), (INTERNAL, None, "internal"), (UNLABELLED, None)])
+    assert n == 2 and len(engine._graph.inserted[0]) == 2
+    assert calls == [UNLABELLED], "the text was parsed only for the doc without a label"
+
+
+def test_kv_adapter_writes_what_the_engine_hands_it() -> None:
+    """The ng_* floor is engine-level, before chunking: the KV adapter no
+    longer drops full_docs on its own (that only re-chunked the doc as new on
+    every run while text_chunks kept it)."""
     from reflect_kb.postgres.nanographrag.kv import PgKVStorage
 
     class _Pg:
         def __init__(self) -> None:
-            self.rows: list = []
+            self.rows = []
 
-        def executemany(self, _sql, rows):
+        def executemany(self, sql, rows):
             self.rows.extend(rows)
 
-    kv = PgKVStorage.__new__(PgKVStorage)
-    kv.namespace = "full_docs"
-    kv._pg = _Pg()
-    kv._ws = "11111111-1111-1111-1111-111111111111"
-    asyncio.run(kv.upsert({"doc-r": {"content": RESTRICTED}, "doc-i": {"content": INTERNAL}}))
-    assert [r[2] for r in kv._pg.rows] == ["doc-i"]
+    store = PgKVStorage.__new__(PgKVStorage)
+    store._pg, store._ws, store.namespace = _Pg(), "ws", "full_docs"
+    asyncio.run(store.upsert({"doc-1": {"content": RESTRICTED}}))
+    assert [r[2] for r in store._pg.rows] == ["doc-1"]

@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from reflect_kb.postgres import (
@@ -369,17 +371,52 @@ def test_floor_constraint_refuses_restricted_rows_in_every_label_table(conn) -> 
     with conn.cursor() as cur:
         cur.execute("select conname from pg_constraint where conname like '%_classification_floor' order by 1")
         names = {r["conname"] for r in cur.fetchall()}
-    assert names == {f"{t}_classification_floor" for t in
-                     ("memory_items", "entities", "edges", "ng_kv", "ng_graph_nodes", "ng_graph_edges", "ng_vectors")}, names
+    # The three tables with a label column; the ng_* floor is engine-level.
+    assert names == {f"{t}_classification_floor" for t in ("memory_items", "entities", "edges")}, names
+    with conn.cursor() as cur:
+        cur.execute("select convalidated from pg_constraint where conname = 'entities_classification_floor'")
+        assert cur.fetchone()["convalidated"] is True
     restricted_entity = (
         "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
         "values (%s, 'Secret Component', 'component', '{\"classification\":\"restricted\"}'::jsonb)"
     )
-    pii_doc = (
-        "insert into reflect_memory.ng_kv (workspace_id, namespace, key, value) "
-        "values (%s, 'full_docs', 'doc-r', '{\"classification\":\"pii\",\"content\":\"x\"}'::jsonb)"
-    )
-    for stmt in (restricted_entity, pii_doc):
-        with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
-            cur.execute(stmt, (WS_A,))
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
+        cur.execute(restricted_entity, (WS_A,))
+
+
+@pytest.mark.integration
+def test_store_binding_is_transaction_local_and_survives_a_rollback(conn, store) -> None:
+    """The tenant is bound with SET LOCAL per call: a rollback (here a
+    CheckViolation) does not leave a stale binding behind, the next call
+    binds again and reads the tenant's rows, and after the call ends the GUC
+    is unset at session scope so a pooled connection carries no workspace."""
+    import psycopg
+
+    a = Tenant(workspace_id=WS_A)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha survives"))
+    with pytest.raises(psycopg.errors.CheckViolation), conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+            "values (%s, 'bad', 'component', '{\"classification\":\"pii\"}'::jsonb)", (WS_A,))
+    conn.rollback()
+    hits = store.search_memory(SearchMemoryInput(tenant=a, query="alpha"))
+    assert [h.item.content for h in hits] == ["alpha survives"]
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("select coalesce(current_setting('app.current_workspace', true), '') as ws")
+        assert cur.fetchone()["ws"] == "", "the binding leaked past the transaction"
+
+
+@pytest.mark.integration
+def test_0005_policies_use_an_initplan_and_the_resolver_has_no_handlers(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("select polname, pg_get_expr(polqual, polrelid) as qual from pg_policy "
+                    "where polname like '%_tenant_isolation' order by 1")
+        rows = cur.fetchall()
+        assert len(rows) == 7, rows
+        for r in rows:
+            assert re.search(r"\(\s*SELECT reflect_memory\.current_workspace_id\(\)", r["qual"]), r
+        cur.execute("select pg_get_functiondef('reflect_memory.current_workspace_id()'::regprocedure) as def")
+        body = cur.fetchone()["def"].lower()
+        assert "exception" not in body and "missing_ok" not in body
 
