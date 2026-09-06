@@ -22,6 +22,8 @@ from __future__ import annotations
 
 import os
 import threading
+from contextlib import contextmanager
+from collections.abc import Iterator
 from typing import Any, Iterable, Optional, Sequence, Tuple
 
 __all__ = ["resolve_config", "PgBackend", "vector_literal"]
@@ -100,44 +102,47 @@ class PgBackend:
         from psycopg.rows import dict_row
 
         if self._conn is None or self._conn.closed:
-            self._conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row)
-            # Bind the tenant for RLS so the adapter is correct under any role —
-            # not just owner/service_role (BYPASSRLS). On a raw psycopg
-            # connection there is no JWT, so the resolver uses this GUC; under
-            # service_role/owner RLS is bypassed and this is harmless. NOTE:
-            # writes still require a service_role/owner DSN (the `authenticated`
-            # grant is read-only) — see docs/setup.md. set_config is
-            # parameterized (no injection).
-            with self._conn.cursor() as cur:
-                cur.execute(
-                    "select set_config('app.current_workspace', %s, false)",
-                    (self.workspace_id,),
-                )
+            from reflect_kb.postgres.dsn import connect_secure
+
+            # The TLS judgement is made on the open connection (dsn.py).
+            self._conn = connect_secure(
+                self.dsn, what="the shared-store DSN", autocommit=True, row_factory=dict_row
+            )
         return self._conn
 
+    @contextmanager
+    def _bound(self) -> Iterator[Any]:
+        """A cursor inside its own transaction with ``app.current_workspace``
+        bound by SET LOCAL. Every statement the adapter runs goes through
+        here: a session-level binding made once at connect is lost on a
+        transaction-mode pooler (Supabase's default pooler URI), where later
+        statements land on backends with no GUC, so under FORCE RLS reads
+        returned nothing and writes vanished without an error. set_config is
+        parameterised (no injection); the binding dies with the transaction."""
+        conn = self._conn_open()
+        with conn.transaction(), conn.cursor() as cur:
+            cur.execute("select set_config('app.current_workspace', %s, true)", (self.workspace_id,))
+            yield cur
+
     def fetchall(self, sql: str, params: Sequence[Any] = ()) -> list[dict]:
-        with self._lock:
-            with self._conn_open().cursor() as cur:
-                cur.execute(sql, params)
-                return list(cur.fetchall())
+        with self._lock, self._bound() as cur:
+            cur.execute(sql, params)
+            return list(cur.fetchall())
 
     def fetchone(self, sql: str, params: Sequence[Any] = ()) -> Optional[dict]:
-        with self._lock:
-            with self._conn_open().cursor() as cur:
-                cur.execute(sql, params)
-                return cur.fetchone()
+        with self._lock, self._bound() as cur:
+            cur.execute(sql, params)
+            return cur.fetchone()
 
     def execute(self, sql: str, params: Sequence[Any] = ()) -> None:
-        with self._lock:
-            with self._conn_open().cursor() as cur:
-                cur.execute(sql, params)
+        with self._lock, self._bound() as cur:
+            cur.execute(sql, params)
 
     def executemany(self, sql: str, rows: Sequence[Sequence[Any]]) -> None:
         if not rows:
             return
-        with self._lock:
-            with self._conn_open().cursor() as cur:
-                cur.executemany(sql, rows)
+        with self._lock, self._bound() as cur:
+            cur.executemany(sql, rows)
 
     def run_tx(self, steps: Sequence[tuple]) -> None:
         """Run several statements in ONE transaction (even under autocommit).
@@ -146,14 +151,11 @@ class PgBackend:
         graph backend to delete-then-reinsert a namespace atomically, so a reader
         never sees a half-written graph and stale rows can't survive a save.
         """
-        with self._lock:
-            conn = self._conn_open()
-            with conn.transaction():
-                with conn.cursor() as cur:
-                    for sql, payload, many in steps:
-                        if many:
-                            cur.executemany(sql, payload)
-                        elif payload is None:
-                            cur.execute(sql)
-                        else:
-                            cur.execute(sql, payload)
+        with self._lock, self._bound() as cur:
+            for sql, payload, many in steps:
+                if many:
+                    cur.executemany(sql, payload)
+                elif payload is None:
+                    cur.execute(sql)
+                else:
+                    cur.execute(sql, payload)

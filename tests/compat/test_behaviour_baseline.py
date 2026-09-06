@@ -166,12 +166,31 @@ def _canonical_sidecar(key: str, old, new) -> bool:
     return mask(canonical).strip() == mask(new).strip()
 
 
+def _transcript_key_renamed(key: str, old, new) -> bool:
+    """The drain now writes the transcript path as source_transcript, because
+    source_path is the key a source pin is built from (repo, commit,
+    source_path). A written note may differ from the baseline by that one
+    rename on the transcript line, on top of the redaction bucket."""
+    if not key.startswith("written.") or not key.endswith(".md") or not isinstance(old, str) or not isinstance(new, str):
+        return False
+    import re
+
+    # The branch writes the transcript under both keys the readers know: the
+    # top-level source_transcript and the template's provenance block.
+    renamed = re.sub(r'^source_path: ("[^"\n]*\.jsonl")$',
+                     r"source_transcript: \1\nprovenance:\n  source_path: \1", old, count=1, flags=re.MULTILINE)
+    return renamed != old and redaction_or_classification(key, renamed, new)
+
+
 def test_extract_writer_with_canned_model_reply(behaviour) -> None:
     baseline, branch = behaviour
     assert branch["extract"]["exit"] == 0, branch["extract"]
     assert branch["extract"]["summary"]["created"] == 1, branch["extract"]["summary"]
-    assert_same_as_baseline("extract", baseline["extract"], branch["extract"],
-                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or _canonical_sidecar(k, o, n))
+
+    def allowed(k, o, n):
+        return ALLOWED_BEHAVIOUR_DIFF(k, o, n) or _canonical_sidecar(k, o, n) or _transcript_key_renamed(k, o, n)
+
+    assert_same_as_baseline("extract", baseline["extract"], branch["extract"], allowed=allowed)
 
 
 # --------------------------------------------------------------------------- #

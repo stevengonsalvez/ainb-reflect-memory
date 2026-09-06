@@ -137,6 +137,41 @@ def get_all_documents() -> list[dict[str, Any]]:
     return documents
 
 
+def _shared_store_target() -> tuple[str, str] | None:
+    """``(dsn, workspace_id)`` when Mode 2 is on, else None: the graph engine
+    owns the trigger (LearningsGraphEngine.shared_store_target)."""
+    return _get_graph_engine().shared_store_target
+
+
+def _mirror_to_shared_store(content: str, frontmatter: dict, doc_entities=None, *, title: str = "") -> None:
+    """Mode 2: the note, its entities and relationships become rows the
+    Context Broker can serve. Never fails the local write."""
+    try:
+        target = _shared_store_target()
+    except Exception as exc:  # noqa: BLE001 - no engine means no shared store; the local write stands
+        console.print(f"[yellow]Warning: shared store not updated ({type(exc).__name__}): {exc}[/yellow]")
+        return
+    if target is None:
+        return
+    from reflect_kb.postgres.mirror import MirrorError, mirror_note
+
+    try:
+        result = mirror_note(target[0], target[1], content=content, frontmatter=frontmatter,
+                             doc_entities=doc_entities)
+    except MirrorError as exc:
+        console.print(f"[yellow]Warning: shared store not updated: {exc}[/yellow]")
+        return
+    except Exception as exc:  # noqa: BLE001 - the mirror boundary: the local write never fails for it
+        console.print(f"[yellow]Warning: shared store not updated ({type(exc).__name__}): {exc}[/yellow]")
+        return
+    label = title or frontmatter.get("title", "")
+    if result.skipped:
+        console.print(f"[dim]{label}: stays local ({result.skipped})[/dim]")
+    else:
+        console.print(f"[dim]{label}: mirrored to the shared store "
+                      f"({result.entities} entities, {result.edges} edges)[/dim]")
+
+
 def _get_graph_engine():
     """Create a LearningsGraphEngine instance."""
     from reflect_kb.cli.graph_engine import LearningsGraphEngine
@@ -544,6 +579,9 @@ def add(file_path: str, entities: str | None, force: bool):
         except Exception as e:
             console.print(f"[yellow]Warning: Auto-extraction failed: {e}[/yellow]")
 
+    # Mode 2: the broker reads memory_items, entities and edges; write them.
+    _mirror_to_shared_store(content, frontmatter, locals().get("doc_entities") if entity_count else None)
+
     # Insert into graph
     try:
         engine = _get_graph_engine()
@@ -676,6 +714,7 @@ def reindex(force: bool):
             continue
 
         entities_formatted = None
+        doc_entities = None
         sidecar_path = find_sidecar(doc_path)
 
         if sidecar_path:
@@ -698,6 +737,9 @@ def reindex(force: bool):
             console.print(f"  [dim]{title} - no sidecar (placeholder entities)[/dim]")
 
         batch.append((doc["_full_content"], entities_formatted, label))
+        # Mode 2: keep the broker's tables in step with the corpus on reindex.
+        _mirror_to_shared_store(doc["_full_content"], {k: v for k, v in doc.items() if not k.startswith("_")},
+                                doc_entities, title=title)
 
     try:
         with console.status("[bold green]Indexing batch..."):

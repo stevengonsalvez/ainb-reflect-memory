@@ -82,6 +82,15 @@ graph = [
 postgres = [
     "psycopg[binary]>=3.1",
 ]
+# Context Broker (reflect_kb.broker): the OIDC-authenticated, read-only HTTP
+# route over MemoryStore. FastAPI + PyJWT (with the crypto backend for RS256
+# JWKS keys) + uvicorn to serve; psycopg because the broker reads Postgres.
+broker = [
+    "fastapi>=0.110",
+    "pyjwt[crypto]>=2.8",
+    "uvicorn>=0.23",
+    "psycopg[binary]>=3.1",
+]
 
 [project.scripts]
 reflect = "reflect_kb.cli.main:main"

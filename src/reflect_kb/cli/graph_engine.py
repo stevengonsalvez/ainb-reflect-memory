@@ -307,6 +307,12 @@ class LearningsGraphEngine:
         # live in shared Postgres — same store across machines. nano-graphrag's
         # own code is unchanged; only the *_storage_cls + addon_params change.
         if self._pg_dsn and self._workspace_id:
+            from reflect_kb.postgres.dsn import InsecureDSNError, assert_tls  # a one-connection probe
+
+            try:
+                assert_tls(self._pg_dsn, what="REFLECT_PG_DSN")
+            except InsecureDSNError as exc:
+                raise GraphEngineError(str(exc)) from exc
             try:
                 from reflect_kb.postgres.nanographrag import (
                     addon_params,
@@ -335,6 +341,13 @@ class LearningsGraphEngine:
     def shared_backend(self) -> bool:
         """True when the derived store is the shared Postgres (Mode 2)."""
         return bool(self._pg_dsn and self._workspace_id)
+
+    @property
+    def shared_store_target(self) -> tuple[str, str] | None:
+        """``(dsn, workspace_id)`` of the shared store when Mode 2 is on, else
+        None. The one place the Mode 2 trigger is read (REFLECT_PG_DSN plus
+        REFLECT_WORKSPACE_ID, never the generic DATABASE_URL)."""
+        return (self._pg_dsn, self._workspace_id) if self.shared_backend else None
 
     def _floor_label(self, text: str, label: str | None = None) -> str | None:
         """The label that keeps a note out of the shared store, or None when
