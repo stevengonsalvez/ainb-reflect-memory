@@ -3,8 +3,8 @@
 One page for the security review. reflect is local first: the markdown
 knowledge base under `~/.learnings` is the source of truth and every
 embedding, entity extraction and ranking step runs on the machine that holds
-it. Below is every path by which bytes can leave that machine, what travels,
-what stops it, and how to turn it off.
+it. Below is every path the engine or the plugin opens itself by which bytes
+can leave that machine, what travels, what stops it, and how to turn it off.
 
 ```
 ┌──────────────┐   transcript slice    ┌──────────────────┐
@@ -163,6 +163,30 @@ Egress from the broker host:
 The refusal rules (401, 403, dropped and counted hits, edges, limits) live in
 one place: README, "Context Broker", the table "What is refused, and why".
 Configuration and an Entra ID example are in the same section.
+
+## 5. The forge (GitHub, through `gh` and `git`)
+
+Two paths reach a forge, both through the operator's own `gh` login and
+`git` remotes, never through a token the engine holds.
+
+- `reflect issues run` (`src/reflect_kb/issues/`). Dedupe fetches `gh issue
+  list` titles (open and closed) on every run, `--dry-run` included: the
+  repository name goes out through `gh`, titles come back. Without
+  `--dry-run` it runs `gh label list`, creates the `reflect` label if it is
+  missing, and files each candidate with `gh issue create`: the title, body
+  and labels are the analyzer's output over distilled transcript timelines
+  that `issues/sanitize.py` redacted before the model saw them. Off switch:
+  `--dry-run` prints the bodies and never calls `gh` to create anything; not
+  running the command is the rest.
+- The team knowledge base (`src/reflect_kb/write_flow.py`). The engine
+  carries routes that copy a note and its sidecar into a cloned team KB,
+  commit, `git push` a HIGH-confidence note to `main` and open a draft PR
+  (`gh pr create`) for a MEDIUM one. No command in this repository calls
+  `route_document` today (checked by grep; the routes are exercised by
+  their tests with fake runners), so nothing is pushed by reflect as
+  installed. When a caller is wired: what travels is the note and sidecar,
+  already redacted at capture (`reflect add`), to the remote of the checkout
+  named as the team root; with no team root every route stays local.
 
 ## What never leaves
 
