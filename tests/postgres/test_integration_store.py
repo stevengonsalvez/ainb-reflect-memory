@@ -451,22 +451,38 @@ def test_0005_policies_use_an_initplan_and_the_resolver_has_no_handlers(conn) ->
 # --------------------------------------------------------------------------- #
 
 
-def test_read_functions_filter_entities_and_edges_above_the_floor(store) -> None:
+def test_read_functions_filter_entities_and_edges_above_the_floor(conn, store) -> None:
+    """Rows above the floor cannot exist in entities or edges (the inputs and
+    the check constraints refuse them), and the read functions still carry
+    the classification predicate before their LIMIT as defence in depth, so
+    an egress path never post-filters graph rows after a limit already cut
+    the result."""
+    import psycopg
+
     a = Tenant(workspace_id=WS_A)
     auth = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="auth", entity_type="component"))
     token = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="token", entity_type="concept"))
-    vault = store.upsert_entity(
-        UpsertEntityInput(tenant=a, canonical_name="vault secret", entity_type="concept",
-                          metadata={"classification": "restricted"})
-    )
     store.upsert_edge(UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=token.id,
                                       relation_type="validates"))
-    store.upsert_edge(UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=vault.id,
-                                      relation_type="reads", metadata={"classification": "pii"}))
-    # A restricted entity never comes back from a lookup, even when it matches.
-    assert [h.canonical_name for h in store.lookup_entities(a, "vault")] == []
+    from reflect_kb.postgres.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="never leaves the local store"):
+        UpsertEntityInput(tenant=a, canonical_name="vault secret", entity_type="concept",
+                          metadata={"classification": "restricted"})
+    with pytest.raises(ValidationError, match="never leaves the local store"):
+        UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=token.id, relation_type="reads",
+                        metadata={"classification": "pii"})
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+            "values (%s, 'vault secret', 'concept', '{\"classification\":\"restricted\"}'::jsonb)", (WS_A,))
+    with conn.cursor() as cur:
+        for fn in ("search_memory", "search_entities", "entity_neighborhood"):
+            cur.execute("select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+                        "where n.nspname = 'reflect_memory' and p.proname = %s", (fn,))
+            body = cur.fetchone()["def"]
+            assert "'classification'" in body and "in ('public', 'internal')" in body, fn
     assert [h.canonical_name for h in store.lookup_entities(a, "auth")] == ["auth"]
-    # A pii edge is not walked, so its endpoint is not hydrated either.
     nb = store.neighborhood(a, auth.id, depth=2)
     assert {e.relation_type for e in nb.edges} == {"validates"}
     assert {e.canonical_name for e in nb.entities} == {"auth", "token"}
