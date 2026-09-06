@@ -115,8 +115,8 @@ def _first_top_level(mapping: Mapping[str, Any], keys: tuple[str, ...]) -> str |
 
 def pinned_source_uri(frontmatter: Mapping[str, Any]) -> str | None:
     """Build a canonical pin from note metadata, or ``None`` when the note does
-    not carry both a repo and a sha (such notes are stored unpinned and the
-    broker will never serve them).
+    not carry all three of repo, sha and path (such notes are stored unpinned
+    and the broker will never serve them).
 
     Recognised keys: repo/repository/source_repo, sha/commit/commit_sha/
     source_sha, path/source_path/file/source_file, line_start/line_end (or

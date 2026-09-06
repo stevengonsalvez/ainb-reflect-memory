@@ -139,9 +139,9 @@ class InsertMemoryInput:
         """Build the shared-store input for a learning note.
 
         This is the ingest boundary for pinning: when the note's frontmatter
-        carries a repo and a sha (plus a path), ``source_uri`` becomes the
-        canonical ``repo@sha:path`` pin the broker can verify; otherwise the
-        note is stored unpinned and the broker will never serve it. The
+        carries a repo, a sha and a path, ``source_uri`` becomes the canonical
+        ``repo@sha:path`` pin the broker can verify; a note missing any of the
+        three is stored unpinned and the broker will never serve it. The
         classification label is copied into metadata so the floor applies.
         """
         from reflect_kb.pinning import pinned_source_uri
