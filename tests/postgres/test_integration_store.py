@@ -139,6 +139,32 @@ def test_graph_neighborhood_is_same_tenant_only(store) -> None:
     assert nb_b.entities == []
 
 
+def test_every_call_ends_its_own_transaction_and_unbinds(conn, store) -> None:
+    """On the documented non-autocommit connection every store call commits
+    or rolls back its own transaction: the connection is idle afterwards, the
+    tenant binding is gone, and a failed statement leaves it usable."""
+    import psycopg
+
+    idle = psycopg.pq.TransactionStatus.IDLE
+    a = Tenant(workspace_id=WS_A)
+    assert conn.info.transaction_status == idle
+    store.insert_memory(InsertMemoryInput(tenant=a, content="idle after the write", source_type="note"))
+    assert conn.info.transaction_status == idle
+    assert store.search_memory(SearchMemoryInput(tenant=a, query="idle"))
+    assert conn.info.transaction_status == idle
+    with conn.transaction():
+        row = conn.execute("select current_setting('app.current_workspace', true) as ws").fetchone()
+    assert (row["ws"] or "") == "", row
+    assert conn.info.transaction_status == idle
+    ea = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="X", entity_type="t"))
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
+        store.upsert_edge(UpsertEdgeInput(
+            tenant=a, source_entity_id=ea.id, target_entity_id="00000000-0000-0000-0000-00000000dead",
+            relation_type="rel"))
+    assert conn.info.transaction_status == idle, "a failed call left the connection aborted"
+    assert store.search_memory(SearchMemoryInput(tenant=a, query="idle")), "the connection is unusable after a failure"
+
+
 def test_cross_tenant_edge_is_physically_rejected(store) -> None:
     import psycopg
 

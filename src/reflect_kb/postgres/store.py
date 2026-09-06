@@ -91,18 +91,26 @@ class MemoryStore:
         that ends the call, so nothing is cached that a rollback could
         invalidate, and a pooled connection never carries a workspace into
         its next user (an unbound GUC denies every row, the fail-closed
-        default). Under autocommit each call gets an explicit transaction so
-        the SET LOCAL covers the statement it guards.
+        default). Every call runs in its own transaction that ends with the
+        call (commit, or rollback on an exception), so the connection is
+        idle between calls and never stays aborted.
         """
         workspace_id = str(tenant.workspace_id)
         transaction = getattr(self._conn, "transaction", None)
-        if getattr(self._conn, "autocommit", False) and callable(transaction):
+        if callable(transaction):
+            # psycopg3: one transaction per call whatever the autocommit
+            # setting, committed (or rolled back on an exception) when the
+            # block ends, so the connection never sits idle-in-transaction
+            # with the tenant still bound and never stays aborted.
             with transaction():
                 self._set_local(workspace_id)
                 yield
-        else:
-            self._set_local(workspace_id)
+            return
+        self._set_local(workspace_id)
+        try:
             yield
+        finally:
+            self._commit()
 
     def _set_local(self, workspace_id: str) -> None:
         with self._conn.cursor() as cur:
@@ -117,7 +125,6 @@ class MemoryStore:
         sql_text, params = sql.insert_memory(inp)
         with self._scoped(inp.tenant):
             row = self._fetchone(sql_text, params)
-        self._commit()
         assert row is not None  # RETURNING always yields a row
         return MemoryItem.from_row(row)
 
@@ -125,7 +132,6 @@ class MemoryStore:
         sql_text, params = sql.upsert_entity(inp)
         with self._scoped(inp.tenant):
             row = self._fetchone(sql_text, params)
-        self._commit()
         assert row is not None
         return Entity.from_row(row)
 
@@ -133,7 +139,6 @@ class MemoryStore:
         sql_text, params = sql.upsert_edge(inp)
         with self._scoped(inp.tenant):
             row = self._fetchone(sql_text, params)
-        self._commit()
         assert row is not None
         return Edge.from_row(row)
 
