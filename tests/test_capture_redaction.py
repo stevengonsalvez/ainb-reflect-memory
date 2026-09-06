@@ -8,6 +8,7 @@ a verbatim secret-shaped literal (GitHub push protection).
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -305,8 +306,11 @@ class _Engine:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str | None]] = []
 
-    def insert_document(self, text, entities_formatted=None):
+    def insert_document(self, text, entities_formatted=None, label=None):
         self.calls.append((text, entities_formatted))
+        return SimpleNamespace(indexed=True, reason=None)
+
+    shared_store_target = None
 
 
 def _kb(tmp_path: Path, monkeypatch) -> Path:
