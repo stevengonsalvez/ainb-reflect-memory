@@ -22,7 +22,8 @@ cp .env.example .env   # .env is git-ignored; never commit it
 | `SUPABASE_URL`              | `https://<ref>.supabase.co`                  | direct client path (Phase 2+)       | safe to expose                                  |
 | `SUPABASE_ANON_KEY`         | public anon key                              | direct browser/PostgREST reads      | safe to expose (RLS still applies)              |
 | `SUPABASE_SERVICE_ROLE_KEY` | service-role key (**bypasses RLS**)          | migrations / trusted workers only   | **NEVER** to browser/client; NEVER commit       |
-| `REFLECT_PG_DSN`            | DSN that switches reflect to the shared backend | enabling the backend (write path = service_role) | server/worker only |
+| `REFLECT_PG_DSN`            | DSN that switches reflect to the shared backend | enabling the backend (write path: `service_role` or `reflect_writer`) | server/worker only |
+| `REFLECT_BROKER_PG_DSN`     | the Context Broker's own DSN (`reflect_broker` role) | running the broker | broker host only |
 | `REFLECT_WORKSPACE_ID`      | tenant UUID (hard isolation boundary)        | enabling the backend                | n/a (not a secret)                              |
 
 ### Bitwarden item
@@ -58,9 +59,11 @@ credentials (see §5).
    Use the **direct** connection string for migrations; the pooler/session
    string is fine for app traffic.
 
-Phase 1 needs only `pgcrypto` and `pg_trgm`; both are available on Supabase by
-default and are enabled by the migration itself. `vector` (pgvector) is **not**
-required until Phase 2.
+The migrations need `pgcrypto`, `pg_trgm` and `vector` (pgvector); all three
+are available on Supabase by default and are enabled by the files themselves.
+Locally, install the `pgvector` package for your Postgres before applying
+0002 (for example `brew install pgvector`; it lands in PostgreSQL 17's
+extension dir).
 
 ---
 
@@ -74,13 +77,16 @@ here instead of repeating it. Each file is plain SQL and re-runnable
 |---|---|---|---|
 | 1 | `0001_reflect_memory_phase1.sql` | `pgcrypto`, `pg_trgm` (enabled by the file) | schema, memory tables, RLS, grants |
 | 2 | `0002_nanographrag_pgvector.sql` | `pgvector` (enabled by the file; install the package locally) | `ng_*` tables for the shared nano-graphrag store |
-| 3 | `0003_classification_force_rls.sql` | 1 and 2 applied | legacy-row pre-check, FORCE RLS on all seven tables, classification floor |
+| 3 | `0003_classification_force_rls.sql` | 1 and 2 applied | legacy-row pre-check, FORCE RLS on all seven tables, classification floor on every label column, read functions filter before `limit` |
+| 4 | `0004_broker_and_writer_roles.sql` | `reflect.broker_password` and `reflect.writer_password` set in the session | the `reflect_broker` and `reflect_writer` LOGIN roles (see "Roles" below) |
 
-**Option A, psql (works anywhere):**
+**Option A, psql (works anywhere).** Every file in the directory, in name
+order, stopping at the first failure:
 
 ```bash
-for f in 0001_reflect_memory_phase1 0002_nanographrag_pgvector 0003_classification_force_rls; do
-  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql"
+export PGOPTIONS="-c reflect.broker_password=$BROKER_PASSWORD -c reflect.writer_password=$WRITER_PASSWORD"
+for f in supabase/migrations/*.sql; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$f" || { echo "failed: $f" >&2; break; }
 done
 ```
 
@@ -96,6 +102,17 @@ applied in SQL, before `limit`. With FORCE, the table owner is subject to the
 policies too. Consequence for the worker DSN: connect as a BYPASSRLS role
 (Supabase `service_role`) or as a role that sets `app.current_workspace` per
 connection; an owner role without either now sees nothing, by design.
+
+### Roles (created by 0004, the one place they are defined)
+
+| Role | Used by | Variable | Grants | RLS |
+|---|---|---|---|---|
+| `reflect_writer` | the Mode 2 writer (ingest, reindex) on deployments without a BYPASSRLS service role | `REFLECT_PG_DSN` | SELECT, INSERT, UPDATE, DELETE on every table; sequences; every function | applies; bound per connection via `app.current_workspace` |
+| `reflect_broker` | the Context Broker | `REFLECT_BROKER_PG_DSN` | SELECT on every table; EXECUTE on the search functions only | applies; the broker refuses a superuser, BYPASSRLS or owner role at startup |
+| `service_role` (Supabase) | migrations, and the writer where you accept BYPASSRLS | `REFLECT_PG_DSN` | everything | bypassed |
+
+One variable per process: the writer never reads `REFLECT_BROKER_PG_DSN`
+and the broker never reads `REFLECT_PG_DSN`. Neither role owns a table.
 
 **Option B, Supabase CLI** (if you use it for this project):
 
@@ -194,7 +211,7 @@ test and truncate tables between tests.
   every returned hit pinned and resolved, refusals counted; the live test
   serves it with uvicorn against this database
 
-See [README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
+See [README → Two ways to run: local or shared](../README.md#two-ways-to-run-local-or-shared).
 
 ---
 
@@ -202,7 +219,7 @@ See [README → Shared memory across machines](../README.md#shared-memory-across
 
 Makes reflect's nano-graphrag use this Postgres as its shared vector + graph +
 community store, so the same memory is queryable from every machine. See
-[README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
+[README → Two ways to run: local or shared](../README.md#two-ways-to-run-local-or-shared).
 
 ### Migration
 
@@ -232,12 +249,15 @@ export REFLECT_WORKSPACE_ID="<workspace-uuid>"
 `app.current_workspace` GUC on connect, and the tenant resolver treats a signed
 JWT claim as authoritative over that GUC. Direct clients (`authenticated`) are
 granted **read-only** SELECT plus EXECUTE on the search functions, and direct
-writes go through the worker, not PostgREST. The Context Broker's DSN must be a
-read-only role that RLS applies to (SELECT and EXECUTE grants, no BYPASSRLS):
-it binds `SET LOCAL app.current_workspace` per request and relies on FORCE RLS
-as the second layer under its explicit scoping. `service_role` bypasses RLS,
-so it must not be the broker's DSN. Both DSNs refuse plaintext to a remote
-host unless `REFLECT_PG_ALLOW_INSECURE=1`.
+writes go through the worker, not PostgREST. `MemoryStore` binds
+`app.current_workspace` to the tenant it acts for before every statement, so
+the owner or `reflect_writer` role writes under FORCE RLS. The Context Broker
+reads its own `REFLECT_BROKER_PG_DSN`, the `reflect_broker` role from 0004
+(SELECT and EXECUTE, no BYPASSRLS, never owner): it binds `SET LOCAL
+app.current_workspace` per request and relies on FORCE RLS as the second layer
+under its explicit scoping, and it refuses a superuser, BYPASSRLS or owner
+role at startup. Both DSNs refuse plaintext to a remote host unless
+`REFLECT_PG_ALLOW_INSECURE=1`.
 
 The `reflect` client needs nano-graphrag + its embedding stack (the `[graph]`
 extra); the Postgres adapters add the `[postgres]` extra (psycopg). Install both:

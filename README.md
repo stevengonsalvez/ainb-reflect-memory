@@ -136,7 +136,7 @@ vector + graph + community store lives in one shared DB. Opt in per machine:
 ```bash
 pip install '.[graph,postgres]'                                   # postgres extra = psycopg
 # apply supabase/migrations/ in order; the one ordered list is docs/setup.md, "Apply the migrations"
-export REFLECT_PG_DSN=postgresql://…        # the trigger (NOT the generic DATABASE_URL)
+export REFLECT_PG_DSN=postgresql://…        # the writer's DSN (reflect_writer or service_role), the trigger; NOT the generic DATABASE_URL, NOT the broker's
 export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
 ```
 
@@ -168,7 +168,7 @@ to a caller whose OIDC token names the workspace.
 
 ```bash
 pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
-export REFLECT_PG_DSN='postgresql://…?sslmode=verify-full' # the shared store; TLS required; a read-only role that RLS applies to (not service_role)
+export REFLECT_BROKER_PG_DSN='postgresql://reflect_broker:…@…?sslmode=verify-full' # the broker's own DSN: the reflect_broker role from migration 0004, never the writer's
 export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
 export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
 export REFLECT_BROKER_TENANT_CLAIM=workspace_id           # claim that names the workspace (default)
@@ -193,7 +193,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | `REFLECT_BROKER_FORGE_URL_TEMPLATE` | For `http`: formatted with `{repo}`, `{sha}`, `{path}`. | GitHub raw |
 | `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
 | `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
-| `REFLECT_PG_ALLOW_INSECURE` | `1` permits a `REFLECT_PG_DSN` without `sslmode=require|verify-ca|verify-full`. Otherwise both the broker and the Mode 2 writer refuse a plaintext DSN to a remote host. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
+| `REFLECT_BROKER_PG_DSN` | The broker's own DSN. Must be a role RLS applies to: the broker refuses a superuser, a BYPASSRLS role (Supabase `service_role`) or the table owner at startup. Migration 0004 creates `reflect_broker` for it. Required. | |
+| `REFLECT_PG_ALLOW_INSECURE` | `1` permits a DSN without `sslmode=require|verify-ca|verify-full`. Otherwise both the broker and the Mode 2 writer refuse a plaintext DSN to a remote host. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
 
 **Microsoft Entra ID is a config swap.** From the public Entra documentation
 (learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and
@@ -255,7 +256,8 @@ rules; the egress page links here rather than repeating them.
 | hit whose pin does not resolve | dropped, `meta.dropped.unresolvable` | the commit or path does not exist where we can see it |
 | hit classified `restricted` or `pii`, or an unknown label | dropped, `meta.dropped.classified` | above the floor (unknown fails closed); restricted and pii also cannot exist in the shared store (migration 0003) |
 | graph edge whose `evidence_memory_id` was not returned | dropped, `meta.dropped.unverified_edges` | an edge must not cite a memory the caller could not see |
-| `REFLECT_PG_DSN` without TLS | broker refuses to start | notes and vectors cross the network on that DSN |
+| `REFLECT_BROKER_PG_DSN` without TLS, or with a superuser, BYPASSRLS or owner role | broker refuses to start | notes and vectors cross the network on that DSN; RLS would not apply to that role |
+| `GET /healthz` | 200, unauthenticated, body `{"status": "ok"}` | liveness for the process supervisor; it reads no store and names no tenant |
 | `lexical_limit` above `REFLECT_BROKER_MAX_LIMIT` | capped | bounded reads |
 
 The loopback memory browser (`reflect serve`) remains unauthenticated and local
