@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 
@@ -35,7 +36,7 @@ def test_sourcing_the_library_has_no_side_effects(home) -> None:
 def test_hook_sources_the_library_and_uses_its_argv() -> None:
     hook = (PLUGIN / "hooks" / "reflect-drain-bg.sh").read_text(encoding="utf-8")
     assert 'source "${SCRIPT_DIR}/lib/writer_argv.sh"' in hook
-    assert 'drain_agentic_writer_argv "$prompt"' in hook
+    assert re.search(r'drain_agentic_writer_argv "\$(?:prompt|\(drain_writer_prompt "\$prompt"\))"', hook)
     assert '"${WRITER_ARGV[@]}"' in hook
     # No second copy of the argv inline.
     assert hook.count("--permission-mode") == 0
