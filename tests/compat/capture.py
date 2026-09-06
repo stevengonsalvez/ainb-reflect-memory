@@ -206,8 +206,15 @@ class Capture:
     def _add(self) -> dict[str, Any]:
         before = set(self._notes())
         results = {}
-        for note in (self.tree / "tests" / "samples" / "tokio-runtime-nested-panic.md",
-                     self.fixtures / "legacy-note-with-secret.md"):
+        # reflect add may rewrite its source file in place (a redacted copy
+        # replaces a note that carried a secret), so every note is added from
+        # a scratch copy, never from the checkout's fixture.
+        inbox = self.home / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        for source in (self.tree / "tests" / "samples" / "tokio-runtime-nested-panic.md",
+                       self.fixtures / "legacy-note-with-secret.md"):
+            note = inbox / source.name
+            note.write_bytes(source.read_bytes())
             proc = self.run([str(self.reflect_bin), "add", "--force", str(note)])
             # Only the exit code is compared; rich wraps paths across lines in
             # stderr, which defeats HOME normalization. Keep stderr on failure.
