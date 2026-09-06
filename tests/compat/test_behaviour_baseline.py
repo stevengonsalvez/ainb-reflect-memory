@@ -175,7 +175,10 @@ def _transcript_key_renamed(key: str, old, new) -> bool:
         return False
     import re
 
-    renamed = re.sub(r'^source_path: ("[^"\n]*\.jsonl")$', r"source_transcript: \1", old, count=1, flags=re.MULTILINE)
+    # The branch writes the transcript under both keys the readers know: the
+    # top-level source_transcript and the template's provenance block.
+    renamed = re.sub(r'^source_path: ("[^"\n]*\.jsonl")$',
+                     r"source_transcript: \1\nprovenance:\n  source_path: \1", old, count=1, flags=re.MULTILINE)
     return renamed != old and redaction_or_classification(key, renamed, new)
 
 

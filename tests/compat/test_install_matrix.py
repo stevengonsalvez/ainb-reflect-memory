@@ -94,6 +94,7 @@ ALLOWED_PLUGIN_CHANGES: dict[str, str] = {
     "scripts/skill_index.py": "#38: the skill summary is redacted before it is stored",
     # #39 broker route
     "assets/learning_template.md": "#39: top-level repo, commit and source_path keys a pin is built from",
+    "skills/recall/scripts/recall.py": "#39: recall reads the transcript path from source_transcript, then provenance",
 }
 
 

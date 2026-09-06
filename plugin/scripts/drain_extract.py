@@ -308,7 +308,12 @@ def render_md(learning: dict, *, source_path: str, session_id: str, provenance: 
     else:
         fm.append("causal_relations: []")
     if source_path:
+        # The transcript path, under both keys the readers know: the
+        # top-level source_transcript and the template's provenance block.
+        # Top-level source_path is the pin's repo-relative code path only.
         fm.append(f"source_transcript: {_yaml_str(source_path)}")
+        fm.append("provenance:")
+        fm.append(f"  source_path: {_yaml_str(source_path)}")
     file_path = str(learning.get("file", "") or "").strip()
     if file_path.startswith("./"):
         file_path = file_path[2:]

@@ -51,6 +51,16 @@ def test_repo_from_remote_keeps_the_full_path(url: str, repo: str) -> None:
     assert drain_extract.repo_from_remote(url) == repo
 
 
+def test_render_md_writes_the_transcript_under_both_keys_and_never_an_absolute_pin(tmp_path: Path) -> None:
+    text = drain_extract.render_md({"title": "t", "key_insight": "k", "file": "/etc/passwd"},
+                                   source_path="/tmp/session.jsonl", session_id="s",
+                                   provenance={"repo": "acme/widgets", "commit": "a" * 40})
+    fm = yaml.safe_load(text.split("---", 2)[1])
+    assert fm["source_transcript"] == "/tmp/session.jsonl"
+    assert fm["provenance"]["source_path"] == "/tmp/session.jsonl"
+    assert "source_path" not in fm and "repo" not in fm, "an absolute file must not become a pin"
+
+
 def test_render_md_writes_the_pin_keys_only_when_all_three_are_known(tmp_path: Path) -> None:
     root, sha = _repo(tmp_path, "git@github.com:acme/widgets.git")
     prov = drain_extract.git_provenance(str(root))
@@ -67,10 +77,13 @@ def test_render_md_writes_the_pin_keys_only_when_all_three_are_known(tmp_path: P
 
     fm = {"repo": "acme/widgets", "commit": sha, "source_path": "src/auth.rs"}
     assert pinned_source_uri(fm) == f"acme/widgets@{sha}:src/auth.rs"
+    def top(text: str) -> dict:
+        return yaml.safe_load(text.split("---", 2)[1])
+
     no_file = drain_extract.render_md({**learning, "file": ""}, source_path="/tmp/t.jsonl", session_id="s", provenance=prov)
-    assert "repo:" not in no_file and "source_path:" not in no_file
+    assert "repo" not in top(no_file) and "source_path" not in top(no_file)
     traversal = drain_extract.render_md({**learning, "file": "../etc/passwd"}, source_path="", session_id="s", provenance=prov)
-    assert "source_path:" not in traversal
+    assert "source_path" not in top(traversal)
 
 
 def test_pin_falls_back_to_nested_provenance() -> None:
