@@ -122,8 +122,12 @@ class EvalHarness:
             # caches are pinned to the real home so nothing re-downloads.
             env = hermetic_env(
                 kb_dir=self.kb_dir, state_dir=self.state_dir,
-                cache_home=self.cache_home, base=env,
+                cache_home=self.cache_home, base=env, daemon=True,
             )
+            # The eval harness runs many recall subprocesses; the model must
+            # come from the shared daemon, not a cold load per call.
+            assert env.get("REFLECT_NO_DAEMON", "0") != "1", (
+                "the eval harness must use the model daemon; unset REFLECT_NO_DAEMON")
         # RECALL_EVAL_BIN_DIR: a venv bin dir holding a full-stack `reflect`
         # (the global install may be the slim build without [graph]). Prepended
         # so both the harness and recall.py's subprocess resolve the same CLI.

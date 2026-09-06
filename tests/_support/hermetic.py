@@ -39,6 +39,7 @@ def hermetic_env(
     base: dict[str, str] | None = None,
     home: Path | None = None,
     path: str | None = None,
+    daemon: bool | None = None,
 ) -> dict[str, str]:
     """Environment for a subprocess that must not touch the operator's data.
 
@@ -50,10 +51,15 @@ def hermetic_env(
     env["GLOBAL_LEARNINGS_PATH"] = str(kb_dir)
     env["REFLECT_STATE_DIR"] = str(state_dir)
     env["XDG_CACHE_HOME"] = str(cache_home)
-    # The compat gate (base={}) gets the daemon off; the eval harness passes
-    # os.environ and may opt out with REFLECT_NO_DAEMON=0 so a shared daemon
-    # keeps the model loaded across its subprocesses.
-    env.setdefault("REFLECT_NO_DAEMON", "1")
+    # ``daemon`` decides explicitly: the compat gate passes nothing and gets
+    # the daemon off (REFLECT_NO_DAEMON=1, reloading the model per subprocess
+    # is the hermetic default); the eval harness passes daemon=True so a
+    # shared daemon keeps the model loaded across its subprocesses. An
+    # operator's own REFLECT_NO_DAEMON in ``base`` is honoured either way.
+    if daemon is None:
+        env.setdefault("REFLECT_NO_DAEMON", "1")
+    else:
+        env.setdefault("REFLECT_NO_DAEMON", "0" if daemon else "1")
     real_home = Path(os.environ.get("HOME", str(Path.home())))
     env.setdefault("HF_HOME", os.environ.get("HF_HOME", str(real_home / ".cache" / "huggingface")))
     env.setdefault(
