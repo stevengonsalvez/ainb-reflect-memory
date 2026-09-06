@@ -159,3 +159,29 @@ def test_issuer_trailing_slash_is_normalised_on_both_sides(issuer, configured, m
     with pytest.raises(AuthError):
         v.verify(f"Bearer {issuer.mint(issuer='https://evil.test/')}")
 
+
+
+def test_jwks_without_a_usable_key_is_503_and_asked_once_per_floor(issuer) -> None:
+    """A document whose keys have no kid (or a type PyJWT cannot build) must
+    not become an empty key set: warm() fails loudly, and the refresh floor
+    applies to the empty-keys path, so a broken issuer is not refetched on
+    every request."""
+    issuer.jwks = {"keys": [{k: v for k, v in issuer.jwks["keys"][0].items() if k != "kid"}]}
+    v = issuer.verifier()  # default floor: 30s
+    with pytest.raises(AuthError) as exc:
+        v.warm()
+    assert exc.value.status == 503 and "no usable signing key" in exc.value.detail
+    assert issuer.jwks_hits == 1
+    for _ in range(10):
+        with pytest.raises(AuthError):
+            v.verify(f"Bearer {issuer.mint()}")
+    assert issuer.jwks_hits == 1, "the empty-keys path must honour the refresh floor"
+
+
+def test_known_kid_is_served_without_the_lock_or_a_fetch(issuer) -> None:
+    """The fast path reads the key set without taking the refresh lock."""
+    v = issuer.verifier()
+    v.warm()
+    with v._lock:  # held for the whole check: a locked lookup would deadlock
+        v.verify(f"Bearer {issuer.mint()}")
+    assert issuer.jwks_hits == 1

@@ -86,7 +86,8 @@ class OIDCVerifier:
         self._cfg = config
         self._http = http or httpx.Client(timeout=5.0)
         self._keys: dict[str, Any] = {}
-        self._fetched_at = 0.0
+        self._fetched_at = 0.0  # the last successful key fetch
+        self._attempted_at = 0.0  # the last fetch attempt, failed ones included: the floor counts those
         self._jwks_uri: str | None = None
         self._lock = threading.Lock()
         # kid -> monotonic time it was last confirmed absent after a fresh fetch
@@ -119,6 +120,7 @@ class OIDCVerifier:
         return jwks_uri
 
     def _refresh_keys(self) -> None:
+        self._attempted_at = time.monotonic()
         resp = self._http.get(self._jwks_url())
         resp.raise_for_status()
         keys: dict[str, Any] = {}
@@ -135,15 +137,37 @@ class OIDCVerifier:
                 keys[kid] = jwt.PyJWK(jwk_dict).key
             except jwt.PyJWTError:
                 continue
-        self._keys = keys
+        if not keys:
+            # A document with no kid, or only key types PyJWT cannot build,
+            # must not become an empty key set: warm() would report success
+            # and every request would refetch under the lock.
+            raise AuthError(503, "JWKS document yields no usable signing key")
+        self._keys = keys  # one atomic swap; readers never see a partial dict
         self._fetched_at = time.monotonic()
         self._unknown.clear()
 
     def _key_for(self, kid: str) -> Any:
+        # Fast path, no lock: a fresh key set answers a known kid directly.
+        # The dict is replaced whole on refresh, so a concurrent refresh
+        # cannot hand this reader a partial set.
+        now = time.monotonic()
+        keys = self._keys
+        if keys and (now - self._fetched_at) <= self._cfg.jwks_cache_ttl:
+            key = keys.get(kid)
+            if key is not None:
+                return key
         with self._lock:
             now = time.monotonic()
             stale = (now - self._fetched_at) > self._cfg.jwks_cache_ttl
-            if stale or not self._keys:
+            # Double-checked: another thread may have refreshed while this
+            # one waited for the lock. The refresh floor applies to the
+            # empty-keys path too and counts failed attempts, so a failing
+            # issuer is asked at most once per floor interval, never once
+            # per request.
+            last_attempt = self._attempted_at
+            if (stale or not self._keys) and (
+                last_attempt == 0.0 or (now - last_attempt) >= self._cfg.jwks_refresh_floor
+            ):
                 self._refresh_keys()
                 now = time.monotonic()
             key = self._keys.get(kid)
@@ -155,7 +179,7 @@ class OIDCVerifier:
             seen_absent = self._unknown.get(kid)
             if seen_absent is not None and (now - seen_absent) < self._cfg.jwks_refresh_floor:
                 raise AuthError(401, "token signed by an unknown key")
-            if (now - self._fetched_at) >= self._cfg.jwks_refresh_floor:
+            if (now - self._attempted_at) >= self._cfg.jwks_refresh_floor:
                 self._refresh_keys()
                 key = self._keys.get(kid)
                 if key is not None:
