@@ -183,9 +183,13 @@ class Capture:
         for src in (self.tree / "tests" / "e2e" / "fixture-kb" / "documents").iterdir():
             shutil.copy(src, self.kb / "documents" / src.name)
         out: dict[str, Any] = {}
-        out["add"] = self._add()
+        # Index, search and recall run on the pristine fixture KB first, so
+        # their captures do not depend on notes whose text a later branch is
+        # allowed to change (redaction). add and extract come after and are
+        # compared on their own written files.
         out["reindex"], out["search"] = self._reindex_and_search()
         out["recall"] = self._recall_hook()
+        out["add"] = self._add()
         out["cascade"] = self._cascade()
         out["extract"] = self._extract()
         return out
