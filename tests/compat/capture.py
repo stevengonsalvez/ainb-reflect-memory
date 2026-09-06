@@ -215,7 +215,12 @@ class Capture:
             if proc.returncode != 0:
                 results[note.name]["stderr_tail"] = self.norm(proc.stderr[-400:])
         after = self._notes()
-        return {"runs": results, "added": {k: v for k, v in after.items() if k not in before}}
+        # Filenames are masked (-<hash>) so content diffs read cleanly; the ids
+        # themselves are recorded unmasked so a change in how an id is derived
+        # (for example hashing the redacted bytes) is a visible diff that needs
+        # a whitelist entry, not something the mask hides.
+        ids = sorted(p.stem for p in (self.kb / "documents").glob("*.md"))
+        return {"runs": results, "added": {k: v for k, v in after.items() if k not in before}, "ids": ids}
 
     def _reindex_and_search(self) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
