@@ -83,3 +83,24 @@ def test_mirror_keeps_restricted_notes_local_and_reports_connection_failures() -
 
     with pytest.raises(MirrorError, match="could not connect"):
         mirror_note("postgresql://w@localhost/db", WS, content=NOTE, frontmatter=FM, connect=boom)
+
+
+def test_a_plain_remote_connection_is_a_mirror_error_not_a_crash() -> None:
+    """Item 34: an insecure DSN used to escape as InsecureDSNError past the
+    CLI's except MirrorError, aborting reflect add after the local write."""
+    from types import SimpleNamespace
+
+    import pytest
+
+    from reflect_kb.postgres.mirror import MirrorError, mirror_note
+
+    class _RemoteConn:
+        info = SimpleNamespace(host="db.example.com", hostaddr="", ssl_in_use=False)
+
+        def close(self):
+            pass
+
+    with pytest.raises(MirrorError, match="could not connect"):
+        mirror_note("postgresql://u@db.example.com/x", "0cccccc0-0000-4000-8000-00000000cccc",
+                    content="---\ntitle: t\n---\nbody", frontmatter={"title": "t"},
+                    connect=lambda d: _RemoteConn())

@@ -25,7 +25,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
-from reflect_kb.postgres.dsn import assert_tls
+from reflect_kb.postgres.dsn import connect_secure
 from reflect_kb.postgres.errors import ValidationError
 from reflect_kb.postgres.models import (
     InsertMemoryInput,
@@ -69,7 +69,6 @@ def mirror_note(
         inp = InsertMemoryInput.from_note(tenant, frontmatter, content, source_type=source_type)
     except ValidationError as exc:
         return MirrorResult(skipped=str(exc))
-    assert_tls(dsn, what="REFLECT_PG_DSN")
     if connect is None:
         import psycopg
         from psycopg.rows import dict_row
@@ -79,7 +78,10 @@ def mirror_note(
 
     result = MirrorResult()
     try:
-        conn = connect(dsn)
+        # The TLS judgement is made on the open connection; a plain remote
+        # DSN is a MirrorError here like every other failure, never an
+        # exception that escapes to reflect add.
+        conn = connect_secure(dsn, what="REFLECT_PG_DSN", connect=lambda d, **_: connect(d))
     except Exception as exc:
         raise MirrorError(f"could not connect to the shared store: {exc}") from exc
     try:
