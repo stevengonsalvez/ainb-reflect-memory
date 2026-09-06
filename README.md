@@ -140,6 +140,15 @@ export REFLECT_PG_DSN=postgresql://…        # the writer's DSN (reflect_writer
 export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
 ```
 
+With both set, `reflect add` and `reflect reindex` write each note twice:
+nano-graphrag's Postgres-backed storage gets the chunks, vectors and graph
+(the `ng_*` tables), and the note itself is mirrored into `memory_items`,
+with the sidecar's entities and relationships as `entities` and `edges`,
+carrying the note's classification (`restricted` and `pii` are refused by
+the floor) and idempotent on the content hash. That mirror is the store the
+Context Broker reads; nothing else in the pipeline writes it. A mirror
+failure is logged and the local note stays the source of truth.
+
 Unset → Mode 1, unchanged. The DB is **dumb**: no LLM, no embeddings — it
 stores, scopes by tenant, and runs ANN/graph reads. Tenant isolation is RLS
 (fail-closed) on the direct path + explicit `workspace_id` scoping on the
