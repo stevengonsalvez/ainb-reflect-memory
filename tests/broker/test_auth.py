@@ -70,13 +70,44 @@ def test_alg_none_and_hs256_are_refused(issuer) -> None:
 
 
 def test_jwks_is_cached_and_refreshed_once_on_unknown_kid(issuer) -> None:
-    v = issuer.verifier()
+    v = issuer.verifier(jwks_refresh_floor=0.0)
     v.verify(f"Bearer {issuer.mint()}")
     v.verify(f"Bearer {issuer.mint()}")
     assert issuer.jwks_hits == 1
     with pytest.raises(AuthError):
         v.verify(f"Bearer {issuer.mint(kid='rotated')}")
     assert issuer.jwks_hits == 2
+
+
+def test_unknown_kids_cannot_amplify_fetches(issuer) -> None:
+    """Within the refresh floor an unknown kid triggers no fetch, and a kid the
+    fresh fetch still lacked is answered from the negative cache."""
+    v = issuer.verifier()  # default floor: 30s
+    v.verify(f"Bearer {issuer.mint()}")
+    assert issuer.jwks_hits == 1
+    for _ in range(25):
+        with pytest.raises(AuthError) as exc:
+            v.verify(f"Bearer {issuer.mint(kid='rotated-' + str(_ % 5))}")
+        assert exc.value.status == 401
+    assert issuer.jwks_hits == 1
+
+
+def test_warm_resolves_discovery_once_and_fetches_keys(issuer) -> None:
+    v = issuer.verifier()
+    v.warm()
+    assert issuer.jwks_hits == 1
+    v.verify(f"Bearer {issuer.mint()}")
+    assert issuer.jwks_hits == 1
+    assert v._jwks_uri == ISSUER + "/jwks"
+
+
+def test_tenant_claim_must_be_a_uuid(issuer) -> None:
+    with pytest.raises(AuthError) as exc:
+        issuer.verifier().verify(f"Bearer {issuer.mint(workspace_id='acme-workspace')}")
+    assert exc.value.status == 403
+    assert "UUID" in exc.value.detail
+    who = issuer.verifier().verify(f"Bearer {issuer.mint(workspace_id=WS_A.upper())}")
+    assert who.workspace_id == WS_A  # canonical form
 
 
 def test_hmac_and_none_cannot_be_configured(issuer) -> None:

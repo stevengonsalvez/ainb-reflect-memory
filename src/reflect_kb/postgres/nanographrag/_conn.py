@@ -100,6 +100,9 @@ class PgBackend:
         from psycopg.rows import dict_row
 
         if self._conn is None or self._conn.closed:
+            from reflect_kb.postgres.dsn import assert_tls
+
+            assert_tls(self.dsn, what="the shared-store DSN")
             self._conn = psycopg.connect(self.dsn, autocommit=True, row_factory=dict_row)
             # Bind the tenant for RLS so the adapter is correct under any role —
             # not just owner/service_role (BYPASSRLS). On a raw psycopg

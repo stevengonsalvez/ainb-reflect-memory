@@ -20,7 +20,7 @@ from reflect_kb.classification import may_leave_machine
 from reflect_kb.postgres import EvidencePack, EvidencePackQuery, MemoryStore, Tenant
 
 from .auth import AuthError, OIDCVerifier, Principal
-from .pinning import SourcePinError, SourceResolver, parse_source_uri
+from .pinning import SourcePinError, SourceResolver, parse_source_uri, resolve_all
 
 __all__ = ["StoreFactory", "create_app", "filter_pack", "psycopg_store_factory"]
 
@@ -40,9 +40,12 @@ def psycopg_store_factory(dsn: str) -> StoreFactory:
         import psycopg
         from psycopg.rows import dict_row
 
-        conn = psycopg.connect(dsn, row_factory=dict_row)
+        # Not autocommit: the request runs inside one transaction so the
+        # SET LOCAL workspace binding covers every read and dies with it.
+        conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=False)
         try:
-            yield MemoryStore(conn)
+            with conn.transaction():
+                yield MemoryStore(conn)
         finally:
             conn.close()
 
@@ -149,16 +152,20 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
     dropped = DroppedCounts()
     hits: list[LexicalHit] = []
     kept_ids: set[str] = set()
+    # Parse first, then resolve every pin in one batch (one git batch-check
+    # per repo per request), then assemble.
+    parsed: list[tuple[Any, Any]] = []
     for hit in pack.lexical:
         if not may_leave_machine(getattr(hit, "metadata", None)):
             dropped.classified += 1
             continue
         try:
-            pin = parse_source_uri(hit.source_uri)
+            parsed.append((hit, parse_source_uri(hit.source_uri)))
         except SourcePinError:
             dropped.unpinned += 1
-            continue
-        if not resolver.resolve(pin):
+    resolved = resolve_all(resolver, [pin for _, pin in parsed])
+    for hit, pin in parsed:
+        if not resolved.get(pin, False):
             dropped.unresolvable += 1
             continue
         kept_ids.add(hit.memory_id)
@@ -258,6 +265,7 @@ def create_app(
             neighborhood_depth=req.neighborhood_depth,
         )
         with store_factory() as store:
+            store.bind_workspace(who.workspace_id)
             pack = store.get_evidence_pack(query)
         return filter_pack(pack, resolver)
 

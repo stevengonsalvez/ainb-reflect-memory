@@ -17,7 +17,9 @@ Verification order for every request:
 
 from __future__ import annotations
 
+import threading
 import time
+import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -49,6 +51,9 @@ class OIDCConfig:
     jwks_url: str | None = None
     algorithms: Sequence[str] = ("RS256",)
     jwks_cache_ttl: float = 300.0
+    # Floor between two JWKS fetches, so a flood of unknown kids cannot turn the
+    # broker into a request amplifier against the issuer.
+    jwks_refresh_floor: float = 30.0
     # Claims PyJWT must see on every token. ``exp`` keeps a stolen token short
     # lived; ``iss``/``aud`` are verified against the values above.
     required_claims: Sequence[str] = ("exp", "iss", "aud")
@@ -82,12 +87,25 @@ class OIDCVerifier:
         self._http = http or httpx.Client(timeout=5.0)
         self._keys: dict[str, Any] = {}
         self._fetched_at = 0.0
+        self._jwks_uri: str | None = None
+        self._lock = threading.Lock()
+        # kid -> monotonic time it was last confirmed absent after a fresh fetch
+        self._unknown: dict[str, float] = {}
 
     # -- JWKS -----------------------------------------------------------------
+
+    def warm(self) -> None:
+        """Resolve the JWKS URI and fetch the keys once, at startup, so the
+        first request does not pay for discovery and a broken issuer fails
+        loudly before the broker serves anything."""
+        with self._lock:
+            self._refresh_keys()
 
     def _jwks_url(self) -> str:
         if self._cfg.jwks_url:
             return self._cfg.jwks_url
+        if self._jwks_uri:
+            return self._jwks_uri
         resp = self._http.get(self._cfg.discovery_url)
         resp.raise_for_status()
         doc = _json_object(resp, "issuer discovery document")
@@ -97,6 +115,7 @@ class OIDCVerifier:
         issuer = doc.get("issuer")
         if isinstance(issuer, str) and issuer.rstrip("/") != self._cfg.issuer.rstrip("/"):
             raise AuthError(503, "issuer discovery document names a different issuer")
+        self._jwks_uri = jwks_uri  # resolved once; discovery is not re-read per refresh
         return jwks_uri
 
     def _refresh_keys(self) -> None:
@@ -118,18 +137,31 @@ class OIDCVerifier:
                 continue
         self._keys = keys
         self._fetched_at = time.monotonic()
+        self._unknown.clear()
 
     def _key_for(self, kid: str) -> Any:
-        stale = (time.monotonic() - self._fetched_at) > self._cfg.jwks_cache_ttl
-        if stale or not self._keys:
-            self._refresh_keys()
-        if kid not in self._keys and not stale:
-            # Unknown kid on a fresh cache: refresh once for key rotation.
-            self._refresh_keys()
-        key = self._keys.get(kid)
-        if key is None:
+        with self._lock:
+            now = time.monotonic()
+            stale = (now - self._fetched_at) > self._cfg.jwks_cache_ttl
+            if stale or not self._keys:
+                self._refresh_keys()
+                now = time.monotonic()
+            key = self._keys.get(kid)
+            if key is not None:
+                return key
+            # Unknown kid. Refresh once for key rotation, but never more often
+            # than the floor, and remember a kid the fresh fetch still lacked
+            # (negative cache) so repeats are answered without a fetch.
+            seen_absent = self._unknown.get(kid)
+            if seen_absent is not None and (now - seen_absent) < self._cfg.jwks_refresh_floor:
+                raise AuthError(401, "token signed by an unknown key")
+            if (now - self._fetched_at) >= self._cfg.jwks_refresh_floor:
+                self._refresh_keys()
+                key = self._keys.get(kid)
+                if key is not None:
+                    return key
+            self._unknown[kid] = time.monotonic()
             raise AuthError(401, "token signed by an unknown key")
-        return key
 
     # -- verification -----------------------------------------------------------
 
@@ -161,10 +193,16 @@ class OIDCVerifier:
         tenant = claims.get(self._cfg.tenant_claim)
         if not isinstance(tenant, str) or not tenant.strip():
             raise AuthError(403, f"token has no {self._cfg.tenant_claim} claim")
+        try:
+            tenant = str(uuid.UUID(tenant.strip()))
+        except ValueError as exc:
+            # workspace_id is a uuid column; a claim that is not one can never
+            # scope a query and must not reach SQL.
+            raise AuthError(403, f"{self._cfg.tenant_claim} claim is not a UUID") from exc
         subject = claims.get("sub")
         return Principal(
             subject=str(subject) if subject is not None else None,
-            workspace_id=tenant.strip(),
+            workspace_id=tenant,
             claims=claims,
         )
 

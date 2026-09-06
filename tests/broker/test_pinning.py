@@ -108,3 +108,65 @@ def test_http_forge_resolver_treats_transport_errors_as_unresolved() -> None:
 
     r = HttpForgeResolver(client=httpx.Client(transport=httpx.MockTransport(handler)))
     assert not r.resolve(PinnedSource(REPO, SHA, "src/auth.rs"))
+
+
+def test_local_git_resolver_batches_a_request_and_memoizes(git_repo, monkeypatch) -> None:
+    from reflect_kb.broker.pinning import resolve_all
+
+    root, sha = git_repo
+    r = LocalGitResolver({REPO: root})
+    calls: list[list[str]] = []
+    original = r._git
+
+    def counting(root_, *args, **kwargs):
+        calls.append(list(args))
+        return original(root_, *args, **kwargs)
+
+    monkeypatch.setattr(r, "_git", counting)
+    pins = [
+        PinnedSource(REPO, sha, "src/auth.rs"),
+        PinnedSource(REPO, sha, "src/missing.rs"),
+        PinnedSource(REPO, "0" * 40, "src/auth.rs"),
+        PinnedSource("acme/other", sha, "src/auth.rs"),
+    ]
+    result = resolve_all(r, pins)
+    assert [result[p] for p in pins] == [True, False, False, False]
+    # One batch-check for the whole repo group; the unknown repo never touches git.
+    assert [c[:2] for c in calls] == [["cat-file", "--batch-check"]]
+    calls.clear()
+    assert r.resolve(pins[0]) is True
+    assert calls == []  # positive memo
+
+
+def test_local_git_resolver_handles_binary_blobs(tmp_path) -> None:
+    import subprocess
+
+    root = tmp_path / "bin-repo"
+    root.mkdir()
+    git = ["git", "-C", str(root), "-c", "user.email=t@t", "-c", "user.name=t"]
+    subprocess.run([*git, "init", "-q", "--initial-branch=main"], check=True)
+    (root / "blob.bin").write_bytes(b"\xff\xfe\x00\n" * 3 + b"\x80\x81")
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "binary"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    r = LocalGitResolver({"bin": root})
+    assert r.resolve(PinnedSource("bin", sha, "blob.bin", 1, 4))
+    assert not r.resolve(PinnedSource("bin", sha, "blob.bin", 1, 5))
+
+
+def test_http_forge_resolver_percent_encodes_and_refuses_traversal() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text="x\n")
+
+    r = HttpForgeResolver("https://forge.test/{repo}/raw/{sha}/{path}",
+                          client=httpx.Client(transport=httpx.MockTransport(handler)))
+    assert r.resolve(PinnedSource("acme/wid gets", SHA, "src/a b/c#1.rs"))
+    assert seen == [f"https://forge.test/acme/wid%20gets/raw/{SHA}/src/a%20b/c%231.rs"]
+    seen.clear()
+    # A hand-built pin with a traversal segment never reaches the network.
+    assert not r.resolve(PinnedSource(REPO, SHA, "../secrets.txt"))
+    assert not r.resolve(PinnedSource(REPO, SHA, "src/./x.rs"))
+    assert seen == []

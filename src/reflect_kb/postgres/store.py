@@ -116,6 +116,19 @@ class MemoryStore:
         with self._conn.cursor() as cur:
             cur.execute("select set_config('app.current_workspace', %s, true)", (workspace_id,))
 
+    def bind_workspace(self, workspace_id: str) -> None:
+        """SET LOCAL app.current_workspace for the current transaction.
+
+        Row-level security resolves the tenant from this GUC when no JWT is
+        present, so a connection that is not BYPASSRLS sees only this
+        workspace for the rest of the transaction; the explicit per-query
+        scoping stays in place as the second layer. ``is_local`` is true, so
+        the binding dies with the transaction and can never leak into the
+        next request on a reused connection.
+        """
+        with self._conn.cursor() as cur:
+            cur.execute("select set_config('app.current_workspace', %s, true)", (workspace_id,))
+
     # ----------------------------------------------------------------- #
     # writes
     # ----------------------------------------------------------------- #

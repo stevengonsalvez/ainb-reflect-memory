@@ -146,6 +146,10 @@ class FakeStore:
     def __init__(self, hits: list[EvidenceHit]) -> None:
         self.hits = hits
         self.queries: list[Any] = []
+        self.bound: list[str] = []
+
+    def bind_workspace(self, workspace_id: str) -> None:
+        self.bound.append(workspace_id)
 
     def get_evidence_pack(self, q) -> EvidencePack:
         self.queries.append(q)

@@ -51,12 +51,12 @@ def test_git_resolver_needs_repos_and_http_does_not() -> None:
         "host=db.example.com dbname=reflect sslmode=disable",
     ],
 )
-def test_plaintext_postgres_dsn_is_refused_by_default(dsn: str) -> None:
-    env = {**BASE, "REFLECT_PG_DSN": dsn}
+def test_plaintext_network_dsn_is_refused_unless_opted_out(dsn: str, monkeypatch) -> None:
+    monkeypatch.delenv("REFLECT_PG_ALLOW_INSECURE", raising=False)
     with pytest.raises(RuntimeError, match="sslmode"):
-        BrokerSettings.from_env(env)
-    env["REFLECT_BROKER_ALLOW_INSECURE_PG"] = "1"
-    assert BrokerSettings.from_env(env).allow_insecure_pg
+        BrokerSettings.from_env({**BASE, "REFLECT_PG_DSN": dsn})
+    monkeypatch.setenv("REFLECT_PG_ALLOW_INSECURE", "1")  # the one opt-out, shared with the writer path
+    assert BrokerSettings.from_env({**BASE, "REFLECT_PG_DSN": dsn}).pg_dsn == dsn
 
 
 @pytest.mark.parametrize(
@@ -64,9 +64,12 @@ def test_plaintext_postgres_dsn_is_refused_by_default(dsn: str) -> None:
     [
         "postgresql://u:p@db.example.com/reflect?sslmode=verify-full",
         "host=db.example.com dbname=reflect sslmode=require",
+        "postgresql://reflect@127.0.0.1:54321/reflect_test",  # loopback: nothing leaves the machine
+        "postgresql://reflect@/reflect_test?host=/tmp",  # unix socket
     ],
 )
-def test_tls_postgres_dsn_is_accepted(dsn: str) -> None:
+def test_tls_or_local_dsn_is_accepted(dsn: str, monkeypatch) -> None:
+    monkeypatch.delenv("REFLECT_PG_ALLOW_INSECURE", raising=False)
     assert BrokerSettings.from_env({**BASE, "REFLECT_PG_DSN": dsn}).pg_dsn == dsn
 
 

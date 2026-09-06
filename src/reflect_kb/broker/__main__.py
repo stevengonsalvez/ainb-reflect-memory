@@ -11,8 +11,10 @@ from .config import BrokerSettings
 
 def main() -> None:
     settings = BrokerSettings.from_env()
+    verifier = OIDCVerifier(settings.oidc())
+    verifier.warm()  # a broken issuer fails here, before anything is served
     app = create_app(
-        verifier=OIDCVerifier(settings.oidc()),
+        verifier=verifier,
         store_factory=psycopg_store_factory(settings.pg_dsn),
         resolver=settings.resolver(),
         max_limit=settings.max_limit,

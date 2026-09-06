@@ -307,6 +307,12 @@ class LearningsGraphEngine:
         # live in shared Postgres — same store across machines. nano-graphrag's
         # own code is unchanged; only the *_storage_cls + addon_params change.
         if self._pg_dsn and self._workspace_id:
+            from reflect_kb.postgres.dsn import InsecureDSNError, assert_tls
+
+            try:
+                assert_tls(self._pg_dsn, what="REFLECT_PG_DSN")
+            except InsecureDSNError as exc:
+                raise GraphEngineError(str(exc)) from exc
             try:
                 from reflect_kb.postgres.nanographrag import (
                     addon_params,

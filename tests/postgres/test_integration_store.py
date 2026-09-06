@@ -446,3 +446,53 @@ def test_0005_policies_use_an_initplan_and_the_resolver_has_no_handlers(conn) ->
         body = cur.fetchone()["def"].lower()
         assert "exception" not in body and "missing_ok" not in body
 
+# --------------------------------------------------------------------------- #
+# Migration 0003: the floor inside the read functions, before LIMIT
+# --------------------------------------------------------------------------- #
+
+
+def test_read_functions_filter_entities_and_edges_above_the_floor(store) -> None:
+    a = Tenant(workspace_id=WS_A)
+    auth = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="auth", entity_type="component"))
+    token = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="token", entity_type="concept"))
+    vault = store.upsert_entity(
+        UpsertEntityInput(tenant=a, canonical_name="vault secret", entity_type="concept",
+                          metadata={"classification": "restricted"})
+    )
+    store.upsert_edge(UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=token.id,
+                                      relation_type="validates"))
+    store.upsert_edge(UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=vault.id,
+                                      relation_type="reads", metadata={"classification": "pii"}))
+    # A restricted entity never comes back from a lookup, even when it matches.
+    assert [h.canonical_name for h in store.lookup_entities(a, "vault")] == []
+    assert [h.canonical_name for h in store.lookup_entities(a, "auth")] == ["auth"]
+    # A pii edge is not walked, so its endpoint is not hydrated either.
+    nb = store.neighborhood(a, auth.id, depth=2)
+    assert {e.relation_type for e in nb.edges} == {"validates"}
+    assert {e.canonical_name for e in nb.entities} == {"auth", "token"}
+
+
+def test_bind_workspace_scopes_a_non_bypass_role_through_rls(conn, store) -> None:
+    """The broker binds app.current_workspace inside the request transaction;
+    a role subject to RLS then reads only that workspace through the store."""
+    a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha bound row"))
+    store.insert_memory(InsertMemoryInput(tenant=b, content="beta bound row"))
+    with conn.cursor() as cur:
+        cur.execute(
+            "do $$ begin if not exists (select 1 from pg_roles where rolname='reflect_bind_test') "
+            "then create role reflect_bind_test nologin; end if; end $$;")
+        cur.execute("grant usage on schema reflect_memory to reflect_bind_test;")
+        cur.execute("grant select on all tables in schema reflect_memory to reflect_bind_test;")
+        cur.execute("grant execute on all functions in schema reflect_memory to reflect_bind_test;")
+        conn.commit()
+        cur.execute("set role reflect_bind_test;")
+        try:
+            store.bind_workspace(WS_A)
+            # Even a query built for B returns nothing: RLS sees workspace A only.
+            assert store.search_memory(SearchMemoryInput(tenant=b, query="bound")) == []
+            hits = store.search_memory(SearchMemoryInput(tenant=a, query="bound"))
+            assert [h.item.content for h in hits] == ["alpha bound row"]
+        finally:
+            cur.execute("reset role;")
+            conn.rollback()

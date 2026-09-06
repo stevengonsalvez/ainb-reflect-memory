@@ -102,3 +102,161 @@ begin
   end loop;
 end;
 $$;
+
+-- ===========================================================================
+-- Classification floor inside the read functions, before LIMIT.
+-- memory_items above the floor cannot exist (constraint above), so the
+-- predicate there is defence in depth; entities and edges carry their own
+-- metadata label and are filtered here, and an edge whose evidence memory is
+-- above the floor (or missing) is dropped too, so no egress path has to
+-- post-filter graph rows after a limit already cut the result.
+-- ===========================================================================
+create or replace function reflect_memory.search_memory(
+  p_workspace_id uuid,
+  p_query        text,
+  p_limit        int  default 10,
+  p_agent_id     uuid default null,
+  p_min_rank     real default null
+)
+returns table (
+  id                 uuid,
+  workspace_id       uuid,
+  agent_id           uuid,
+  source_session_id  text,
+  user_id            uuid,
+  source_type        text,
+  source_uri         text,
+  content            text,
+  content_hash       text,
+  metadata           jsonb,
+  confidence         real,
+  created_at         timestamptz,
+  updated_at         timestamptz,
+  rank               real,
+  snippet            text
+)
+language sql
+stable
+set search_path = pg_catalog, public, extensions, reflect_memory
+as $$
+  with q as (select websearch_to_tsquery('english', p_query) as tsq)
+  select
+    m.id, m.workspace_id, m.agent_id, m.source_session_id, m.user_id,
+    m.source_type, m.source_uri, m.content, m.content_hash, m.metadata,
+    m.confidence, m.created_at, m.updated_at,
+    ts_rank(m.search_vector, q.tsq) as rank,
+    ts_headline('english', m.content, q.tsq,
+      'StartSel=<b>, StopSel=</b>, MaxFragments=2, MaxWords=18, MinWords=5'
+    ) as snippet
+  from reflect_memory.memory_items m, q
+  where m.workspace_id = p_workspace_id
+    and m.search_vector @@ q.tsq
+    and coalesce(m.metadata->>'classification', 'internal') in ('public', 'internal')
+    and (p_agent_id is null or m.agent_id = p_agent_id)
+    and (p_min_rank is null or ts_rank(m.search_vector, q.tsq) >= p_min_rank)
+  order by rank desc, m.created_at desc
+  limit greatest(p_limit, 1);
+$$;
+
+create or replace function reflect_memory.search_entities(
+  p_workspace_id uuid,
+  p_query        text,
+  p_limit        int default 10
+)
+returns table (
+  id             uuid,
+  workspace_id   uuid,
+  canonical_name text,
+  entity_type    text,
+  aliases        text[],
+  metadata       jsonb,
+  created_at     timestamptz,
+  updated_at     timestamptz,
+  matched_alias  text,
+  score          real
+)
+language sql
+stable
+set search_path = pg_catalog, public, extensions, reflect_memory
+as $$
+  select
+    e.id, e.workspace_id, e.canonical_name, e.entity_type, e.aliases,
+    e.metadata, e.created_at, e.updated_at,
+    (select a from unnest(e.aliases) a
+      where lower(a) = lower(p_query) limit 1) as matched_alias,
+    greatest(
+      similarity(e.canonical_name, p_query),
+      case when exists (
+        select 1 from unnest(e.aliases) a where lower(a) = lower(p_query)
+      ) then 1.0 else 0.0 end
+    ) as score
+  from reflect_memory.entities e
+  where e.workspace_id = p_workspace_id
+    and coalesce(e.metadata->>'classification', 'internal') in ('public', 'internal')
+    and (
+      e.canonical_name ilike '%' || p_query || '%'
+      or similarity(e.canonical_name, p_query) > 0.2
+      or exists (
+        select 1 from unnest(e.aliases) a where lower(a) = lower(p_query)
+      )
+    )
+  order by score desc, e.canonical_name asc
+  limit greatest(p_limit, 1);
+$$;
+
+create or replace function reflect_memory.entity_neighborhood(
+  p_workspace_id uuid,
+  p_entity_id    uuid,
+  p_max_depth    int default 1
+)
+returns table (
+  id                 uuid,
+  workspace_id       uuid,
+  source_entity_id   uuid,
+  target_entity_id   uuid,
+  relation_type      text,
+  evidence_memory_id uuid,
+  weight             real,
+  metadata           jsonb,
+  created_at         timestamptz,
+  updated_at         timestamptz
+)
+language sql
+stable
+set search_path = pg_catalog, public, extensions, reflect_memory
+as $$
+  with recursive shareable_edges as (
+    select e.*
+    from reflect_memory.edges e
+    where e.workspace_id = p_workspace_id
+      and coalesce(e.metadata->>'classification', 'internal') in ('public', 'internal')
+      and (
+        e.evidence_memory_id is null
+        or exists (
+          select 1 from reflect_memory.memory_items m
+          where m.id = e.evidence_memory_id
+            and m.workspace_id = e.workspace_id
+            and coalesce(m.metadata->>'classification', 'internal') in ('public', 'internal')
+        )
+      )
+  ),
+  reachable(entity_id, depth) as (
+    select p_entity_id, 0
+    union
+    select
+      case when e.source_entity_id = r.entity_id
+           then e.target_entity_id else e.source_entity_id end,
+      r.depth + 1
+    from reachable r
+    join shareable_edges e
+      on (e.source_entity_id = r.entity_id or e.target_entity_id = r.entity_id)
+    where r.depth < least(greatest(p_max_depth, 0), 5)
+  )
+  select distinct
+    e.id, e.workspace_id, e.source_entity_id, e.target_entity_id,
+    e.relation_type, e.evidence_memory_id, e.weight, e.metadata,
+    e.created_at, e.updated_at
+  from shareable_edges e
+  join reachable r
+    on (e.source_entity_id = r.entity_id or e.target_entity_id = r.entity_id);
+$$;

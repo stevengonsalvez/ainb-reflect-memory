@@ -144,7 +144,7 @@ class InsertMemoryInput:
         note is stored unpinned and the broker will never serve it. The
         classification label is copied into metadata so the floor applies.
         """
-        from reflect_kb.broker.pinning import pinned_source_uri
+        from reflect_kb.pinning import pinned_source_uri
 
         metadata: dict[str, Any] = {
             "classification": classification_of(frontmatter),
