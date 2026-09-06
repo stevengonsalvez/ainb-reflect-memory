@@ -234,14 +234,31 @@ padded with rows that are then dropped.
 
 `repo` is `/`-separated segments of `[A-Za-z0-9._-]`; `sha` is 7 to 64
 lowercase hex; `path` is a clean relative path (no `..`, not absolute). The
-resolver confirms the commit exists and the path exists at that commit (the
-git resolver answers every pin of a request with one `git cat-file
---batch-check` per repo and memoizes positives; the http resolver fetches the
-raw file with the path percent-encoded, and rejects traversal). Pins are built
-at ingest by `InsertMemoryInput.from_note` from frontmatter that carries `repo`
-(or `repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
-optional `lines: "12-20"`. All three of repo, sha and path are required; a
+resolver confirms the commit exists and the path exists at that commit.
+Measured behaviour per request: the pins are deduplicated first, so a hit
+set of N distinct pins costs at most N lookups, and a pin already memoized
+as resolved (up to 4096 per resolver, positives only) costs nothing. The git
+resolver answers all of a request's pins with one `git cat-file
+--batch-check` per repo and reads the line-ranged blobs from one `git
+cat-file --batch` stream; nothing leaves the machine. The http resolver
+sends one request per distinct unresolved pin with the path
+percent-encoded (traversal rejected): a HEAD for a pin without a line range,
+so only the status comes back, and a GET with `Range: bytes=0-1048575` for a
+pin with one, so at most 1 MiB of the file comes back, is used to count
+lines, and is discarded. Pins are built at ingest by
+`InsertMemoryInput.from_note` from frontmatter that carries `repo` (or
+`repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
+optional `lines: "12-20"`; the same three keys nested under `provenance:`
+are accepted as a fallback. All three of repo, sha and path are required; a
 note missing any of them is stored unpinned and is never served.
+
+**Who writes the pin.** The drain writes `repo`, `commit` and `source_path`
+at capture: the session checkout's remote (normalised to `owner/name`), its
+HEAD, and the file the learning is about, as top-level frontmatter (declared
+in `schemas/frontmatter.schema.json` and carried by the note template). A
+session outside a git checkout, a checkout without a remote, and a note
+written by hand without the keys produce unpinned notes, which the broker
+never serves; run `reflect reindex` after adding the keys to pin them.
 
 **What is refused, and why.** This table is the one home for the refusal
 rules; the egress page links here rather than repeating them.

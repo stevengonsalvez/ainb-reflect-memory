@@ -129,10 +129,15 @@ Egress from the broker host:
   and a 30 s refresh floor bound the rate). No token or query content
   travels; only the issuer URL is fetched.
 - With `REFLECT_BROKER_RESOLVER=http`, the repo name, commit sha and file path
-  of every candidate hit are sent to the forge named by
-  `REFLECT_BROKER_FORGE_URL_TEMPLATE` to confirm the pin (path
-  percent-encoded, traversal rejected). Note content does not travel. The
-  default `git` resolver makes no network call; it reads local checkouts.
+  of each distinct pin among the candidate hits are sent to the forge named
+  by `REFLECT_BROKER_FORGE_URL_TEMPLATE` to confirm the pin (path
+  percent-encoded, traversal rejected), at most once per pin per request and
+  not at all for a pin the resolver has already memoized as resolved (4096
+  positives). A pin without a line range is a HEAD, so only a status comes
+  back; a pin with one is a GET with `Range: bytes=0-1048575`, so at most
+  1 MiB of that file comes back, is used to count lines, and is discarded.
+  Note content and query text do not travel. The default `git` resolver
+  makes no network call; it reads local checkouts.
 
 The refusal rules (401, 403, dropped and counted hits, edges, limits) live in
 one place: README, "Context Broker", the table "What is refused, and why".
