@@ -1,10 +1,16 @@
 """Gate 4: Mode 2 migration proof on a disposable Postgres.
 
-Seed legacy rows with no label plus one restricted row, apply 0001 to 0003,
-assert the readable error names the row count, relabel, re-apply, assert FORCE
-on all seven tables, then prove an owner-role connection with
-app.current_workspace set reads its own rows and no others, and that the
-broker path does the same.
+Seed legacy rows with no label plus one restricted row, apply the migrations
+in order, assert the readable error names the row count, relabel, re-apply,
+assert FORCE on all seven tables, then prove, as NON-superuser roles created
+in the disposable database (pg_roles.rolsuper asserted false):
+
+- an owner LOGIN role writes through MemoryStore and reads back its own rows
+  and no other workspace's (the compat break for existing Mode 2 users:
+  FORCE RLS refuses an unbound owner write);
+- scripts/seed.py runs as that owner role;
+- the broker path, as a non-owner reader role, serves only the token tenant;
+- the broker's startup check refuses superuser, BYPASSRLS and owner roles.
 
 The fixture connects only through _support.pg, which refuses any DSN that is
 not REFLECT_TEST_DATABASE_URL or a localhost DATABASE_URL, so the schema drop
@@ -29,6 +35,8 @@ M = {n: MIGRATIONS / f for n, f in (
     (2, "0002_nanographrag_pgvector.sql"),
     (3, "0003_classification_force_rls.sql"),
 )}
+ALL_MIGRATIONS = sorted(MIGRATIONS.glob("*.sql"))   # applied in name order, every file
+ROLE_PASSWORD = "compat-role-password"
 SEVEN = ("memory_items", "entities", "edges", "ng_kv", "ng_graph_nodes", "ng_graph_edges", "ng_vectors")
 
 # On a tree without 0003 this module proves nothing and says so: the
@@ -59,6 +67,63 @@ def pg(disposable_pg):
     conn.close()
 
 
+def _apply_all(cur) -> None:
+    """Every migration in name order, aborting on the first failure. The role
+    passwords 0004 reads come from session GUCs, harmless when 0004 is absent."""
+    cur.execute("select set_config('reflect.broker_password', %s, false)", (ROLE_PASSWORD,))
+    cur.execute("select set_config('reflect.writer_password', %s, false)", (ROLE_PASSWORD,))
+    for path in ALL_MIGRATIONS:
+        cur.execute(path.read_text())
+
+
+def _dsn_as(dsn: str, user: str) -> str:
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+
+    parts = conninfo_to_dict(dsn)
+    parts.update(user=user, password=ROLE_PASSWORD)
+    return make_conninfo(**parts)
+
+
+def _assert_not_superuser(cur) -> None:
+    cur.execute("select rolsuper, rolbypassrls from pg_roles where rolname = current_user")
+    row = cur.fetchone()
+    assert row["rolsuper"] is False and row["rolbypassrls"] is False, (
+        f"the role under test bypasses RLS ({row}); the proof would be hollow")
+
+
+@contextmanager
+def _login_role(cur, role: str, *, owner: bool):
+    """A NOSUPERUSER NOBYPASSRLS LOGIN role: the table owner (the documented
+    worker DSN) or a reader with SELECT plus EXECUTE (the documented broker DSN)."""
+    from psycopg import sql
+
+    ident = sql.Identifier(role)
+    cur.execute(sql.SQL(
+        "do $$ begin if exists (select 1 from pg_roles where rolname = {lit}) then "
+        "execute format('reassign owned by %I to current_user', {lit}); "
+        "execute format('drop owned by %I', {lit}); execute format('drop role %I', {lit}); "
+        "end if; end $$;").format(lit=sql.Literal(role)))
+    cur.execute(sql.SQL("create role {} login nosuperuser nobypassrls password {};").format(
+        ident, sql.Literal(ROLE_PASSWORD)))
+    cur.execute(sql.SQL("grant usage on schema reflect_memory to {};").format(ident))
+    cur.execute(sql.SQL("grant execute on all functions in schema reflect_memory to {};").format(ident))
+    cur.execute(sql.SQL("grant select on all tables in schema reflect_memory to {};").format(ident))
+    cur.execute("select tableowner from pg_tables where schemaname='reflect_memory' and tablename='memory_items'")
+    original = cur.fetchone()["tableowner"]
+    if owner:
+        for t in SEVEN:
+            cur.execute(sql.SQL("alter table reflect_memory.{} owner to {}").format(sql.Identifier(t), ident))
+        cur.execute(sql.SQL("grant usage on all sequences in schema reflect_memory to {};").format(ident))
+    try:
+        yield
+    finally:
+        if owner:
+            for t in SEVEN:
+                cur.execute(sql.SQL("alter table reflect_memory.{} owner to {}").format(
+                    sql.Identifier(t), sql.Identifier(original)))
+        cur.execute(sql.SQL("drop owned by {r}; drop role {r};").format(r=ident))
+
+
 def _seed(cur) -> None:
     for i in range(3):
         cur.execute(
@@ -84,7 +149,7 @@ def test_0003_stops_on_legacy_rows_then_forces_all_seven_tables(pg) -> None:
         assert "1 memory_items row(s)" in str(exc.value)
         cur.execute("update reflect_memory.memory_items set metadata = metadata || "
                     "'{\"classification\":\"internal\"}' where content_hash = 'hr';")
-        cur.execute(M[3].read_text())
+        _apply_all(cur)
         cur.execute(
             "select relname, relforcerowsecurity from pg_class "
             "where relnamespace = 'reflect_memory'::regnamespace and relname = any(%s)", (list(SEVEN),))
@@ -110,6 +175,8 @@ def _owner_role(cur, role: str):
     original = cur.fetchone()["tableowner"]
     for t in SEVEN:
         cur.execute(sql.SQL("alter table reflect_memory.{} owner to {}").format(sql.Identifier(t), ident))
+    cur.execute("select rolsuper from pg_roles where rolname = %s", (role,))
+    assert cur.fetchone()["rolsuper"] is False
     try:
         yield
     finally:
@@ -145,6 +212,8 @@ def test_owner_role_with_workspace_guc_reads_only_its_rows(pg) -> None:
 
 
 def test_broker_path_reads_only_the_token_tenant(pg) -> None:
+    """The broker connects as a non-owner reader (SELECT plus EXECUTE, no
+    BYPASSRLS), not as the admin: FORCE RLS is the layer under its scoping."""
     conn, dsn = pg
     pytest.importorskip("fastapi")
     try:
@@ -155,7 +224,7 @@ def test_broker_path_reads_only_the_token_tenant(pg) -> None:
     from fastapi.testclient import TestClient
 
     with conn.cursor() as cur:
-        cur.execute(M[3].read_text())
+        _apply_all(cur)
         sha = "3f2a9c1d4e5b6a7f8091a2b3c4d5e6f708192a3b"
         for ws, content, h in ((WS_A, "tenant a auth token note", "ha"), (WS_B, "tenant b auth token note", "hb")):
             cur.execute(
@@ -175,11 +244,149 @@ def test_broker_path_reads_only_the_token_tenant(pg) -> None:
         def resolve(self, pin) -> bool:
             return True
 
-    for ws, other in ((WS_A, "tenant b"), (WS_B, "tenant a")):
-        app = create_app(verifier=Verifier(ws), store_factory=psycopg_store_factory(dsn), resolver=AcceptAll())
-        r = TestClient(app).post("/v1/evidence", json={"query": "auth token", "workspace_id": other},
-                                 headers={"Authorization": "Bearer x"})
-        assert r.status_code == 200, r.text
-        assert r.json()["workspace_id"] == ws
-        assert other not in r.text
-        assert len(r.json()["lexical"]) == 1
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_reader", owner=False):
+        reader_dsn = _dsn_as(dsn, "reflect_compat_reader")
+        probe = connect_or_skip(reader_dsn, row_factory=__import__("psycopg.rows", fromlist=["dict_row"]).dict_row)
+        with probe.cursor() as pc:
+            _assert_not_superuser(pc)
+        probe.close()
+        for ws, other in ((WS_A, "tenant b"), (WS_B, "tenant a")):
+            app = create_app(verifier=Verifier(ws), store_factory=psycopg_store_factory(reader_dsn), resolver=AcceptAll())
+            r = TestClient(app).post("/v1/evidence", json={"query": "auth token", "workspace_id": other},
+                                     headers={"Authorization": "Bearer x"})
+            assert r.status_code == 200, r.text
+            assert r.json()["workspace_id"] == ws
+            assert other not in r.text
+            assert len(r.json()["lexical"]) == 1
+
+
+def test_owner_login_dsn_writes_and_reads_back_through_memory_store(pg) -> None:
+    """The documented worker DSN (table owner, not BYPASSRLS) must still write
+    under FORCE RLS: MemoryStore binds the tenant it writes for. Before the
+    fix every insert fails with "new row violates row-level security policy"."""
+    conn, dsn = pg
+    from psycopg.rows import dict_row
+
+    from reflect_kb.postgres import (
+        InsertMemoryInput,
+        MemoryStore,
+        SearchMemoryInput,
+        Tenant,
+        UpsertEdgeInput,
+        UpsertEntityInput,
+    )
+
+    with conn.cursor() as cur:
+        _apply_all(cur)
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_owner_login", owner=True):
+        owner = connect_or_skip(_dsn_as(dsn, "reflect_compat_owner_login"), row_factory=dict_row, autocommit=False)
+        try:
+            with owner.cursor() as oc:
+                _assert_not_superuser(oc)
+            store = MemoryStore(owner)
+            for ws, text in ((WS_A, "tenant a jwt expiry note"), (WS_B, "tenant b jwt expiry note")):
+                tenant = Tenant(workspace_id=ws, agent_id=None)
+                note = store.insert_memory(InsertMemoryInput(tenant=tenant, content=text, source_type="note"))
+                e1 = store.upsert_entity(UpsertEntityInput(tenant=tenant, canonical_name=f"JWT {ws[:2]}", entity_type="concept"))
+                e2 = store.upsert_entity(UpsertEntityInput(tenant=tenant, canonical_name=f"Auth {ws[:2]}", entity_type="component"))
+                store.upsert_edge(UpsertEdgeInput(tenant=tenant, source_entity_id=e2.id, target_entity_id=e1.id,
+                                                  relation_type="validates", evidence_memory_id=note.id))
+            hits_a = store.search_memory(SearchMemoryInput(tenant=Tenant(workspace_id=WS_A, agent_id=None), query="jwt expiry"))
+            assert [h.item.content for h in hits_a] == ["tenant a jwt expiry note"]
+            hits_b = store.search_memory(SearchMemoryInput(tenant=Tenant(workspace_id=WS_B, agent_id=None), query="jwt expiry"))
+            assert [h.item.content for h in hits_b] == ["tenant b jwt expiry note"]
+            # Raw read under the last binding sees one workspace only.
+            with owner.cursor() as oc:
+                oc.execute("select set_config('app.current_workspace', %s, false)", (WS_A,))
+                oc.execute("select content from reflect_memory.memory_items")
+                assert [r["content"] for r in oc.fetchall()] == ["tenant a jwt expiry note"]
+                oc.execute("select count(*) as n from reflect_memory.entities")
+                assert oc.fetchone()["n"] == 2
+        finally:
+            owner.close()
+
+
+def test_seed_script_runs_as_the_owner_role(pg) -> None:
+    """scripts/seed.py is the documented smoke test; it must work on the
+    documented worker DSN, so it binds the workspace before its first insert."""
+    import os
+    import subprocess
+    import sys
+
+    conn, dsn = pg
+    with conn.cursor() as cur:
+        _apply_all(cur)
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_seed_owner", owner=True):
+        env = {**os.environ, "DATABASE_URL": _dsn_as(dsn, "reflect_compat_seed_owner"),
+               "PYTHONPATH": str(REPO / "src"), "REFLECT_PG_ALLOW_INSECURE": "1"}
+        proc = subprocess.run([sys.executable, str(REPO / "scripts" / "seed.py"), WS_A], env=env,
+                              capture_output=True, text=True, timeout=300, check=False)
+        assert proc.returncode == 0, f"seed.py failed as the owner role:\n{proc.stdout[-800:]}\n{proc.stderr[-1500:]}"
+        assert "lexical hits" in proc.stdout
+        cur.execute("select count(*) as n from reflect_memory.memory_items where workspace_id = %s", (WS_A,))
+        assert cur.fetchone()["n"] >= 2
+
+
+def test_broker_startup_refuses_roles_that_bypass_rls(pg) -> None:
+    """The broker's DSN must be a role RLS applies to: superuser, BYPASSRLS
+    and the table owner are refused at startup; the reader passes."""
+    conn, dsn = pg
+    try:
+        from reflect_kb.broker.config import assert_broker_role
+    except ImportError:
+        pytest.skip("broker role check lands in #39 (reflect_kb.broker.config.assert_broker_role)")
+    with conn.cursor() as cur:
+        _apply_all(cur)
+        cur.execute("select rolsuper from pg_roles where rolname = current_user")
+        admin_is_super = cur.fetchone()["rolsuper"]
+    if admin_is_super:
+        with pytest.raises(RuntimeError, match="superuser"):
+            assert_broker_role(dsn)
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_owner_login", owner=True):
+        with pytest.raises(RuntimeError, match="own"):
+            assert_broker_role(_dsn_as(dsn, "reflect_compat_owner_login"))
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_reader", owner=False):
+        assert_broker_role(_dsn_as(dsn, "reflect_compat_reader"))
+        cur.execute("alter role reflect_compat_reader bypassrls")
+        with pytest.raises(RuntimeError, match="BYPASSRLS"):
+            assert_broker_role(_dsn_as(dsn, "reflect_compat_reader"))
+
+
+def test_0004_creates_the_broker_and_writer_roles(pg) -> None:
+    """Migration 0004 creates reflect_broker (LOGIN, SELECT plus EXECUTE, no
+    BYPASSRLS, never owner) and reflect_writer (LOGIN, DML, bound via
+    app.current_workspace), both from session-provided passwords."""
+    conn, dsn = pg
+    if not (MIGRATIONS / "0004_broker_and_writer_roles.sql").exists():
+        pytest.skip("0004 lands in #39")
+    with conn.cursor() as cur:
+        _apply_all(cur)
+        cur.execute("select rolname, rolcanlogin, rolsuper, rolbypassrls from pg_roles "
+                    "where rolname in ('reflect_broker', 'reflect_writer') order by rolname")
+        roles = {r["rolname"]: r for r in cur.fetchall()}
+        assert set(roles) == {"reflect_broker", "reflect_writer"}, roles
+        for r in roles.values():
+            assert r["rolcanlogin"] and not r["rolsuper"] and not r["rolbypassrls"], r
+        cur.execute("select count(*) as n from pg_tables where schemaname = 'reflect_memory' "
+                    "and tableowner in ('reflect_broker', 'reflect_writer')")
+        assert cur.fetchone()["n"] == 0
+        cur.execute("select has_table_privilege('reflect_broker', 'reflect_memory.memory_items', 'INSERT') as w, "
+                    "has_table_privilege('reflect_broker', 'reflect_memory.memory_items', 'SELECT') as r, "
+                    "has_table_privilege('reflect_writer', 'reflect_memory.memory_items', 'INSERT') as ww")
+        priv = cur.fetchone()
+        assert priv["r"] and not priv["w"] and priv["ww"], priv
+        # Re-runnable: applying again is a no-op, not an error.
+        _apply_all(cur)
+    from psycopg.rows import dict_row
+
+    from reflect_kb.postgres import InsertMemoryInput, MemoryStore, Tenant
+
+    writer = connect_or_skip(_dsn_as(dsn, "reflect_writer"), row_factory=dict_row, autocommit=False)
+    try:
+        with writer.cursor() as wc:
+            _assert_not_superuser(wc)
+        item = MemoryStore(writer).insert_memory(InsertMemoryInput(
+            tenant=Tenant(workspace_id=WS_A, agent_id=None), content="written by reflect_writer", source_type="note"))
+        assert item.workspace_id == WS_A
+    finally:
+        writer.close()
