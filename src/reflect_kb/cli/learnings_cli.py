@@ -517,8 +517,13 @@ def add(file_path: str, entities: str | None, force: bool):
     try:
         engine = _get_graph_engine()
         with console.status("[bold green]Indexing document..."):
-            engine.insert_document(content, entities_formatted=entities_formatted)
-        console.print("[green]Indexed into graph[/green]")
+            status = engine.insert_document(
+                content, entities_formatted=entities_formatted, label=classification
+            )
+        if status.indexed:
+            console.print("[green]Indexed into graph[/green]")
+        else:
+            console.print(f"[yellow]Skipped by the classification floor: {status.reason}[/yellow]")
     except Exception as e:
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")

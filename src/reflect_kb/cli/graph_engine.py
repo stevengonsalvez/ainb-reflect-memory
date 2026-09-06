@@ -12,6 +12,7 @@ import logging
 import os
 import shutil
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +54,17 @@ _PLACEHOLDER_ENTITY = (
 
 class GraphEngineError(Exception):
     pass
+
+
+@dataclass(frozen=True)
+class InsertStatus:
+    """What insert_document did: indexed, or skipped with the reason."""
+
+    indexed: bool
+    reason: str = ""
+
+    def __bool__(self) -> bool:
+        return self.indexed
 
 
 class LearningsGraphEngine:
@@ -324,15 +336,16 @@ class LearningsGraphEngine:
         """True when the derived store is the shared Postgres (Mode 2)."""
         return bool(self._pg_dsn and self._workspace_id)
 
-    def _local_only(self, text: str, label: str | None = None) -> bool:
-        """Classification floor for the shared store, applied once, before
-        chunking: a note labelled restricted or pii (or malformed) is never
-        handed to nano-graphrag, so no ng_* namespace (full_docs, text_chunks,
-        vectors, graph) sees it. ``label`` is the already-parsed frontmatter
-        value when the caller has it; the text is parsed only otherwise.
-        Local Mode 1 stores index everything."""
+    def _floor_label(self, text: str, label: str | None = None) -> str | None:
+        """The label that keeps a note out of the shared store, or None when
+        the note may be indexed. The classification floor is applied once,
+        before chunking: a note labelled restricted or pii (or malformed) is
+        never handed to nano-graphrag, so no ng_* namespace (full_docs,
+        text_chunks, vectors, graph) sees it. ``label`` is the already-parsed
+        frontmatter value when the caller has it; the text is parsed only
+        otherwise. Local Mode 1 stores index everything."""
         if not self.shared_backend:
-            return False
+            return None
         from reflect_kb.classification import (
             classification_of,
             classification_of_note,
@@ -344,17 +357,22 @@ class LearningsGraphEngine:
         else:
             label = classification_of({"classification": label})
         if may_leave_machine({"classification": label}):
-            return False
+            return None
         logger.warning(
             "LearningsGraphEngine: skipping a %s note; it never leaves the local store", label
         )
-        return True
+        return label
+
+    def _local_only(self, text: str, label: str | None = None) -> bool:
+        return self._floor_label(text, label) is not None
 
     def local_only(self, text: str, label: str | None = None) -> bool:
         """Public form of the floor so a caller can count what it will index."""
         return self._local_only(text, label)
 
-    def insert_document(self, text: str, entities_formatted: str | None = None):
+    def insert_document(
+        self, text: str, entities_formatted: str | None = None, label: str | None = None
+    ) -> InsertStatus:
         """Insert a single document into the graph.
 
         Args:
@@ -362,12 +380,15 @@ class LearningsGraphEngine:
             entities_formatted: Pre-extracted entities in nano-graphrag format.
                 If provided, the passthrough LLM returns these instead of
                 calling an external API.
+            label: the already-parsed classification, when the caller has it.
 
         On the shared Postgres backend a restricted or pii note is skipped
-        (see ``_local_only``); the caller's local markdown copy is untouched.
+        (see ``_floor_label``); the caller's local markdown copy is untouched
+        and the returned status names the reason.
         """
-        if self._local_only(text):
-            return
+        blocked = self._floor_label(text, label)
+        if blocked is not None:
+            return InsertStatus(False, f"classification {blocked} stays in the local store")
         self._init_graph()
         self._pending_entities = entities_formatted
         try:
@@ -375,6 +396,7 @@ class LearningsGraphEngine:
         finally:
             self._pending_entities = None
             self._entity_queue.clear()
+        return InsertStatus(True)
 
     def insert_documents_batch(
         self,
