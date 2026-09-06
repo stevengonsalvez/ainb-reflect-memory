@@ -512,9 +512,9 @@ def test_bind_workspace_scopes_a_non_bypass_role_through_rls(conn, store) -> Non
             assert [h.item.content for h in hits] == ["alpha bound row"]
             hits = store.search_memory(SearchMemoryInput(tenant=b, query="bound"))
             assert [h.item.content for h in hits] == ["beta bound row"]
-            store.bind_workspace(WS_A)
-            cur.execute("select content from reflect_memory.memory_items order by content")
-            assert [r["content"] for r in cur.fetchall()] == ["alpha bound row"]
+            # (The per-call transaction is a savepoint inside this test's
+            # outer transaction; the idle-after-call proof lives in
+            # test_every_call_ends_its_own_transaction_and_unbinds.)
         finally:
             cur.execute("reset role;")
             conn.rollback()

@@ -264,8 +264,9 @@ def create_app(
             entity_limit=min(req.entity_limit, max_limit),
             neighborhood_depth=req.neighborhood_depth,
         )
+        # Every store call binds the token's tenant with SET LOCAL inside its
+        # own transaction (MemoryStore._scoped); there is no separate bind.
         with store_factory() as store:
-            store.bind_workspace(who.workspace_id)
             pack = store.get_evidence_pack(query)
         return filter_pack(pack, resolver)
 

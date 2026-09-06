@@ -74,8 +74,7 @@ def test_body_supplied_tenant_is_ignored(client, issuer, fake_store) -> None:
     assert r.status_code == 200
     assert r.json()["workspace_id"] == WS_A
     assert [q.tenant.workspace_id for q in fake_store.queries] == [WS_A]
-    # Row-level security is bound to the same verified tenant inside the request.
-    assert fake_store.bound == [WS_A]
+
 
 
 def test_query_string_tenant_is_ignored_on_get(client, issuer, fake_store) -> None:
