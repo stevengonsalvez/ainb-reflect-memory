@@ -36,39 +36,43 @@ def _installed_skill(codex_home: Path) -> str:
     return (codex_home / ".codex" / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
 
 
-def test_installed_skill_is_rendered_and_names_existing_scripts(codex_home: Path) -> None:
+def test_installed_skill_is_rendered_and_names_no_script_path(codex_home: Path) -> None:
+    """Every scripted step is `reflect skill-step <step>`; the rendered skill
+    names no script by path (the reflect CLI resolves the codex layout's
+    scripts itself), and any resource it does name by absolute path exists."""
     text = _installed_skill(codex_home)
     assert "{{HOME_TOOL_DIR}}" not in text, "adapter left the bootstrap placeholder in the skill"
-    scripts = sorted({m.group(1) for m in _SCRIPT_RE.finditer(text) if m.group(1).startswith("/")})
-    assert scripts, "the skill should name at least one script by absolute path"
-    missing = [s for s in scripts if not Path(s).exists()]
-    assert not missing, f"skill commands point at scripts missing from ~/.codex: {missing}"
-    for m in re.finditer(r'^\s*VALIDATE="([^"]+)"', text, re.MULTILINE):
-        assert Path(m.group(1)).exists(), m.group(1)
+    scripts = sorted({m.group(1) for m in _SCRIPT_RE.finditer(text)})
+    assert not scripts, f"the skill still names scripts by path: {scripts}"
+    assert set(re.findall(r"reflect skill-step (\S+)", text)) == {"index", "metrics", "state", "revise", "observe"}
+    named = {m.group(0) for m in re.finditer(re.escape(str(codex_home)) + r"/[^\s`'\")]+", text)}
+    missing = [p for p in named if not Path(p).exists()]
+    assert not missing, f"the skill names paths missing from ~/.codex: {missing}"
 
 
 def test_every_skill_command_runs_from_the_codex_layout(codex_home: Path, reflect_bin: Path) -> None:
+    """Every command the installed skill spells runs from the codex layout:
+    `reflect skill-step <step>` resolves the layout's scripts through
+    REFLECT_SKILL_SCRIPTS_DIR (what the drain exports) and the plain
+    `reflect add` indexes into ~/.learnings."""
     text = _installed_skill(codex_home)
-    assert _CMD_RE.search(text), "skill emits no python/reflect commands?"
+    assert _CMD_RE.search(text), "skill emits no reflect commands?"
     scripts = codex_home / ".codex" / "skills" / "reflect" / "scripts"
-    env = clean_env(codex_home)
-    py = sys.executable
+    # PYTHONPATH pins the reflect CLI to this checkout, whatever the interpreter has installed
+    env = clean_env(codex_home, REFLECT_SKILL_SCRIPTS_DIR=str(scripts), PYTHONPATH=str(REPO / "src"))
+    reflect = str(reflect_bin)
     commands: list[list[str]] = [
-        # uv run "$VALIDATE" --strict "$SIDECAR": run with this interpreter
-        # (its only dependency, pyyaml, is installed here; uv would build a
-        # fresh env over the network).
-        [py, str(scripts / "validate_sidecar.py"), "--strict", str(FIXTURE_SIDECAR)],
-        [str(reflect_bin), "add", str(FIXTURE_DOC), "--entities", str(FIXTURE_SIDECAR), "--force"],
-        [py, str(scripts / "metrics_updater.py"), "--accepted", "1", "--rejected", "0",
+        [reflect, "skill-step", "validate-sidecar", "--strict", str(FIXTURE_SIDECAR)],
+        [reflect, "skill-step", "index", str(FIXTURE_DOC), str(FIXTURE_SIDECAR)],
+        [reflect, "add", str(FIXTURE_DOC), "--entities", str(FIXTURE_SIDECAR), "--force"],
+        [reflect, "skill-step", "metrics", "--accepted", "1", "--rejected", "0",
          "--confidence", "high:1,medium:0,low:0", "--agents", "compat", "--skills", "0"],
-        [py, str(scripts / "state_manager.py"), "status"],
-        [py, str(scripts / "state_manager.py"), "on"],
-        [py, str(scripts / "state_manager.py"), "off"],
-        [py, str(scripts / "reflect_cascade.py"), "revise", "--source", str(TRANSCRIPT), "--actions", "[]"],
-        [py, str(scripts / "reflect_cascade.py"), "observe", "--actions", "[]"],
+        [reflect, "skill-step", "state", "status"],
+        [reflect, "skill-step", "state", "on"],
+        [reflect, "skill-step", "state", "off"],
+        [reflect, "skill-step", "revise", "--source", str(TRANSCRIPT), "--actions", "[]"],
+        [reflect, "skill-step", "observe", "--actions", "[]"],
     ]
-    for script in sorted({m.group(1) for m in _SCRIPT_RE.finditer(text) if m.group(1).startswith("/")}):
-        commands.append([py, script, "--help"])
     failures = []
     for cmd in commands:
         proc = run(cmd, env=env, cwd=codex_home, timeout=600)

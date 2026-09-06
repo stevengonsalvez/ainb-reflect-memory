@@ -23,6 +23,10 @@ PAIRS: tuple[tuple[str, str], ...] = (
 
 
 def drain_skill_rewrite(text: str) -> str:
+    """The reflect skill's text rewritten; any other text (the install matrix
+    tries the rewrite on every skill) is returned unchanged."""
+    if PAIRS[0][0] not in text:
+        return text
     for old, new in PAIRS:
         assert text.count(old) == 1, old[:60]
         text = text.replace(old, new)
