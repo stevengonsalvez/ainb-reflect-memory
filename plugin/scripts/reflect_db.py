@@ -29,6 +29,8 @@ Tests reset cached connections via the public ``close_all()`` helper.
 
 from __future__ import annotations
 
+from secret_redact import redact_secrets_text  # noqa: E402, same directory, load-time
+
 import hashlib
 import json
 import os
@@ -677,13 +679,6 @@ def _redact_text(value: str) -> str:
     """Secrets-only redaction at the database boundary (plugin/scripts/secret_redact.py)."""
     if not value:
         return value
-    try:
-        from secret_redact import redact_secrets_text
-    except ImportError:
-        import sys as _sys
-
-        _sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from secret_redact import redact_secrets_text
     return redact_secrets_text(value)
 
 

@@ -41,6 +41,8 @@ enough for SKILL.md frontmatter without a yaml dependency.
 
 from __future__ import annotations
 
+from secret_redact import redact_secrets_text  # noqa: E402, same directory, load-time
+
 import json
 import os
 import re
@@ -140,13 +142,7 @@ def _summarize(description: Any) -> str:
     for line in description.splitlines():
         line = " ".join(line.split())
         if line:
-            try:
-                from secret_redact import redact_secrets_text
-
-                line = redact_secrets_text(line)
-            except ImportError:
-                pass
-            return line[:SUMMARY_MAX_CHARS]
+            return redact_secrets_text(line)[:SUMMARY_MAX_CHARS]
     return ""
 
 
