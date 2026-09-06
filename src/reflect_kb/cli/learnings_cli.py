@@ -524,6 +524,11 @@ def add(file_path: str, entities: str | None, force: bool):
             console.print("[green]Indexed into graph[/green]")
         else:
             console.print(f"[yellow]Skipped by the classification floor: {status.reason}[/yellow]")
+            purged = engine.purge_local_only([content])
+            if purged:
+                console.print(
+                    f"[yellow]Purged {purged} earlier copy of this note from the shared store[/yellow]"
+                )
     except Exception as e:
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")
@@ -625,6 +630,7 @@ def reindex(force: bool):
     entity_total = 0
     rel_total = 0
     skipped_local_only = 0
+    skipped_notes: list[str] = []
 
     for doc in documents:
         doc_path = Path(doc["_path"])
@@ -634,6 +640,7 @@ def reindex(force: bool):
         # frontmatter, so the counters below describe what is indexed.
         if engine.local_only(doc["_full_content"], label):
             skipped_local_only += 1
+            skipped_notes.append(doc["_full_content"])
             console.print(f"  [dim]{title} - {label} stays local, not indexed in the shared store[/dim]")
             continue
 
@@ -671,6 +678,20 @@ def reindex(force: bool):
         console.print(f"\n[red]Batch indexing error: {e}[/red]")
         console.print("[dim]Try running 'learnings reindex --force' to rebuild from scratch.[/dim]")
         return
+
+    # A note that was indexed under an earlier label and is restricted or
+    # pii now: the floor stops new writes, and this removes the rows the old
+    # label left in every ng_* namespace and the graph.
+    if skipped_notes:
+        try:
+            purged = engine.purge_local_only(skipped_notes)
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not purge relabelled notes from the shared store: {e}[/yellow]")
+        else:
+            if purged:
+                console.print(
+                    f"[yellow]Purged {purged} relabelled notes from the shared store (restricted or pii now)[/yellow]"
+                )
 
     if entity_total:
         console.print(f"[dim]Entities: {entity_total}, Relationships: {rel_total}[/dim]")
