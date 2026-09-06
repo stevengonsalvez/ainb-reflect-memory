@@ -84,6 +84,9 @@ class Capture:
         )
         env["REFLECT_DRAIN_NO_DELEGATE"] = "1"
         env["PYTHONDONTWRITEBYTECODE"] = "1"
+        # A crash in a captured process (a SIGILL from a native wheel on some
+        # runners) prints a traceback naming the module instead of a bare -4.
+        env["PYTHONFAULTHANDLER"] = "1"
         env["PYTHONPATH"] = str(self.tree / "src")
         # The hook caps each recall subprocess (default 30s); a cold uv env
         # plus a cold embedding model needs more, and a timeout reads as an

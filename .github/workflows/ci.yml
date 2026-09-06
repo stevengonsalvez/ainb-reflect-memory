@@ -316,6 +316,17 @@ jobs:
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
           uv pip install -e '.[dev,graph,postgres]'
 
+      # A SIGILL (exit -4) from reflect add on some runners: name the CPU and
+      # the torch build so a crash can be tied to an instruction set, not
+      # guessed. PYTHONFAULTHANDLER turns the signal into a traceback naming
+      # the module (capture.py sets it for every captured process too).
+      - name: runner cpu and torch build
+        run: |
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|avx512[a-z_]*|amx[a-z_]*|fma|sse4_2)$' | sort | tr '\n' ' '; echo
+          uv run python -c "import torch, numpy; print('torch', torch.__version__, 'numpy', numpy.__version__); print(torch.__config__.show())"
+          uv run python -X faulthandler -c "import reflect_kb.graph_engine as g; print('graph_engine import ok')" || echo "graph_engine import failed: $?"
+
       - name: warm the embedding model (tolerates a partial cache)
         run: |
           uv run python - <<'PY'
