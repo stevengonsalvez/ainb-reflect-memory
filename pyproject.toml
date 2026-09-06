@@ -123,3 +123,10 @@ torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
 explicit = true
+
+# hnswlib ships no cp312 manylinux wheel, so it is built from source; its
+# setup.py adds -march=native unless this variable is set, and a native build
+# replayed from a cache on another CPU generation dies with SIGILL (seen on
+# EPYC 7763 after a build on EPYC 9V74). Portable build for every uv install.
+[tool.uv.extra-build-variables]
+hnswlib = { HNSWLIB_NO_NATIVE = "1" }
