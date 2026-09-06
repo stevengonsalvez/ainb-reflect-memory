@@ -341,3 +341,42 @@ jobs:
         with:
           path: .hf-cache
           key: hf-${{ env.EMBEDDING_MODEL }}-v1
+
+  # ---------------------------------------------------------------------------
+  # Live drain permission proof (tests/compat, marker `live`). Calls the real
+  # claude CLI with the exact argv the drain hook builds. Gated at job level on
+  # the repository variable COMPAT_LIVE=true so fork PRs never pay for it, and
+  # needs the ANTHROPIC_API_KEY secret to do anything (without it the tests
+  # skip). What is proven with and without it is documented in PR #42.
+  # Budget: under 0.20 USD per model call.
+  # ---------------------------------------------------------------------------
+  compat-live:
+    name: compat gate, live drain permissions
+    if: vars.COMPAT_LIVE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: 'pyproject.toml'
+
+      - name: install package
+        run: |
+          uv venv --python 3.12
+          uv pip install -e '.[dev]'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: live drain permission scenarios (skip without the secret)
+        run: uv run pytest -q tests/compat -m live -rs
