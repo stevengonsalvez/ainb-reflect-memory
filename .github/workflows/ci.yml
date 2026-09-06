@@ -102,6 +102,12 @@ jobs:
         # golden-diff job, rather than three times across this matrix.
         run: uv run pytest -q tests --ignore=tests/eval --ignore=tests/compat
 
+      - name: pytest (plugin scripts and hooks)
+        # The plugin's own suite: hook behaviour with a stub claude, the drain
+        # classifiers, recall sharding, redaction parity. Stdlib plus the
+        # package; tests that need the real reflect CLI or an operator KB skip.
+        run: uv run pytest -q plugin/tests
+
   # ---------------------------------------------------------------------------
   # Playwright e2e for the `reflect serve` memory browser. The suite launches
   # `reflect serve` against a FRESH copy of tests/e2e/fixture-kb (never the real

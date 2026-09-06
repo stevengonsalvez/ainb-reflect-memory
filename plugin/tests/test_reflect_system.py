@@ -368,8 +368,10 @@ class ReflectSystemTest(unittest.TestCase):
         sb = self.sandbox / "fake_home"
         sb.mkdir(parents=True, exist_ok=True)
         env = {**os.environ, "HOME": str(sb)}
-        # Resolved repo path under the sandboxed HOME:
-        repo_root = sb / ".claude" / "global-learnings"
+        env.pop("GLOBAL_LEARNINGS_PATH", None)
+        # Resolved repo path under the sandboxed HOME (learnings_cli
+        # DEFAULT_REPO_PATH; the old ~/.claude/global-learnings is gone):
+        repo_root = sb / ".learnings"
 
         init = subprocess.run(
             [reflect_cli, "init"],
