@@ -28,7 +28,9 @@ def test_every_returned_hit_is_pinned_and_resolved(client, issuer, git_repo) -> 
     # Every refusal is counted.
     assert body["meta"] == {
         "returned": 3,
-        "dropped": {"unpinned": 2, "unresolvable": 3, "classified": 2, "unverified_edges": 2},
+        # classified counts the restricted graph entity too; the edge that
+        # touched it is dropped with the edges whose evidence was refused.
+        "dropped": {"unpinned": 2, "unresolvable": 3, "classified": 3, "unverified_edges": 3},
         "evidence_only": True,
     }
     # Graph edges survive only when their evidence memory did (or they cite none).

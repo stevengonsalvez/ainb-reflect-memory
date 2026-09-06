@@ -145,9 +145,10 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
 
     Pure: no I/O beyond the resolver. Order matters: a restricted item is
     counted as classified even if it would also fail to pin, so the counts
-    tell the operator which guard fired first. Graph edges are kept only when
-    their evidence memory survived (or they cite none); entity names pass
-    through, they carry no content.
+    tell the operator which guard fired first. Graph entities pass the floor
+    too (a restricted entity's name, type and aliases must not ride out on an
+    edge that touches it), and graph edges are kept only when both endpoints
+    survived and their evidence memory survived (or they cite none).
     """
     dropped = DroppedCounts()
     hits: list[LexicalHit] = []
@@ -185,10 +186,16 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
         for c in pack.citations
         if c.memory_id in kept_ids
     ]
+    graph_entities = [e for e in pack.graph.entities if may_leave_machine(getattr(e, "metadata", None))]
+    dropped.classified += len(pack.graph.entities) - len(graph_entities)
+    visible = {e.id for e in graph_entities}
     edges: list[GraphEdgeOut] = []
     for e in pack.graph.edges:
         if e.evidence_memory_id is not None and e.evidence_memory_id not in kept_ids:
             dropped.unverified_edges += 1
+            continue
+        if e.source_entity_id not in visible or e.target_entity_id not in visible:
+            dropped.unverified_edges += 1  # an endpoint was not hydrated or is above the floor
             continue
         edges.append(
             GraphEdgeOut(
@@ -221,7 +228,7 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
                     entity_type=e.entity_type,
                     aliases=list(e.aliases),
                 )
-                for e in pack.graph.entities
+                for e in graph_entities
             ],
             edges=edges,
         ),

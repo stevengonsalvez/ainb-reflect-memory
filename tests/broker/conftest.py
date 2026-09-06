@@ -153,6 +153,9 @@ class FakeStore:
         now = datetime.now(UTC)
         ent = Entity("e-auth", q.tenant.workspace_id, "auth", "component", ("authn",), {}, now, now)
         tok = Entity("e-token", q.tenant.workspace_id, "token", "concept", (), {}, now, now)
+        # A restricted entity that predates the floor, on an internal edge.
+        vault = Entity("e-vault", q.tenant.workspace_id, "vault secret", "secret", ("prod-vault",),
+                       {"classification": "restricted"}, now, now)
 
         def edge(eid: str, evidence: str | None) -> Edge:
             return Edge(eid, q.tenant.workspace_id, "e-auth", "e-token", "validates", evidence, 1.0, {}, now, now)
@@ -163,11 +166,12 @@ class FakeStore:
             lexical=list(self.hits),
             entities=[],
             graph=GraphNeighborhood(
-                entities=[ent, tok],
+                entities=[ent, tok, vault],
                 edges=[
                     edge("edge-kept", "pinned-ok"),  # evidence survived
                     edge("edge-no-evidence", None),  # cites no memory
                     edge("edge-dropped-evidence", "bad-sha"),  # evidence was refused
+                    Edge("edge-to-vault", q.tenant.workspace_id, "e-auth", "e-vault", "reads", None, 1.0, {}, now, now),
                     edge("edge-unknown-evidence", "never-a-hit"),  # evidence never returned
                 ],
             ),
