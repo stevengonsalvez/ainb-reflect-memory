@@ -44,14 +44,23 @@ granted the headless model every tool with no prompt. Now:
 
 - The default writer is the single-shot extract path: `--tools ""` plus
   `--strict-mcp-config`, so it has no tools at all, one turn.
-- The agentic fallback (`REFLECT_DRAIN_WRITER=agentic`) runs with
-  `--permission-mode default`, `--setting-sources ""` (the operator's
-  settings.json, including any `bypassPermissions` there, is not read) and its
-  own allow rules passed via `--settings`. The rules and their override
-  variable are documented once, in `plugin/hooks/README.md` (circuit-breaker
-  table); they are not repeated here.
-- A denied tool call marks the run failed and leaves the entry queued; it is
-  never logged as success.
+- The agentic fallback (`REFLECT_DRAIN_WRITER=agentic`) runs with the
+  explicit `--permission-mode default`, which takes precedence over the
+  operator's settings.json `defaultMode` (proven live against a
+  `bypassPermissions` HOME), plus its own allow rules passed via `--settings`
+  and `--strict-mcp-config`. Setting sources stay loaded so `/reflect` and
+  personal skills resolve. The rules and their override variable are
+  documented once, in `plugin/hooks/README.md` (circuit-breaker table); they
+  are not repeated here.
+- A denied tool call is logged with the tool and command and counted in the
+  ledger. A denial on a step the drain does not grant (git commit, memory
+  files, the skill-index loop) never changes the outcome; a denial on a call
+  the rules should cover poisons the entry as `allowlist_misconfigured`
+  instead of re-billing it.
+- Whatever file the writer is pointed at is redacted first: the cascade
+  slice and the bounded copy where they are cut, and the raw transcript
+  (cascade off, missing or crashed) as a redacted copy; if that copy cannot
+  be made the entry stays queued.
 
 The compat gate (`tests/compat/test_drain_permissions_live.py`) asserts this
 against the real CLI when a key is present.
@@ -65,8 +74,8 @@ Off switch: `REFLECT_DISABLED=1` (everything) or `REFLECT_DRAIN_DRY_RUN=1`
 |---|---|---|---|
 | drain, extract writer (`plugin/scripts/drain_extract.py`) | default drain | redacted bounded transcript, related titles | none (`--tools ""`) |
 | drain, agentic writer (`plugin/hooks/lib/writer_argv.sh`) | `REFLECT_DRAIN_WRITER=agentic` | redacted transcript slice | hook-owned allow rules, default mode |
-| recall HyDE (`plugin/skills/recall/scripts/recall.py`) | `REFLECT_RECALL_HYDE=1`, off by default | the recall query text | `--setting-sources ""`, `--strict-mcp-config`, no allow rules; not structurally tool free |
-| issues analyzer (`src/reflect_kb/issues/analyze.py`) | `reflect issues run`, manual | distilled transcript timelines | no permission flags: inherits the operator's settings. Open item; run it only where that is acceptable |
+| recall HyDE (`plugin/skills/recall/scripts/recall.py`) | `REFLECT_RECALL_HYDE=1`, off by default | the recall query text | none (`--tools ""`, one turn) |
+| issues analyzer (`src/reflect_kb/issues/analyze.py`) | `reflect issues run`, manual | distilled transcript timelines | none (`--tools ""`, one turn) |
 
 ## 2. Model weights (inbound, once)
 
@@ -106,7 +115,8 @@ Guards on this path:
 ## 4. The Context Broker
 
 `python -m reflect_kb.broker` serves `GET|POST /v1/evidence` over the shared
-store. What it returns is an `EvidencePack` (lexical hits, entity matches, a
+store on its own `REFLECT_BROKER_PG_DSN` (the `reflect_broker` role; a
+superuser, BYPASSRLS or owner role is refused at startup). What it returns is an `EvidencePack` (lexical hits, entity matches, a
 graph neighborhood, citations) and never a synthesized answer. The tenant is
 the verified claim (a UUID, else 403); the body and query string cannot name
 one, and each request binds it with `SET LOCAL app.current_workspace`.
@@ -114,8 +124,10 @@ one, and each request binds it with `SET LOCAL app.current_workspace`.
 Egress from the broker host:
 
 - Outbound to the OIDC issuer: discovery once at startup, then the JWKS
-  document on key rotation (negative cache and a refresh floor bound the
-  rate). No token or query content travels; only the issuer URL is fetched.
+  document again whenever the cached copy is older than the TTL (300 s by
+  default) at the time of a request, or on an unknown `kid` (a negative cache
+  and a 30 s refresh floor bound the rate). No token or query content
+  travels; only the issuer URL is fetched.
 - With `REFLECT_BROKER_RESOLVER=http`, the repo name, commit sha and file path
   of every candidate hit are sent to the forge named by
   `REFLECT_BROKER_FORGE_URL_TEMPLATE` to confirm the pin (path
