@@ -8,12 +8,11 @@ import hashlib
 import pathlib
 
 import pytest
-
 from _support.pg import WS_A, WS_B, connect_or_skip, disposable_database  # noqa: F401
 
 _MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
-_M1 = _MIGRATIONS / "0001_reflect_memory_phase1.sql"
-_M2 = _MIGRATIONS / "0002_nanographrag_pgvector.sql"
+_ALL_MIGRATIONS = sorted(_MIGRATIONS.glob("*.sql"))  # every file, name order
+_ROLE_PASSWORD = "postgres-tests-role-password"
 
 
 @pytest.fixture(scope="session")
@@ -27,8 +26,10 @@ def _migrated_dsn():
         try:
             with conn.cursor() as cur:
                 try:
-                    cur.execute(_M1.read_text())
-                    cur.execute(_M2.read_text())
+                    cur.execute("select set_config('reflect.broker_password', %s, false)", (_ROLE_PASSWORD,))
+                    cur.execute("select set_config('reflect.writer_password', %s, false)", (_ROLE_PASSWORD,))
+                    for path in _ALL_MIGRATIONS:
+                        cur.execute(path.read_text())
                 except Exception as exc:  # noqa: BLE001, e.g. pgvector missing
                     pytest.skip(f"migrations did not apply ({exc})")
         finally:

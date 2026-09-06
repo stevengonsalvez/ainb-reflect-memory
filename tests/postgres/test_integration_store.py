@@ -239,6 +239,12 @@ def test_rls_isolates_direct_access_by_workspace_guc(conn, store) -> None:
         cur.execute("grant execute on all functions in schema reflect_memory to reflect_rls_test;")
         conn.commit()
 
+        cur.execute("select rolsuper, rolbypassrls from pg_roles where rolname = 'reflect_rls_test'")
+
+        _r = cur.fetchone()
+
+        assert _r["rolsuper"] is False and _r["rolbypassrls"] is False, "the RLS proof would be hollow"
+
         cur.execute("set role reflect_rls_test;")
 
         # No workspace resolvable -> resolver returns NULL -> deny all.
