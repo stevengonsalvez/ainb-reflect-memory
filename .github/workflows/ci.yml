@@ -223,7 +223,7 @@ jobs:
   # (reflect reindex + recall.py), which needs the [graph] extra + an embedding
   # model this slim job does not install, so they will skip (reflect absent) or
   # fail (reindex without [graph]) here. `continue-on-error` keeps that off the
-  # PR gate — the proofs are exercised for real in the manual `golden-diff` job.
+  # PR gate; the proofs are exercised for real in the `golden-diff` job.
   # ---------------------------------------------------------------------------
   fleet-guards:
     name: fleet regression guards (py3.12)
@@ -259,34 +259,85 @@ jobs:
             tests/eval/behavioral/proofs/proof_F3_quarantine_enforced.py
 
   # ---------------------------------------------------------------------------
-  # Heavy golden-snapshot diff — the FIRST job that installs the [graph] stack
-  # (~2GB torch + nano-graphrag) and downloads an embedding model, then runs the
-  # full recall eval and diffs it against tests/eval/results/baseline.json.
-  #
-  # It is gated behind `workflow_dispatch` (see the `on:` block) so it runs ONLY
-  # on a manual trigger and NEVER blocks a PR on a multi-hundred-MB model
-  # download. `continue-on-error` is belt-and-braces; snapshot_diff.py itself
-  # already exits 0 (skips) when the model/graph stack is unavailable or the
-  # baseline is missing, and exits 1 only on a genuine ranking regression.
+  # Heavy job: the compat gate and the recall snapshot diff, on the [graph]
+  # install. Runs on every PR and push (it used to be manual only): the compat
+  # gate diffs this checkout against the merge-base with main (install matrix,
+  # Mode 1 reindex and search, hooks, cascade, extract writer), and that is a
+  # HARD step. The recall-ranking snapshot diff keeps its own
+  # continue-on-error. Cost controls: CPU torch on Linux (the default index
+  # resolves the CUDA build, ~3 GB), a dedicated unpruned uv cache, a
+  # restore/save cache for the embedding model, and a 30 minute cap.
   # ---------------------------------------------------------------------------
   golden-diff:
-    name: golden snapshot diff (heavy — manual only)
-    if: github.event_name == 'workflow_dispatch'
+    name: compat gate + golden snapshot diff (graph extra)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: reflect
+          POSTGRES_PASSWORD: reflect_test
+          POSTGRES_DB: reflect_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reflect -d reflect_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://reflect:reflect_test@localhost:5432/reflect_test
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+      SENTENCE_TRANSFORMERS_HOME: ${{ github.workspace }}/.hf-cache/sentence_transformers
+      EMBEDDING_MODEL: sentence-transformers/all-mpnet-base-v2
     steps:
+      # Full history: the compat gate resolves `git merge-base origin/main HEAD`
+      # and checks that commit out into a throwaway worktree.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: install uv
+      - name: install uv (own cache, never pruned, so torch is not re-downloaded)
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+          cache-suffix: graph
+          prune-cache: false
           cache-dependency-glob: 'pyproject.toml'
 
-      - name: install package with graph extra (heavy — torch + model stack)
+      - name: restore the embedding model cache
+        id: hf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .hf-cache
+          key: hf-${{ env.EMBEDDING_MODEL }}-v1
+
+      - name: 'install package with graph extra (CPU torch first, then the stack)'
         run: |
           uv venv --python 3.12
-          uv pip install -e '.[dev,graph]'
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -e '.[dev,graph,postgres]'
 
-      - name: recall snapshot diff vs baseline
+      - name: warm the embedding model (tolerates a partial cache)
+        run: |
+          uv run python - <<'PY'
+          from sentence_transformers import SentenceTransformer
+          import os
+          SentenceTransformer(os.environ["EMBEDDING_MODEL"])
+          print("model ready")
+          PY
+
+      - name: compat gate (HARD gate, diff against the merge-base with main)
+        run: uv run pytest -q tests/compat -m "not live" -rs
+
+      - name: nano-graphrag adapter + Postgres tier on the graph install
+        run: uv run pytest -q tests/postgres
+
+      - name: recall snapshot diff vs baseline (non-blocking)
+        continue-on-error: true
         run: uv run python tests/eval/snapshot_diff.py
+
+      - name: save the embedding model cache
+        if: always() && steps.hf-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .hf-cache
+          key: hf-${{ env.EMBEDDING_MODEL }}-v1

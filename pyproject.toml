@@ -111,3 +111,15 @@ markers = [
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+
+# CPU-only torch on Linux for uv project workflows (uv sync / uv lock). The
+# default index resolves the CUDA build (~3 GB) on Linux; CI runners never
+# have a GPU. `uv pip install` does not read this table, so the CI job also
+# installs torch from the CPU index explicitly before the graph extra.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
