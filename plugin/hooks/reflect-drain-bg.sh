@@ -46,6 +46,12 @@
 # REFLECT_DRAIN_TOKEN_MAX     Poison a transcript whose run reports   Default: 2000000
 #                             more than this many total tokens.
 # REFLECT_DRAIN_MODEL         Model alias for claude -p (--model).    Default: sonnet
+# REFLECT_DRAIN_ALLOWED_TOOLS Override of the agentic writer's allow rules (comma-separated,
+#                             passed via --settings). Default: Read, Grep, Glob,
+#                             Write(docs/solutions/**), Edit(docs/solutions/**),
+#                             Bash(reflect add:*), and python3 running each of the skill's
+#                             own scripts by exact path. See lib/writer_argv.sh. The extract
+#                             path runs with --tools "" (no tools at all).
 # REFLECT_DRAIN_DEBOUNCE_SEC  Min seconds between drain runs.         Default: 600
 # REFLECT_DRAIN_INVALID_THRESHOLD  Consecutive non-valid writer       Default: 3
 #                             outputs before the writer-drift breaker
@@ -135,9 +141,9 @@ TIMEOUT_RETRIES="${REFLECT_DRAIN_TIMEOUT_RETRIES:-1}"
 # .entities.yaml, reflect add, summarize), so a cap of 8 could never complete
 # it: every real run hit max_turns and wrote nothing while still costing ~$0.6.
 # 16 completes with headroom (measured: 13 turns to a written learning).
-MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-16}"
+# MAX_TURNS and DRAIN_MODEL are set below the lib source: their defaults live
+# in lib/writer_argv.sh (the one home the compat gate reads too).
 TOKEN_MAX="${REFLECT_DRAIN_TOKEN_MAX:-2000000}"
-DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-sonnet}"
 DEBOUNCE_SEC="${REFLECT_DRAIN_DEBOUNCE_SEC:-600}"
 CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
 # W7: writer path. "extract" = single tool-free claude -p call that emits JSON
@@ -156,6 +162,9 @@ CASCADE_ENABLED="${REFLECT_DRAIN_CASCADE:-1}"   # W4: gate+slice before /reflect
 # is fixed at (baseline + slice), so it cannot grow into that wall at all.
 # Set REFLECT_DRAIN_WRITER=agentic to opt back into the legacy loop.
 DRAIN_WRITER="${REFLECT_DRAIN_WRITER:-extract}"
+# The agentic writer's permission surface (mode, allow rules, no operator
+# settings, no MCP) is pinned in lib/writer_argv.sh, sourced below, and can be
+# overridden only through REFLECT_DRAIN_ALLOWED_TOOLS.
 DRAIN_CWD="${REFLECT_DRAIN_CWD:-$HOME}"          # W5: neutral cwd for claude -p
 INVALID_THRESHOLD="${REFLECT_DRAIN_INVALID_THRESHOLD:-3}"  # M2: writer-drift breaker
 QUOTA_GATE_ENABLED="${REFLECT_QUOTA_GATE:-1}"    # M3: subscription-quota gate
@@ -174,6 +183,11 @@ source "${SCRIPT_DIR}/lib/writer_argv.sh" || {
     echo "reflect drain: missing ${SCRIPT_DIR}/lib/writer_argv.sh" >&2
     exit 1
 }
+MAX_TURNS="${REFLECT_DRAIN_MAX_TURNS:-$DRAIN_DEFAULT_MAX_TURNS}"
+DRAIN_MODEL="${REFLECT_DRAIN_MODEL:-$DRAIN_DEFAULT_MODEL}"
+# The writer's children resolve the skill's scripts through this (reflect
+# skill-step), the same directory the lib's guard hook names.
+export REFLECT_SKILL_SCRIPTS_DIR="$(drain_writer_scripts_dir)"
 CASCADE_SCRIPT="${SCRIPT_DIR}/../scripts/reflect_cascade.py"
 EXTRACT_SCRIPT="${SCRIPT_DIR}/../scripts/drain_extract.py"   # W7: single-shot writer
 CLASSIFIER_SCRIPT="${SCRIPT_DIR}/../scripts/output_classifier.py"
@@ -760,7 +774,10 @@ print(json.dumps({
     "rate_limit_info": s.get("rate_limit_info"),
 }))' 2>/dev/null)
     else
-        drain_agentic_writer_argv "$prompt"
+        # The addendum names the resolved scripts dir (so a raw plugin-runtime
+        # SKILL.md's {{HOME_TOOL_DIR}} marker and the python3 allow rules agree)
+        # and the steps the drain does not grant, so the writer skips them.
+        drain_agentic_writer_argv "$(drain_writer_prompt "$prompt")"
         out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "${WRITER_ARGV[@]}" 2>"$stderr_tmp")
         exit_code=$?
         cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
@@ -877,6 +894,33 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         return 1
     fi
 
+    # ── Permission denials ────────────────────────────────────────────────────
+    # Every call was decided before it ran: the allow rules and the PreToolUse
+    # guard in the same settings document (lib/writer_argv.sh, scripts/
+    # drain_guard.py). A denial is therefore a step the drain does not grant,
+    # logged with what was asked and counted in the ledger; it never changes
+    # the outcome, which the run's own result and the receipt decide.
+    local denials=0 denial_lines=""
+    denial_lines=$(printf '%s' "$out_json" | python3 -c '
+import json, sys
+try:
+    denied = json.load(sys.stdin).get("permission_denials") or []
+except Exception:
+    denied = []
+for d in denied:
+    if not isinstance(d, dict):
+        continue
+    ti = d.get("tool_input") or {}
+    what = ti.get("command") or ti.get("file_path") or ti.get("path") or ""
+    print("%s\t%s" % (d.get("tool_name", "?"), str(what)[:160].replace(chr(10), " ")))
+' 2>/dev/null || true)
+    if [[ -n "$denial_lines" ]]; then
+        denials=$(printf '%s\n' "$denial_lines" | wc -l | tr -d ' ')
+        while IFS=$'\t' read -r tool detail; do
+            log "    DENIED ${tool}: ${detail}"
+        done <<< "$denial_lines"
+    fi
+
     # ── Token-budget circuit breaker (post-hoc poison) ─────────────────────────
     # claude -p only reports usage at completion, so turns + wall-clock are the
     # mid-run hard stops; this catches a run that finished but cost too much and
@@ -887,6 +931,10 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
         record_cost_event 1 "$transcript" "poison_budget" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
         return 2
+    fi
+
+    if [[ "$denials" -gt 0 ]]; then
+        emit_error warn drain_permission_denied "${denials} denied call(s) on steps the drain does not grant" "$transcript"
     fi
 
     # max_turns: claude probably did useful work — write_flow may have already
