@@ -158,6 +158,10 @@ MAX_INPUT_CHARS="${REFLECT_DRAIN_MAX_INPUT_CHARS:-60000}"  # #34: hard cap on wr
 
 # Locate sibling scripts (cascade, classifier) relative to this hook, robust to symlinks.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The writer's claude -p argv lives in a side-effect-free library so the compat
+# gate can source the same definition the hook runs (see lib/writer_argv.sh).
+# shellcheck source=lib/writer_argv.sh
+source "${SCRIPT_DIR}/lib/writer_argv.sh"
 CASCADE_SCRIPT="${SCRIPT_DIR}/../scripts/reflect_cascade.py"
 EXTRACT_SCRIPT="${SCRIPT_DIR}/../scripts/drain_extract.py"   # W7: single-shot writer
 CLASSIFIER_SCRIPT="${SCRIPT_DIR}/../scripts/output_classifier.py"
@@ -742,12 +746,8 @@ print(json.dumps({
     "rate_limit_info": s.get("rate_limit_info"),
 }))' 2>/dev/null)
     else
-        out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "$CLAUDE_BIN" \
-            -p "$prompt" \
-            --model "$DRAIN_MODEL" \
-            --output-format json \
-            --permission-mode bypassPermissions \
-            --max-turns "$MAX_TURNS" 2>"$stderr_tmp")
+        drain_agentic_writer_argv "$prompt"
+        out_json=$(cd "$DRAIN_CWD" && _to "$ENTRY_TIMEOUT" "${WRITER_ARGV[@]}" 2>"$stderr_tmp")
         exit_code=$?
         cat "$stderr_tmp" >> "$LOG_FILE" 2>/dev/null || true
     fi
