@@ -47,6 +47,28 @@ Invoke directly (no central CLI dispatcher in the reflect plugin):
 
 from __future__ import annotations
 
+from secret_redact import redact_secrets_text  # noqa: E402, same directory, load-time
+
+# The columns a secret can sit in, per table. Everything else (ids, paths,
+# hashes, timestamps, enums) is copied as is.
+FREE_TEXT_COLUMNS: dict[str, frozenset[str]] = {
+    "learnings": frozenset({"title", "source_quote", "revert_reason"}),
+    "proposals": frozenset({"diff", "rationale_json", "materialization_error"}),
+    "events": frozenset({"details_json"}),
+    "index_jobs": frozenset({"last_error"}),
+    "recall_events": frozenset({"query", "source_context", "feedback"}),
+    "artifacts": frozenset({"metadata_json"}),
+    "learning_history": frozenset({"changed_fields", "snapshot_json", "reason"}),
+    "skills": frozenset({"summary", "tags"}),
+    "slots": frozenset({"content", "description"}),
+    "observations": frozenset({"content", "retired_reason"}),
+    "observation_history": frozenset({"snapshot_json", "reason"}),
+    "conventions_docs": frozenset({"query", "content"}),
+    "commit_links": frozenset({"message"}),
+    "project_persona": frozenset({"value"}),
+    "transcript_chunks": frozenset({"slice"}),
+}
+
 import argparse
 import io
 import json
@@ -141,13 +163,15 @@ def _ordered_rows(conn: sqlite3.Connection, table: str, columns: list[str]) -> l
     sql = f'SELECT {col_list} FROM "{table}" ORDER BY {order_by}'
     rows = [tuple(r) for r in conn.execute(sql).fetchall()]
     # Defence in depth behind the add_learning boundary: the export leaves the
-    # machine, so every text cell passes the secrets-only redactor once more.
-    try:
-        sys.path.insert(0, str(Path(__file__).resolve().parent))
-        from secret_redact import redact_secrets_text
-    except ImportError:
+    # machine, so every free-text cell passes the secrets-only redactor once
+    # more. Ids, paths, hashes and timestamps are not text a secret sits in.
+    text_at = [i for i, c in enumerate(columns) if c in FREE_TEXT_COLUMNS.get(table, ())]
+    if not text_at:
         return rows
-    return [tuple(redact_secrets_text(c) if isinstance(c, str) else c for c in r) for r in rows]
+    return [
+        tuple(redact_secrets_text(c) if i in text_at and isinstance(c, str) else c for i, c in enumerate(r))
+        for r in rows
+    ]
 
 
 def build_db_snapshot(src_db: Path) -> bytes:
@@ -198,6 +222,18 @@ def build_db_snapshot(src_db: Path) -> bytes:
     finally:
         src.close()
         dst.close()
+
+
+def _redacted_document(path: Path) -> bytes:
+    """A note or sidecar as it leaves the machine: a document written before
+    the capture gate existed can still carry a credential, so every bundled
+    text file passes the secrets-only redactor."""
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
+    return redact_secrets_text(text).encode("utf-8")
 
 
 def _add_bytes(tar: tarfile.TarFile, arcname: str, payload: bytes) -> None:
@@ -267,7 +303,7 @@ def export_kb(
     ]
     for d in docs:
         arc = "documents/" + d.relative_to(docs_dir).as_posix()
-        members.append((arc, d.read_bytes()))
+        members.append((arc, _redacted_document(d)))
     members.sort(key=lambda m: m[0])
 
     # gzip carries its own mtime; use an uncompressed tar so the bytes are fully
