@@ -128,6 +128,14 @@ CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
 # once so the extract writer's `reflect add` calls find it even when the drain's
 # environment lacks that dir on PATH.
 REFLECT_BIN="${REFLECT_DRAIN_REFLECT_BIN:-$(command -v reflect 2>/dev/null || echo "${HOME}/.local/bin/reflect")}"
+# The writer's own calls (reflect skill-step, reflect add, reflect search) run
+# in the claude -p child: it must find the same binary. Exported, and its
+# directory first on the child's PATH, so a `uv tool install` layout
+# (~/.local/bin off the hook's PATH) indexes instead of failing every step.
+export REFLECT_BIN
+if [[ -x "$REFLECT_BIN" ]]; then
+    export PATH="$(cd "$(dirname "$REFLECT_BIN")" && pwd -P):$PATH"
+fi
 # Raised 180 -> 300 alongside MAX_TURNS 8 -> 16: the wall-clock cap must stay
 # above the turn budget's worst case, or a run that would cleanly stop at
 # max_turns (return 2, dropped) instead gets SIGTERMed with no envelope and is
@@ -358,7 +366,7 @@ PY
 
 record_cost_event() {
     # record_cost_event <entries> <transcript> <outcome> \
-    #   [tokens] [cost_usd] [turns] [model] [cache_read] [cache_creation] [input] [output] [writer_class]
+    #   [tokens] [cost_usd] [turns] [model] [cache_read] [cache_creation] [input] [output] [writer_class] [denials] [notes_landed] [indexed]
     # The token/cost fields default to 0 so pre-run outcomes (stale/poison) and
     # the legacy 3-arg call shape still emit valid JSON. `reflect cost` reads
     # these for the cached-vs-uncached timeline (W3). writer_class (M2) is the
@@ -367,7 +375,7 @@ record_cost_event() {
     local entry_count="$1" transcript="$2" outcome="$3"
     local tokens="${4:-0}" cost="${5:-0}" turns="${6:-0}" model="${7:-}"
     local cache_read="${8:-0}" cache_creation="${9:-0}" input_tok="${10:-0}" output_tok="${11:-0}"
-    local writer_class="${12:-}"
+    local writer_class="${12:-}" denials="${13:-0}" notes_landed="${14:-0}" indexed="${15:-0}"
     # Coerce anything non-numeric to 0/valid so the JSON line never breaks.
     [[ "$tokens"         =~ ^[0-9]+$        ]] || tokens=0
     [[ "$cost"           =~ ^[0-9]+([.][0-9]+)?$ ]] || cost=0
@@ -376,6 +384,9 @@ record_cost_event() {
     [[ "$cache_creation" =~ ^[0-9]+$        ]] || cache_creation=0
     [[ "$input_tok"      =~ ^[0-9]+$        ]] || input_tok=0
     [[ "$output_tok"     =~ ^[0-9]+$        ]] || output_tok=0
+    [[ "$denials"        =~ ^[0-9]+$        ]] || denials=0
+    [[ "$notes_landed"   =~ ^[0-9]+$        ]] || notes_landed=0
+    [[ "$indexed"        =~ ^[0-9]+$        ]] || indexed=0
     local today ts
     today=$(date -u +%Y-%m-%d)
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -386,11 +397,11 @@ record_cost_event() {
     # are already coerced above so they serialise as bare numbers.
     python3 - "$ts" "$today" "$entry_count" "$transcript" "$outcome" "$model" \
         "$turns" "$tokens" "$cost" "$input_tok" "$output_tok" "$cache_read" "$cache_creation" \
-        "$writer_class" \
+        "$writer_class" "$denials" "$notes_landed" "$indexed" \
         >> "$COST_FILE" <<'PY'
 import json, sys
 (ts, day, entries, transcript, outcome, model,
- turns, tokens, cost, inp, out, cr, cc, writer_class) = sys.argv[1:15]
+ turns, tokens, cost, inp, out, cr, cc, writer_class, denials, notes_landed, indexed) = sys.argv[1:18]
 def _num(x):
     try:
         return int(x)
@@ -406,6 +417,7 @@ print(json.dumps({
     "input": _num(inp), "output": _num(out),
     "cache_read": _num(cr), "cache_creation": _num(cc),
     "writer_class": writer_class,
+    "denials": _num(denials), "notes_landed": _num(notes_landed), "indexed": _num(indexed),
 }))
 PY
 }
@@ -720,6 +732,13 @@ When done, summarize what you captured. Do NOT touch the queue file — the drai
     # stderr goes to a temp capture first (M3: the quota store scans it for
     # 429/529 markers) and is then appended to the drain log as before.
     stderr_tmp=$(mktemp)
+    # Landing evidence: `reflect skill-step index` (and the extract writer's
+    # reflect add) append one JSON line per indexed note to this receipt, so
+    # the count is this run's own, never another session's writes under the
+    # shared docs tree. REFLECT_NESTED keeps the child's reflect hooks quiet.
+    local receipt
+    receipt=$(mktemp "${TMPDIR:-/tmp}/reflect-receipt.XXXXXX")
+    export REFLECT_DRAIN_RECEIPT="$receipt"
     export REFLECT_NESTED=1
     WRITER_RULES=()
 
@@ -791,6 +810,38 @@ print(json.dumps({
 
     # Slice is consumed — remove it regardless of how the run turns out.
     [[ -n "$slice_path" ]] && rm -f "$slice_path"
+
+    # ── Landing evidence ──────────────────────────────────────────────────────
+    # From the receipt: notes_landed = distinct notes indexed by this run,
+    # indexed = receipt lines with a document id. Read here, straight after
+    # the run, so the receipt is removed on every path out of this function.
+    # Logged and put in the ledger; a clean run that captured nothing is
+    # still a clean run.
+    local notes_landed=0 indexed=0 receipt_counts=""
+    if [[ -s "$receipt" ]]; then
+        receipt_counts=$(python3 - "$receipt" <<'PY' 2>/dev/null || echo "0 0"
+import json, sys
+notes, docs = set(), 0
+for line in open(sys.argv[1], encoding="utf-8"):
+    try:
+        row = json.loads(line)
+    except ValueError:
+        continue
+    if not isinstance(row, dict):
+        continue
+    if row.get("note"):
+        notes.add(row["note"])
+    if row.get("doc_id"):
+        docs += 1
+print(len(notes), docs)
+PY
+)
+        read -r notes_landed indexed <<< "$receipt_counts"
+        [[ "$notes_landed" =~ ^[0-9]+$ ]] || notes_landed=0
+        [[ "$indexed" =~ ^[0-9]+$ ]] || indexed=0
+    fi
+    rm -f "$receipt"
+    unset REFLECT_DRAIN_RECEIPT
 
     # We expect a JSON object on stdout regardless of exit code (claude -p
     # writes the result envelope even on max_turns / errors).
@@ -873,7 +924,7 @@ print(i,o,cr,cc,i+o+cr+cc)' 2>/dev/null || echo "0 0 0 0 0")
         log "    WRITER RESPAWN (writer_drift): ${writer_streak} consecutive invalid outputs, categories=[${writer_cats}]; killing writer + archiving transcript. writer_result=${result_summary}"
         emit_error error drain_poison "writer_drift: ${writer_streak} consecutive invalid writer outputs (categories: ${writer_cats})" "$transcript"
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
-        record_cost_event 1 "$transcript" "poison_writer_drift" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "poison_writer_drift" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 2
     fi
 
@@ -929,7 +980,7 @@ for d in denied:
         log "    BUDGET poison: run used ${total_tokens} tokens (> ${TOKEN_MAX}); archiving transcript"
         emit_error error drain_budget_exceeded "run used ${total_tokens} tokens (> ${TOKEN_MAX})" "$transcript"
         printf '%s\n' "$entry_json" >> "$POISON_FILE"
-        record_cost_event 1 "$transcript" "poison_budget" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "poison_budget" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 2
     fi
 
@@ -942,23 +993,23 @@ for d in denied:
     # from queue immediately; retrying the same giant session just re-spends
     # budget and blocks younger entries.
     if [[ "$terminal_reason" == "max_turns" ]]; then
-        log "    partial terminal: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens}; removing from queue"
+        log "    partial terminal: terminal=max_turns turns=${num_turns} cost=\$${cost} tokens=${total_tokens} notes_landed=${notes_landed} indexed=${indexed} denials=${denials}; removing from queue"
         emit_error warn drain_max_turns_partial "max_turns after ${num_turns} turns; treated as terminal partial progress" "$transcript"
-        record_cost_event 1 "$transcript" "partial_max_turns" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "partial_max_turns" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}" "${indexed:-0}"
         return 2
     fi
 
     if [[ "$is_error" == "True" || "$is_error" == "true" ]]; then
         log "    claude reported is_error=true terminal=${terminal_reason} result=${result_summary}"
         bump_retry_count "$transcript" >/dev/null
-        record_cost_event 1 "$transcript" "fail_is_error" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_is_error" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 1
     fi
 
     if [[ $exit_code -ne 0 ]]; then
         log "    claude -p exit=$exit_code (but is_error=false; treating as soft fail)"
         bump_retry_count "$transcript" >/dev/null
-        record_cost_event 1 "$transcript" "fail_exit_${exit_code}" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_exit_${exit_code}" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 1
     fi
 
@@ -985,12 +1036,12 @@ for d in denied:
     if [[ "$num_turns" == "0" ]]; then
         log "    NO-OP RUN (exit=0, turns=0, tokens=${total_tokens}): model never reached: ${result_summary}"
         emit_error error drain_unknown_command "drain produced no model turns; plugin command likely unresolved: ${result_summary}" "$transcript"
-        record_cost_event 1 "$transcript" "fail_unknown_command" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+        record_cost_event 1 "$transcript" "fail_unknown_command" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "${denials:-0}" "${notes_landed:-0}"
         return 3
     fi
 
-    log "    OK turns=${num_turns} cost=\$${cost} tokens=${total_tokens} result=${result_summary}"
-    record_cost_event 1 "$transcript" "ok" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class"
+    log "    OK turns=${num_turns} cost=\$${cost} tokens=${total_tokens} notes_landed=${notes_landed} indexed=${indexed} denials=${denials} result=${result_summary}"
+    record_cost_event 1 "$transcript" "ok" "$total_tokens" "$cost" "$num_turns" "$DRAIN_MODEL" "$cache_read" "$cache_creation" "$input_tok" "$output_tok" "$writer_class" "$denials" "$notes_landed" "$indexed"
 
     # R13: a completed skill-refresh clears the staleness flag so the skill
     # re-enters the inject matcher. refresh_if_stale re-parses the (likely

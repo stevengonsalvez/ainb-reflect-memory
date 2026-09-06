@@ -385,6 +385,19 @@ def render_sidecar(learning: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _receipt(md: Path, yaml: Path, add_stdout: str) -> None:
+    """One JSON line per indexed note, when the drain asked for a receipt
+    (REFLECT_DRAIN_RECEIPT): the same line `reflect skill-step index` writes,
+    so the hook counts what this run indexed from the receipt alone."""
+    receipt = os.environ.get("REFLECT_DRAIN_RECEIPT")
+    if not receipt:
+        return
+    m = re.search(r"Document id: (\S+)", add_stdout or "")
+    line = {"ts": _now_iso(), "note": str(md), "sidecar": str(yaml), "doc_id": m.group(1) if m else ""}
+    with open(receipt, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + "\n")
+
+
 def execute_create(learning: dict, *, source_path: str, session_id: str,
                    reflect_bin: str, provenance: dict | None = None) -> tuple[bool, str]:
     """Write .md + .entities.yaml, index via `reflect add --force`."""
@@ -404,6 +417,7 @@ def execute_create(learning: dict, *, source_path: str, session_id: str,
         )
         if proc.returncode != 0:
             return False, (proc.stderr or proc.stdout)[:200]
+        _receipt(md, yaml, proc.stdout)
         # `reflect add` writes the corpus note + graph but not the learnings
         # table, so record-chunk (which links by source_memory_ids) would never
         # find extract-written learnings. Mirror the agentic path's revise-CREATE
