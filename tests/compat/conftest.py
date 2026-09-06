@@ -93,7 +93,12 @@ def agentic_writer_argv(prompt: str, env: dict[str, str], lib: Path = WRITER_ARG
     if proc.returncode != 0:
         pytest.fail(f"could not read writer argv from {lib} (exit {proc.returncode}): "
                     f"{proc.stderr.decode(errors='replace')}")
-    return [p.decode("utf-8") for p in proc.stdout.split(b"\0") if p]
+    parts = proc.stdout.split(b"\0")
+    assert parts[-1] == b"", "argv stream must end with a NUL terminator"
+    # Keep empty elements: a flag whose value is "" (for example
+    # --setting-sources "") must reach the CLI as an empty argument, and a
+    # test that dropped it would silently test a different command line.
+    return [p.decode("utf-8") for p in parts[:-1]]
 
 
 def replace_flag_value(argv: list[str], flag: str, value: str) -> list[str]:

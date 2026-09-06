@@ -65,3 +65,17 @@ def test_hook_fails_loudly_when_the_library_is_missing(home, tmp_path) -> None:
                           capture_output=True, text=True, timeout=60, check=False)
     assert proc.returncode == 1
     assert "missing" in proc.stderr and "writer_argv.sh" in proc.stderr
+
+
+def test_empty_argv_values_survive_extraction(tmp_path) -> None:
+    """The extraction helper must keep "" elements. The live scenarios hand the
+    argv to the CLI verbatim, so a dropped "" would shift every following flag
+    and the test would exercise a different command line than the hook runs."""
+    from .conftest import agentic_writer_argv
+
+    lib = tmp_path / "lib.sh"
+    lib.write_text('drain_agentic_writer_argv() { WRITER_ARGV=(claude -p "$1" --setting-sources "" --max-turns 1); }\n')
+    assert agentic_writer_argv("hello", {"PATH": "/usr/bin:/bin"}, lib=lib) == [
+        "claude", "-p", "hello", "--setting-sources", "", "--max-turns", "1",
+    ]
+
