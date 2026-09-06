@@ -30,29 +30,43 @@ slice of the transcript that carries signal (not the whole transcript) is sent
 to Anthropic's API under your Claude subscription, and the model's answer comes
 back as JSON actions that are executed locally.
 
-What travels: the gated transcript slice plus the related-learning titles used
-for belief revision. Redaction happens on the way back, not on the way out:
-`redact_secrets` runs on every note before `reflect add` writes it, so a
-credential that was in the transcript cannot land in the knowledge base. It
-does not stop the credential from having been in the prompt. If a transcript
-must never reach the API, delete its queue entry or set `REFLECT_DISABLED=1`.
+What travels: the gated transcript slice (or the bounded transcript on the
+extract path) plus the related-learning titles used for belief revision.
+Redaction runs in both directions: the slice and the bounded input are passed
+through the secret redactor before they leave the machine, and `redact_secrets`
+runs again on every note before `reflect add` writes it. Redaction is
+pattern-based; a credential in a shape the tables do not know can still be in
+the prompt. If a transcript must never reach the API, delete its queue entry or
+set `REFLECT_DISABLED=1`.
 
-**The bypassPermissions caveat.** Until this change the agentic writer ran
-`claude -p ... --permission-mode bypassPermissions`, which granted the headless
-model every tool with no prompt: arbitrary Bash, network, writes anywhere. The
-default writer is now the single-shot extract path, which runs with
-`--allowedTools ""` (no tools at all, one turn). The agentic fallback runs with
-`--allowedTools "$REFLECT_DRAIN_ALLOWED_TOOLS"` and no permission mode flag, so
-headless mode denies anything outside that list. The default list is `Read,
-Grep, Glob, Write, Edit, Bash(reflect:*)` plus `python`/`python3` only when the
-command starts with the reflect skill's own scripts directory. There is no
-bare Bash and no bare python. What remains open: `Write`/`Edit` are unscoped
-because the skill stages the note and sidecar in a temp dir before `reflect
-add`; pin them with `Write(<path>)` rules through `REFLECT_DRAIN_ALLOWED_TOOLS`
-if your install fixes that dir. Neither path uses `bypassPermissions` any more.
+**Permission surface.** The writer used to run with `bypassPermissions`, which
+granted the headless model every tool with no prompt. Now:
+
+- The default writer is the single-shot extract path: `--tools ""` plus
+  `--strict-mcp-config`, so it has no tools at all, one turn.
+- The agentic fallback (`REFLECT_DRAIN_WRITER=agentic`) runs with
+  `--permission-mode default`, `--setting-sources ""` (the operator's
+  settings.json, including any `bypassPermissions` there, is not read) and its
+  own allow rules passed via `--settings`. The rules and their override
+  variable are documented once, in `plugin/hooks/README.md` (circuit-breaker
+  table); they are not repeated here.
+- A denied tool call marks the run failed and leaves the entry queued; it is
+  never logged as success.
+
+The compat gate (`tests/compat/test_drain_permissions_live.py`) asserts this
+against the real CLI when a key is present.
 
 Off switch: `REFLECT_DISABLED=1` (everything) or `REFLECT_DRAIN_DRY_RUN=1`
 (log, do not call the model).
+
+### Every `claude -p` path
+
+| Path | When | What travels | Tools |
+|---|---|---|---|
+| drain, extract writer (`plugin/scripts/drain_extract.py`) | default drain | redacted bounded transcript, related titles | none (`--tools ""`) |
+| drain, agentic writer (`plugin/hooks/lib/writer_argv.sh`) | `REFLECT_DRAIN_WRITER=agentic` | redacted transcript slice | hook-owned allow rules, default mode |
+| recall HyDE (`plugin/skills/recall/scripts/recall.py`) | `REFLECT_RECALL_HYDE=1`, off by default | the recall query text | `--setting-sources ""`, `--strict-mcp-config`, no allow rules; not structurally tool free |
+| issues analyzer (`src/reflect_kb/issues/analyze.py`) | `reflect issues run`, manual | distilled transcript timelines | no permission flags: inherits the operator's settings. Open item; run it only where that is acceptable |
 
 ## 2. Model weights (inbound, once)
 
@@ -67,43 +81,50 @@ Hugging Face cache on an air-gapped machine to avoid this path entirely.
 Unset `REFLECT_PG_DSN` and nothing here happens. When set, the derived store
 (vectors, entity graph, community reports, memory items) is written to the
 configured Postgres over whatever transport the DSN names. Transport security
-is the DSN's `sslmode`: the writer path hands the DSN to psycopg as given, so
-a DSN without `sslmode=require` (or `verify-ca`, `verify-full`) sends notes and
-vectors in plaintext. Supabase connection strings carry TLS; check yours. The
-broker refuses to start on a plaintext DSN unless
-`REFLECT_BROKER_ALLOW_INSECURE_PG=1` is set for a loopback or socket database.
+is the DSN's `sslmode`. Both the writer path and the broker refuse a DSN to a
+remote host without `sslmode=require` (or `verify-ca`, `verify-full`); loopback
+and Unix-socket servers pass, and `REFLECT_PG_ALLOW_INSECURE=1` is the single
+opt-out for anything else (`src/reflect_kb/postgres/dsn.py`). Supabase
+connection strings carry TLS; check yours.
 The database is dumb: it stores, scopes by `workspace_id` and searches. No LLM
 or embedding call is made from the server.
 
 Guards on this path:
 
-- Row-Level Security is FORCEd (migration 0003), so even the table owner cannot
-  read across workspaces; only superusers and BYPASSRLS roles (Supabase
-  `service_role`) are exempt, and that is the trusted worker.
+- Row-Level Security is FORCEd (migration 0003) on all seven tables
+  (`memory_items`, `entities`, `edges`, `ng_kv`, `ng_graph_nodes`,
+  `ng_graph_edges`, `ng_vectors`), so even the table owner cannot read across
+  workspaces; only superusers and BYPASSRLS roles (Supabase `service_role`)
+  are exempt, and that is the trusted worker.
 - Classification floor: items labelled `restricted` or `pii` are refused by
-  `InsertMemoryInput` and by a check constraint on `memory_items`. They stay in
-  the local markdown store.
+  `InsertMemoryInput`, by the nano-graphrag write path (`insert_document` and
+  the `ng_kv` full-document store), and by a check constraint on
+  `memory_items`. They stay in the local markdown store.
 - Every note is redacted before it is written locally, so the shared copy
   inherits that redaction.
 
 ## 4. The Context Broker
 
 `python -m reflect_kb.broker` serves `GET|POST /v1/evidence` over the shared
-store. It adds no new egress: it reads Postgres and answers an authenticated
-caller. What it returns is an `EvidencePack` (lexical hits, entity matches, a
-graph neighborhood, citations) and never a synthesized answer.
+store. What it returns is an `EvidencePack` (lexical hits, entity matches, a
+graph neighborhood, citations) and never a synthesized answer. The tenant is
+the verified claim (a UUID, else 403); the body and query string cannot name
+one, and each request binds it with `SET LOCAL app.current_workspace`.
 
-- No token: 401. Token without the tenant claim: 403. The tenant is the
-  verified claim; the body and query string cannot name one.
-- Every returned hit carries `repo@sha:path[#Lstart-Lend]` and the resolver has
-  confirmed that commit and path exist. Unpinned or unresolvable hits are
-  dropped and counted in `meta.dropped`.
-- `restricted` and `pii` never appear, and an unknown label fails closed
-  (defence in depth over the floor above).
-- Graph edges are returned only when the memory they cite was itself returned;
-  the rest are dropped and counted.
+Egress from the broker host:
 
-Configuration and an Entra ID example are in the README.
+- Outbound to the OIDC issuer: discovery once at startup, then the JWKS
+  document on key rotation (negative cache and a refresh floor bound the
+  rate). No token or query content travels; only the issuer URL is fetched.
+- With `REFLECT_BROKER_RESOLVER=http`, the repo name, commit sha and file path
+  of every candidate hit are sent to the forge named by
+  `REFLECT_BROKER_FORGE_URL_TEMPLATE` to confirm the pin (path
+  percent-encoded, traversal rejected). Note content does not travel. The
+  default `git` resolver makes no network call; it reads local checkouts.
+
+The refusal rules (401, 403, dropped and counted hits, edges, limits) live in
+one place: README, "Context Broker", the table "What is refused, and why".
+Configuration and an Entra ID example are in the same section.
 
 ## What never leaves
 
