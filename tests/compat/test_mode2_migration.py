@@ -68,10 +68,7 @@ def pg(disposable_pg):
 
 
 def _apply_all(cur) -> None:
-    """Every migration in name order, aborting on the first failure. The role
-    passwords 0004 reads come from session GUCs, harmless when 0004 is absent."""
-    cur.execute("select set_config('reflect.broker_password', %s, false)", (ROLE_PASSWORD,))
-    cur.execute("select set_config('reflect.writer_password', %s, false)", (ROLE_PASSWORD,))
+    """Every migration in name order, aborting on the first failure."""
     for path in ALL_MIGRATIONS:
         cur.execute(path.read_text())
 
@@ -353,20 +350,33 @@ def test_broker_startup_refuses_roles_that_bypass_rls(pg) -> None:
 
 
 def test_0004_creates_the_broker_and_writer_roles(pg) -> None:
-    """Migration 0004 creates reflect_broker (LOGIN, SELECT plus EXECUTE, no
-    BYPASSRLS, never owner) and reflect_writer (LOGIN, DML, bound via
-    app.current_workspace), both from session-provided passwords."""
+    """Migration 0004 creates reflect_broker (SELECT plus EXECUTE only, never
+    owner) and reflect_writer (DML under RLS) NOLOGIN, with no secret in the
+    file; scripts/provision_roles.py then gives them LOGIN passwords from the
+    environment. Re-running 0004 is a no-op, and it never re-issues an
+    attribute that is already right (a CREATEROLE-only migrator can run it)."""
+    import os
+    import subprocess
+    import sys
+
     conn, dsn = pg
     if not (MIGRATIONS / "0004_broker_and_writer_roles.sql").exists():
         pytest.skip("0004 lands in #39")
     with conn.cursor() as cur:
+        # Roles are cluster objects: a previous run's provisioning survives the
+        # disposable database. Reset the attribute the migration must not
+        # set, so the assertion below is about the migration, not history.
+        cur.execute("do $$ begin "
+                    "if exists (select 1 from pg_roles where rolname = 'reflect_broker') then alter role reflect_broker nologin; end if; "
+                    "if exists (select 1 from pg_roles where rolname = 'reflect_writer') then alter role reflect_writer nologin; end if; "
+                    "end $$;")
         _apply_all(cur)
         cur.execute("select rolname, rolcanlogin, rolsuper, rolbypassrls from pg_roles "
                     "where rolname in ('reflect_broker', 'reflect_writer') order by rolname")
         roles = {r["rolname"]: r for r in cur.fetchall()}
         assert set(roles) == {"reflect_broker", "reflect_writer"}, roles
         for r in roles.values():
-            assert r["rolcanlogin"] and not r["rolsuper"] and not r["rolbypassrls"], r
+            assert not r["rolcanlogin"] and not r["rolsuper"] and not r["rolbypassrls"], r
         cur.execute("select count(*) as n from pg_tables where schemaname = 'reflect_memory' "
                     "and tableowner in ('reflect_broker', 'reflect_writer')")
         assert cur.fetchone()["n"] == 0
@@ -375,8 +385,12 @@ def test_0004_creates_the_broker_and_writer_roles(pg) -> None:
                     "has_table_privilege('reflect_writer', 'reflect_memory.memory_items', 'INSERT') as ww")
         priv = cur.fetchone()
         assert priv["r"] and not priv["w"] and priv["ww"], priv
-        # Re-runnable: applying again is a no-op, not an error.
-        _apply_all(cur)
+        _apply_all(cur)  # re-runnable
+    env = {**os.environ, "DATABASE_URL": dsn, "REFLECT_BROKER_PASSWORD": ROLE_PASSWORD,
+           "REFLECT_WRITER_PASSWORD": ROLE_PASSWORD, "PYTHONPATH": str(REPO / "src")}
+    proc = subprocess.run([sys.executable, str(REPO / "scripts" / "provision_roles.py")], env=env,
+                          capture_output=True, text=True, timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr[-800:]
     from psycopg.rows import dict_row
 
     from reflect_kb.postgres import InsertMemoryInput, MemoryStore, Tenant
@@ -390,3 +404,80 @@ def test_0004_creates_the_broker_and_writer_roles(pg) -> None:
         assert item.workspace_id == WS_A
     finally:
         writer.close()
+
+
+def test_capture_pipeline_serves_a_pinned_hit_without_the_seeder(pg, tmp_path, reflect_bin) -> None:
+    """Mode 2 end to end with no seeder: the migrations and the provisioned
+    reflect_writer role, then `reflect add` on a note carrying repo, commit
+    and source_path, then the broker as reflect_broker serves that hit with
+    its pin resolved against a local checkout."""
+    import os
+    import subprocess
+    import sys
+
+    conn, dsn = pg
+    if not (MIGRATIONS / "0004_broker_and_writer_roles.sql").exists():
+        pytest.skip("0004 lands in #39")
+    try:
+        from reflect_kb.broker.app import create_app, psycopg_store_factory
+        from reflect_kb.broker.auth import AuthError, Principal
+        from reflect_kb.broker.pinning import LocalGitResolver
+    except ImportError:
+        pytest.skip("broker lands in #39")
+    pytest.importorskip("fastapi")
+    from fastapi.testclient import TestClient
+
+    from .conftest import REPO as CHECKOUT
+
+    with conn.cursor() as cur:
+        _apply_all(cur)
+    env_admin = {**os.environ, "DATABASE_URL": dsn, "REFLECT_BROKER_PASSWORD": ROLE_PASSWORD,
+                 "REFLECT_WRITER_PASSWORD": ROLE_PASSWORD, "PYTHONPATH": str(CHECKOUT / "src")}
+    assert subprocess.run([sys.executable, str(CHECKOUT / "scripts" / "provision_roles.py")], env=env_admin,
+                          capture_output=True, text=True, timeout=120, check=False).returncode == 0
+
+    # A tiny checkout the pin points at.
+    repo = tmp_path / "widgets"
+    repo.mkdir()
+    git = ["git", "-c", "user.email=t@t", "-c", "user.name=t", "-C", str(repo)]
+    subprocess.run([*git, "init", "-q"], check=True)
+    (repo / "src").mkdir()
+    (repo / "src" / "auth.rs").write_text("fn validate_jwt() {}\n")
+    subprocess.run([*git, "add", "."], check=True)
+    subprocess.run([*git, "commit", "-q", "-m", "auth"], check=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], capture_output=True, text=True, check=True).stdout.strip()
+
+    note = tmp_path / "jwt-expiry.md"
+    note.write_text(
+        "---\ntitle: JWT expiry uses a strict less-than\ncategory: auth\nkey_insight: the expiry check must be inclusive\n"
+        f"classification: internal\nrepo: acme/widgets\ncommit: {sha}\nsource_path: src/auth.rs\n---\n\n"
+        "The auth middleware validates the JWT token expiry with a strict less-than check.\n", encoding="utf-8")
+    env = {**os.environ, "GLOBAL_LEARNINGS_PATH": str(tmp_path / "kb"), "REFLECT_STATE_DIR": str(tmp_path / "state"),
+           "REFLECT_PG_DSN": _dsn_as(dsn, "reflect_writer"), "REFLECT_WORKSPACE_ID": WS_A,
+           "REFLECT_PG_ALLOW_INSECURE": "1", "REFLECT_NO_DAEMON": "1"}
+    proc = subprocess.run([str(reflect_bin), "add", "--force", str(note)], env=env, capture_output=True,
+                          text=True, timeout=900, check=False)
+    assert proc.returncode == 0, proc.stdout[-800:] + proc.stderr[-800:]
+    with conn.cursor() as cur:
+        cur.execute("select source_uri, metadata->>'classification' as label from reflect_memory.memory_items "
+                    "where workspace_id = %s", (WS_A,))
+        rows = cur.fetchall()
+    assert [(r["source_uri"], r["label"]) for r in rows] == [(f"acme/widgets@{sha}:src/auth.rs", "internal")], (
+        rows, proc.stdout[-600:], proc.stderr[-600:])
+
+    class Verifier:
+        def verify(self, authorization):
+            if not authorization:
+                raise AuthError(401, "missing bearer token")
+            return Principal(subject="compat", workspace_id=WS_A, claims={})
+
+    with conn.cursor() as cur, _login_role(cur, "reflect_compat_reader", owner=False):
+        app = create_app(verifier=Verifier(), store_factory=psycopg_store_factory(_dsn_as(dsn, "reflect_compat_reader")),
+                         resolver=LocalGitResolver({"acme/widgets": repo}))
+        r = TestClient(app).post("/v1/evidence", json={"query": "JWT expiry"}, headers={"Authorization": "Bearer x"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["lexical"], body
+    assert body["lexical"][0]["source_uri"] == f"acme/widgets@{sha}:src/auth.rs"
+    assert body["meta"]["dropped"] == {} or not any(body["meta"]["dropped"].values()), body["meta"]
+
