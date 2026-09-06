@@ -673,6 +673,20 @@ def get_legacy_state_summary() -> str | None:
 _CONN_CACHE: dict[str, sqlite3.Connection] = {}
 
 
+def _redact_text(value: str) -> str:
+    """Secrets-only redaction at the database boundary (plugin/scripts/secret_redact.py)."""
+    if not value:
+        return value
+    try:
+        from secret_redact import redact_secrets_text
+    except ImportError:
+        import sys as _sys
+
+        _sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from secret_redact import redact_secrets_text
+    return redact_secrets_text(value)
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -1528,6 +1542,11 @@ def add_learning(
     Out-of-range values are clamped to [0, 1].
     """
     conn = conn or get_conn()
+    # The DB boundary is a capture gate too: kb_export bundles this file and
+    # the skill index reads it back, so a credential in a title or quote
+    # would leave the machine from here.
+    title = _redact_text(title)
+    source_quote = _redact_text(source_quote)
     lid = _new_id()
     provider = source_provider or source_tool
     effective_confidence_num = _coerce_confidence_num(confidence_num, confidence)

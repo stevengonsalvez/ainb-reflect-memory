@@ -132,12 +132,20 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
 
 
 def _summarize(description: Any) -> str:
-    """First meaningful line of *description*, whitespace-collapsed, capped."""
+    """First meaningful line of *description*, whitespace-collapsed, capped,
+    and through the secrets-only redactor: the summary lands in reflect.db
+    and in the export."""
     if not isinstance(description, str):
         return ""
     for line in description.splitlines():
         line = " ".join(line.split())
         if line:
+            try:
+                from secret_redact import redact_secrets_text
+
+                line = redact_secrets_text(line)
+            except ImportError:
+                pass
             return line[:SUMMARY_MAX_CHARS]
     return ""
 

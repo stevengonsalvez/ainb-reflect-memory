@@ -139,7 +139,15 @@ def _ordered_rows(conn: sqlite3.Connection, table: str, columns: list[str]) -> l
     col_list = ", ".join(f'"{c}"' for c in columns)
     order_by = ", ".join(f'"{c}"' for c in columns)
     sql = f'SELECT {col_list} FROM "{table}" ORDER BY {order_by}'
-    return [tuple(r) for r in conn.execute(sql).fetchall()]
+    rows = [tuple(r) for r in conn.execute(sql).fetchall()]
+    # Defence in depth behind the add_learning boundary: the export leaves the
+    # machine, so every text cell passes the secrets-only redactor once more.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from secret_redact import redact_secrets_text
+    except ImportError:
+        return rows
+    return [tuple(redact_secrets_text(c) if isinstance(c, str) else c for c in r) for r in rows]
 
 
 def build_db_snapshot(src_db: Path) -> bytes:
