@@ -165,8 +165,12 @@ class HttpForgeResolver:
     DEFAULT_TEMPLATE = "https://raw.githubusercontent.com/{repo}/{sha}/{path}"
     MEMO_LIMIT = 4096
     # A line-ranged pin needs at most this many bytes of the file to count
-    # lines; the request carries a Range header and the body is capped.
+    # lines; the request carries a Range header, the response is streamed
+    # and reading stops at the cap, so a large file never sits in memory.
     BYTE_CAP = 1_048_576
+    # Misses of one request are resolved concurrently on the shared client,
+    # at most this many in flight: fifty serial round trips became one wave.
+    MAX_IN_FLIGHT = 8
 
     def __init__(self, url_template: str = DEFAULT_TEMPLATE, *, client: Any = None, timeout: float = 5.0) -> None:
         import httpx
@@ -183,14 +187,26 @@ class HttpForgeResolver:
         return "/".join(urllib.parse.quote(seg, safe="") for seg in segments)
 
     def resolve_many(self, pins: Iterable[PinnedSource]) -> dict[PinnedSource, bool]:
-        """Each distinct pin is fetched at most once per request, and a pin
-        that resolved before is answered from the memo without a request."""
+        """Each distinct pin is fetched at most once per request, a pin that
+        resolved before is answered from the memo without a request, and the
+        misses are fetched concurrently (at most MAX_IN_FLIGHT at a time)."""
+        from concurrent.futures import ThreadPoolExecutor
+
         out: dict[PinnedSource, bool] = {}
+        misses: list[PinnedSource] = []
         for pin in dict.fromkeys(pins):
             if pin in self._memo:
                 out[pin] = True
-                continue
-            ok = self.resolve(pin)
+            else:
+                misses.append(pin)
+        if len(misses) == 1:
+            results = [self.resolve(misses[0])]
+        elif misses:
+            with ThreadPoolExecutor(max_workers=min(self.MAX_IN_FLIGHT, len(misses))) as pool:
+                results = list(pool.map(self.resolve, misses))
+        else:
+            results = []
+        for pin, ok in zip(misses, results, strict=True):
             if ok and len(self._memo) < self.MEMO_LIMIT:
                 self._memo.add(pin)
             out[pin] = ok
@@ -198,8 +214,10 @@ class HttpForgeResolver:
 
     def resolve(self, pin: PinnedSource) -> bool:
         """One request per pin: HEAD when the pin has no line range (existence
-        is all that matters, no body travels back), a GET with a Range header
-        and a byte cap when lines must be counted."""
+        is all that matters, no body travels back), a streamed GET with a
+        Range header when lines must be counted. Reading stops at BYTE_CAP;
+        a 200 (the server ignored the Range) is accepted only when its
+        Content-Length is under the cap, so the whole file is never buffered."""
         try:
             url = self._template.format(
                 repo="/".join(urllib.parse.quote(s, safe="") for s in pin.repo.split("/")),
@@ -209,12 +227,31 @@ class HttpForgeResolver:
             if pin.line_start is None and pin.line_end is None:
                 resp = self._client.head(url)
                 return resp.status_code == 200
-            resp = self._client.get(url, headers={"Range": f"bytes=0-{self.BYTE_CAP - 1}"})
+            needed = pin.line_end or pin.line_start or 0
+            with self._client.stream("GET", url, headers={"Range": f"bytes=0-{self.BYTE_CAP - 1}"}) as resp:
+                if resp.status_code == 200:
+                    length = resp.headers.get("content-length")
+                    if length is None or not length.isdigit() or int(length) > self.BYTE_CAP:
+                        return False
+                elif resp.status_code != 206:
+                    return False
+                lines = 0
+                seen = 0
+                trailing_newline = True
+                for chunk in resp.iter_bytes():
+                    if not chunk:
+                        continue
+                    take = chunk[: self.BYTE_CAP - seen]
+                    seen += len(take)
+                    lines += take.count(b"\n")
+                    trailing_newline = take.endswith(b"\n")
+                    if seen >= self.BYTE_CAP or lines >= needed:
+                        break
+                if seen and not trailing_newline:
+                    lines += 1
+                return lines >= needed
         except Exception:  # noqa: BLE001 - a bad pin or any transport failure is "does not resolve"
             return False
-        if resp.status_code not in (200, 206):
-            return False
-        return _line_count_bytes(resp.content[: self.BYTE_CAP]) >= (pin.line_end or pin.line_start or 0)
 
 
 def _line_count_bytes(data: bytes) -> int:

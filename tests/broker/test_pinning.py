@@ -213,3 +213,68 @@ def test_local_git_resolver_reads_line_ranges_with_one_batch_call(git_repo, monk
     assert out[a] and out[b]
     assert [c[:2] for c in calls] == [("cat-file", "--batch-check"), ("cat-file", "--batch")], calls
 
+
+
+def test_http_forge_resolver_streams_the_range_and_refuses_a_whole_file_over_the_cap() -> None:
+    """A server that ignores Range answers 200: accepted only under the cap by
+    Content-Length. A 206 body is read in chunks and reading stops at the
+    cap or once enough lines were counted, never buffering the whole body."""
+    pulled: list[int] = []
+
+    def chunks(n: int, size: int):
+        for i in range(n):
+            pulled.append(i)
+            yield b"x" * (size - 1) + b"\n"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("big-200"):
+            return httpx.Response(200, headers={"content-length": str(HttpForgeResolver.BYTE_CAP + 1)}, content=b"")
+        if path.endswith("small-200"):
+            return httpx.Response(200, headers={"content-length": "12"}, content=b"one\ntwo\nthr")
+        if path.endswith("huge-206"):
+            return httpx.Response(206, content=chunks(1000, 65_536))
+        return httpx.Response(206, content=b"line1\nline2\n")
+
+    r = HttpForgeResolver(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    sha = "a" * 40
+    assert r.resolve(parse_source_uri(f"acme/widgets@{sha}:big-200#L1")) is False
+    assert r.resolve(parse_source_uri(f"acme/widgets@{sha}:small-200#L3")) is True
+    assert r.resolve(parse_source_uri(f"acme/widgets@{sha}:small-200#L4")) is False
+    # Enough lines after two chunks: the generator is not drained.
+    pulled.clear()
+    assert r.resolve(parse_source_uri(f"acme/widgets@{sha}:huge-206#L2")) is True
+    assert len(pulled) <= 3, pulled
+    # More lines than the cap can hold: reading stops at BYTE_CAP.
+    pulled.clear()
+    assert r.resolve(parse_source_uri(f"acme/widgets@{sha}:huge-206#L999")) is False
+    assert len(pulled) <= HttpForgeResolver.BYTE_CAP // 65_536 + 1, len(pulled)
+
+
+def test_http_forge_resolver_fans_misses_out_with_a_bound() -> None:
+    import threading
+    import time
+
+    lock = threading.Lock()
+    in_flight = 0
+    peak = 0
+    urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal in_flight, peak
+        with lock:
+            in_flight += 1
+            peak = max(peak, in_flight)
+            urls.append(str(request.url))
+        time.sleep(0.02)
+        with lock:
+            in_flight -= 1
+        return httpx.Response(200)
+
+    r = HttpForgeResolver(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    pins = [parse_source_uri("acme/widgets@" + "a" * 40 + f":src/f{i}.rs") for i in range(20)]
+    started = time.monotonic()
+    assert resolve_all(r, pins) == dict.fromkeys(pins, True)
+    assert len(urls) == len(set(urls)) == 20
+    assert 1 < peak <= HttpForgeResolver.MAX_IN_FLIGHT, peak
+    assert time.monotonic() - started < 20 * 0.02, "misses were fetched serially"
