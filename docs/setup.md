@@ -64,32 +64,40 @@ required until Phase 2.
 
 ---
 
-## 3. Apply the migration
+## 3. Apply the migrations
 
-The migration is plain SQL and re-runnable (`IF NOT EXISTS` / `CREATE OR
-REPLACE` / `DROP … IF EXISTS`).
+This is the one ordered list; the README and the Phase 2 section below point
+here instead of repeating it. Each file is plain SQL and re-runnable
+(`IF NOT EXISTS` / `CREATE OR REPLACE` / `DROP … IF EXISTS`).
 
-**Option A — psql (works anywhere):**
+| Order | File | Needs | Adds |
+|---|---|---|---|
+| 1 | `0001_reflect_memory_phase1.sql` | `pgcrypto`, `pg_trgm` (enabled by the file) | schema, memory tables, RLS, grants |
+| 2 | `0002_nanographrag_pgvector.sql` | `pgvector` (enabled by the file; install the package locally) | `ng_*` tables for the shared nano-graphrag store |
+| 3 | `0003_classification_force_rls.sql` | 1 and 2 applied | legacy-row pre-check, FORCE RLS on all seven tables, classification floor |
+
+**Option A, psql (works anywhere):**
 
 ```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/0001_reflect_memory_phase1.sql
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/0003_classification_force_rls.sql
+for f in 0001_reflect_memory_phase1 0002_nanographrag_pgvector 0003_classification_force_rls; do
+  psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f "supabase/migrations/$f.sql"
+done
 ```
 
-Migration 0003 applies FORCE ROW LEVEL SECURITY first, then checks for rows
-already labelled above the floor and stops with a message naming the count if
-any exist (delete or relabel them deliberately, then re-run), then adds the
+Migration 0003 runs in this order: first it checks for rows already labelled
+above the floor and stops with a message naming the count if any exist (delete
+or relabel them deliberately, then re-run), so nothing is locked down while
+the data is still wrong; then it switches all seven tables (`memory_items`,
+`entities`, `edges`, `ng_kv`, `ng_graph_nodes`, `ng_graph_edges`,
+`ng_vectors`) to **FORCE ROW LEVEL SECURITY**; then it adds the
 classification floor as a check constraint refusing `restricted` and `pii`
-rows in the shared store. It switches the three memory tables to **FORCE ROW
-LEVEL SECURITY**. With FORCE, the table owner is subject
-to the policies too. Consequence for the worker DSN: connect as a BYPASSRLS
-role (Supabase `service_role`) or as a role that sets
-`app.current_workspace` per connection; an owner role without either now sees
-nothing, by design.
+rows, and replaces the read functions so the classification predicate is
+applied in SQL, before `limit`. With FORCE, the table owner is subject to the
+policies too. Consequence for the worker DSN: connect as a BYPASSRLS role
+(Supabase `service_role`) or as a role that sets `app.current_workspace` per
+connection; an owner role without either now sees nothing, by design.
 
-**Option B — Supabase CLI** (if you use it for this project):
+**Option B, Supabase CLI** (if you use it for this project):
 
 ```bash
 supabase db push          # applies supabase/migrations/*.sql
@@ -180,7 +188,7 @@ test and truncate tables between tests.
   physically impossible (composite FK)
 - duplicate ingestion is idempotent (per-tenant content hash)
 - tenant isolation on the trusted path; RLS fail-closed on the direct path
-- RLS FORCEd: a non-superuser table owner cannot read across workspaces
+- RLS FORCEd on all seven tables: a non-superuser table owner cannot read across workspaces
 - classification floor: `restricted` / `pii` rows are refused by the check constraint
 - Context Broker (`tests/broker/`): OIDC 401/403, tenant from the claim only,
   every returned hit pinned and resolved, refusals counted; the live test
@@ -196,17 +204,14 @@ Makes reflect's nano-graphrag use this Postgres as its shared vector + graph +
 community store, so the same memory is queryable from every machine. See
 [README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
 
-### Apply the Phase 2 migration (needs pgvector)
+### Migration
 
-```bash
-psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
-  -f supabase/migrations/0002_nanographrag_pgvector.sql
-```
-
-`pgvector` is enabled by the migration (`create extension vector`). It is
-available on Supabase by default; locally, install the `pgvector` package for
-your Postgres (e.g. `brew install pgvector`, then it lands in PostgreSQL 17's
-extension dir). The embedding column is `vector(768)` to match all-mpnet-base-v2.
+`0002_nanographrag_pgvector.sql` is step 2 of the ordered list in section 3;
+apply it from there. `pgvector` is enabled by the migration (`create extension
+vector`). It is available on Supabase by default; locally, install the
+`pgvector` package for your Postgres (e.g. `brew install pgvector`, then it
+lands in PostgreSQL 17's extension dir). The embedding column is `vector(768)`
+to match all-mpnet-base-v2.
 
 > ⚠️ RLS policies again — **partner review before merge, no self-merge.**
 
@@ -222,12 +227,17 @@ export REFLECT_PG_DSN="postgresql://USER:PASS@HOST:5432/DBNAME"
 export REFLECT_WORKSPACE_ID="<workspace-uuid>"
 ```
 
-**DSN role:** for writes (ingest/index) the DSN must authenticate as
-`service_role` / the table owner — the trusted-worker path. The `authenticated`
-role is granted **read-only** (search/lookup), and direct writes go through the
-worker, not PostgREST. The adapter sets the `app.current_workspace` GUC on
-connect so reads work under RLS for any role; the resolver treats a signed JWT
-claim as authoritative over that GUC.
+**DSN roles:** for writes (ingest/index) the DSN must authenticate as
+`service_role` / the table owner, the trusted-worker path; the adapter sets the
+`app.current_workspace` GUC on connect, and the tenant resolver treats a signed
+JWT claim as authoritative over that GUC. Direct clients (`authenticated`) are
+granted **read-only** SELECT plus EXECUTE on the search functions, and direct
+writes go through the worker, not PostgREST. The Context Broker's DSN must be a
+read-only role that RLS applies to (SELECT and EXECUTE grants, no BYPASSRLS):
+it binds `SET LOCAL app.current_workspace` per request and relies on FORCE RLS
+as the second layer under its explicit scoping. `service_role` bypasses RLS,
+so it must not be the broker's DSN. Both DSNs refuse plaintext to a remote
+host unless `REFLECT_PG_ALLOW_INSECURE=1`.
 
 The `reflect` client needs nano-graphrag + its embedding stack (the `[graph]`
 extra); the Postgres adapters add the `[postgres]` extra (psycopg). Install both:
