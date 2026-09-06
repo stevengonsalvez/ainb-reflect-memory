@@ -135,9 +135,7 @@ vector + graph + community store lives in one shared DB. Opt in per machine:
 
 ```bash
 pip install '.[graph,postgres]'                                   # postgres extra = psycopg
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0003_classification_force_rls.sql
+# apply supabase/migrations/ in order; the one ordered list is docs/setup.md, "Apply the migrations"
 export REFLECT_PG_DSN=postgresql://…        # the trigger (NOT the generic DATABASE_URL)
 export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
 ```
@@ -170,16 +168,16 @@ to a caller whose OIDC token names the workspace.
 
 ```bash
 pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
-export REFLECT_PG_DSN='postgresql://…?sslmode=verify-full' # the shared store; TLS required (read-only role is enough)
+export REFLECT_PG_DSN='postgresql://…?sslmode=verify-full' # the shared store; TLS required; a read-only role that RLS applies to (not service_role)
 export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
 export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
 export REFLECT_BROKER_TENANT_CLAIM=workspace_id           # claim that names the workspace (default)
-export REFLECT_BROKER_REPOS='acme/widgets=/srv/mirrors/widgets'   # repo name -> local checkout
+export REFLECT_BROKER_REPOS='acme/widgets=/srv/mirrors/widgets'   # repo name -> local checkout; required with the git resolver
 python -m reflect_kb.broker                               # http://127.0.0.1:8787
 ```
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -X POST http://127.0.0.1:8787/v1/evidence -d '{"query": "auth token expiry"}'
 ```
 
@@ -187,15 +185,15 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 |---|---|---|
 | `REFLECT_BROKER_ISSUER` | OIDC issuer URL. `/.well-known/openid-configuration` is fetched from it and the `jwks_uri` used for keys. Required. | |
 | `REFLECT_BROKER_AUDIENCE` | Expected `aud`. Required. | |
-| `REFLECT_BROKER_TENANT_CLAIM` | Claim whose value becomes the workspace id. Missing claim is 403. | `workspace_id` |
+| `REFLECT_BROKER_TENANT_CLAIM` | Claim whose value becomes the workspace id. A missing claim, or a value that is not a UUID, is 403. | `workspace_id` |
 | `REFLECT_BROKER_JWKS_URL` | Skip discovery and fetch keys here. | from discovery |
 | `REFLECT_BROKER_ALGORITHMS` | Accepted JWS algorithms, comma separated. Asymmetric only (RS*, PS*, ES*, EdDSA); an HMAC or `none` entry is a startup error. | `RS256` |
 | `REFLECT_BROKER_RESOLVER` | `git` (local checkouts) or `http` (forge raw URL). | `git` |
-| `REFLECT_BROKER_REPOS` | `repo=/path,repo2=/path2` checkouts for the git resolver. | |
+| `REFLECT_BROKER_REPOS` | `repo=/path,repo2=/path2` checkouts for the git resolver. Required when `REFLECT_BROKER_RESOLVER` is `git` (the default); the broker refuses to start without it. | |
 | `REFLECT_BROKER_FORGE_URL_TEMPLATE` | For `http`: formatted with `{repo}`, `{sha}`, `{path}`. | GitHub raw |
 | `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
 | `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
-| `REFLECT_BROKER_ALLOW_INSECURE_PG` | `1` permits a `REFLECT_PG_DSN` without `sslmode=require|verify-ca|verify-full`. Otherwise the broker refuses to start on a plaintext DSN. Loopback and Unix-socket databases only. | unset |
+| `REFLECT_PG_ALLOW_INSECURE` | `1` permits a `REFLECT_PG_DSN` without `sslmode=require|verify-ca|verify-full`. Otherwise both the broker and the Mode 2 writer refuse a plaintext DSN to a remote host. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
 
 **Microsoft Entra ID is a config swap.** From the public Entra documentation
 (learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and
@@ -217,7 +215,15 @@ export REFLECT_BROKER_TENANT_CLAIM=tid          # one Entra tenant = one workspa
 ```
 
 The workspace id must be a UUID, because `workspace_id` is a `uuid` column. An
-Entra `tid` is one already; a custom claim must be minted as one.
+Entra `tid` is one already; a custom claim must be minted as one. A claim that
+is not a UUID is refused with 403 before any query runs.
+
+**Tenant binding.** Each request runs in one transaction. The broker binds the
+verified claim with `SET LOCAL app.current_workspace` first, so Row-Level
+Security resolves the same tenant the explicit `workspace_id` parameters
+carry, and the binding dies with the transaction. The read functions apply
+the classification predicate in SQL, before `limit`, so a page is never
+padded with rows that are then dropped.
 
 **Source pinning.** Every hit the broker returns has a `source_uri` of the form
 
@@ -228,14 +234,16 @@ Entra `tid` is one already; a custom claim must be minted as one.
 `repo` is `/`-separated segments of `[A-Za-z0-9._-]`; `sha` is 7 to 64
 lowercase hex; `path` is a clean relative path (no `..`, not absolute). The
 resolver confirms the commit exists and the path exists at that commit (the
-git resolver runs `git cat-file` in the configured checkout; the http resolver
-fetches the raw file). Pins are built at ingest by
-`InsertMemoryInput.from_note` from frontmatter that carries `repo` (or
-`repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
-optional `lines: "12-20"`. Notes without both a repo and a sha are stored
-unpinned and are never served.
+git resolver answers every pin of a request with one `git cat-file
+--batch-check` per repo and memoizes positives; the http resolver fetches the
+raw file with the path percent-encoded, and rejects traversal). Pins are built
+at ingest by `InsertMemoryInput.from_note` from frontmatter that carries `repo`
+(or `repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
+optional `lines: "12-20"`. All three of repo, sha and path are required; a
+note missing any of them is stored unpinned and is never served.
 
-**What is refused, and why.**
+**What is refused, and why.** This table is the one home for the refusal
+rules; the egress page links here rather than repeating them.
 
 | Request or item | Response | Why |
 |---|---|---|
