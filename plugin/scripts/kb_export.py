@@ -181,9 +181,14 @@ def build_db_snapshot(src_db: Path) -> bytes:
     data are copied verbatim; the snapshot is rebuilt from scratch so its page
     layout is reproducible and free of stale/free pages."""
     if not src_db.exists():
-        # No DB yet — emit a valid empty SQLite file so import has a target.
+        # No DB yet: emit a valid empty SQLite file so import has a target. A
+        # database with no pages cannot be serialized on every SQLite build
+        # ("unable to serialize 'main'"), so allocate page 1 first.
         mem = sqlite3.connect(":memory:")
         try:
+            mem.execute("create table _snapshot_seed (x)")
+            mem.execute("drop table _snapshot_seed")
+            mem.commit()
             return mem.serialize()  # type: ignore[attr-defined]
         finally:
             mem.close()
