@@ -64,6 +64,8 @@ def _require_shareable(metadata: Mapping[str, Any]) -> None:
     is built, for every input that carries a metadata label (memory items,
     entities, edges). Migration 0003 enforces the same rule as a check
     constraint on every table with a label column."""
+    if not isinstance(metadata, Mapping):
+        raise ValidationError(f"metadata must be a mapping; got {type(metadata).__name__}")
     label = classification_of(metadata)
     if label == INVALID_CLASSIFICATION:
         raise ValidationError(

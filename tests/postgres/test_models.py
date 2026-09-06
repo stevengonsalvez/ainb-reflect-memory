@@ -167,6 +167,17 @@ def test_entity_and_edge_from_row() -> None:
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.parametrize("bad", [["internal"], "internal", 7, ("public",)])
+def test_metadata_must_be_a_mapping(bad) -> None:
+    """A list read as internal and a string raised TypeError; both are
+    refused before the label is read."""
+    tenant = Tenant(workspace_id=WS)
+    with pytest.raises(ValidationError, match="metadata must be a mapping"):
+        InsertMemoryInput(tenant=tenant, content="x", metadata=bad)
+    with pytest.raises(ValidationError, match="metadata must be a mapping"):
+        UpsertEntityInput(tenant=tenant, canonical_name="n", entity_type="t", metadata=bad)
+
+
 def test_insert_memory_input_refuses_local_only_classification() -> None:
     t = Tenant(workspace_id=WS)
     for label in ("restricted", "pii"):
