@@ -408,7 +408,7 @@ class CodexAdapter(AdapterBase):
         # 3. Copy plugin-level single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            AdapterBase.install_file(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         # 4. Merge hook entries into hooks.json.
@@ -499,8 +499,7 @@ class CodexAdapter(AdapterBase):
 
     # --- helpers ---------------------------------------------------------
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst``, overwriting same-named files.
 
         Does NOT delete files under ``dst`` that aren't in ``src`` so any
@@ -514,10 +513,10 @@ class CodexAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                CodexAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                AdapterBase.install_file(entry, target)
+                self.install_file(entry, target)
 
     def _merge_hooks(
         self, hooks_path: Path, *, with_bg_drain: bool,

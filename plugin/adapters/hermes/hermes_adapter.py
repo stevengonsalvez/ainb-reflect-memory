@@ -172,7 +172,7 @@ class HermesAdapter(AdapterBase):
         # 3. Copy plugin-root single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            AdapterBase.install_file(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         return actions, 0
@@ -206,8 +206,7 @@ class HermesAdapter(AdapterBase):
 
     # --- helpers ---------------------------------------------------------
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst``, overwriting same-named files.
 
         Files under ``dst`` that are not in ``src`` survive so user-dropped
@@ -220,10 +219,10 @@ class HermesAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                HermesAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                AdapterBase.install_file(entry, target)
+                self.install_file(entry, target)
 
 
 # --- backwards-compatible module-level API ------------------------------

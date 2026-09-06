@@ -470,10 +470,11 @@ class AdapterBase:
             harness_label=self.HARNESS_LABEL,
         )
 
-    @staticmethod
-    def install_file(src: Path, dst: Path) -> None:
+    def install_file(self, src: Path, dst: Path) -> None:
         """Copy one plugin file into the layout, rendering install-time
-        markers in text files. Every synced file goes through here, so a
+        markers in text files through ``self.render_for_layout`` (so an
+        adapter that overrides the render sees it applied to every synced
+        file, not only SKILL.md). Every synced file goes through here, so a
         hook snippet or a reference doc cannot ship with a literal
         {{HOME_TOOL_DIR}} while the SKILL.md next to it is rendered. Bytes
         that are not UTF-8 are copied unchanged; the mode bit is kept."""
@@ -484,7 +485,7 @@ class AdapterBase:
         except UnicodeDecodeError:
             dst.write_bytes(raw)
         else:
-            dst.write_text(render_for_layout(text, dst), encoding="utf-8")
+            dst.write_text(self.render_for_layout(text, dst), encoding="utf-8")
         shutil.copymode(src, dst)
 
     def render_for_layout(self, text: str, dst: Path) -> str:

@@ -189,10 +189,9 @@ def test_rendered_skill_paths_exist(harness: str, home: Path) -> None:
 
 
 def _installed_lib(harness: str, harness_dir: Path) -> Path:
-    """Where the argv library lives for this harness: the plugin runtime cache
-    (this checkout's plugin/) for Claude, the deployed copy for the others."""
-    if harness == "claude":
-        return WRITER_ARGV_LIB
+    """The deployed copy of the argv library in this harness's layout. Every
+    adapter installs it (the claude adapter too), so the assertion is about
+    the installed file, never this checkout's own copy."""
     return harness_dir / "skills" / "reflect" / "hooks" / "lib" / "writer_argv.sh"
 
 

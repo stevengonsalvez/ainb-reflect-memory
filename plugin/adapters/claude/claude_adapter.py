@@ -227,8 +227,7 @@ class ClaudeAdapter(AdapterBase):
         if describe_extra:
             plan.extras["describe_extra"] = describe_extra
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst`` (same rules as the codex adapter: never
         delete user-dropped siblings, skip build and IDE noise)."""
         dst.mkdir(parents=True, exist_ok=True)
@@ -237,9 +236,9 @@ class ClaudeAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                ClaudeAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
-                AdapterBase.install_file(entry, target)
+                self.install_file(entry, target)
 
     def execute_extra(
         self, plan: InstallPlan, *, with_hooks: bool = True, **kwargs: Any,
@@ -250,7 +249,7 @@ class ClaudeAdapter(AdapterBase):
             actions.append(f"synced {dst}")
         for src, dst in plan.extras.get("file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            AdapterBase.install_file(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
         if not with_hooks:
             return actions, 0
