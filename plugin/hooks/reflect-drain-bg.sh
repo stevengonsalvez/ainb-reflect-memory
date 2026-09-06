@@ -603,7 +603,11 @@ process_entry() {
     # windows (~10x) so /reflect runs cheap on Sonnet with a low turn budget.
     # skill_refresh entries (R13) bypass it: a SKILL.md is not a transcript and
     # the gate would always skip it as no-signal.
-    local reflect_target="$transcript" slice_path=""
+    # slice_path names a real signal slice (the cascade's), which is what the
+    # extract writer needs; bounded_target names the bounded view of a raw
+    # transcript, which the agentic writer reads (a whole-session rendering
+    # is not a signal slice). Both are removed after the run.
+    local reflect_target="$transcript" slice_path="" bounded_target=""
     if [[ "$CASCADE_ENABLED" == "1" && -f "$CASCADE_SCRIPT" && "$trigger" != "skill_refresh" ]]; then
         local prep_json prep_action prep_reason prep_slice
         # prepare exits 0=reflect / 1=skip but ALWAYS prints valid JSON to
@@ -627,30 +631,44 @@ process_entry() {
         fi
     fi
 
-    # ── Bounded writer input (last resort) ────────────────────────────────────
-    # The cascade slice is the normal bound, but it is not universal: the gate
+    # ── Bounded view of a raw transcript (fail closed) ────────────────────────
+    # The cascade slice is the normal input, but it is not universal: the gate
     # can be disabled (REFLECT_DRAIN_CASCADE=0), the signal detector can be
-    # missing, and a crashing cascade fails open — each of which hands the
-    # writer the WHOLE transcript. Sessions crossed ~1MB in July 2026 and every
-    # such entry came back "Prompt is too long" before the model did any work.
-    # Cap whatever we are about to hand over; a bounded input is always better
-    # than a rejected one. skill_refresh targets a SKILL.md, never a transcript.
-    if [[ "$reflect_target" == "$transcript" && "$trigger" != "skill_refresh" && -f "$CASCADE_SCRIPT" ]]; then
-        local target_bytes
+    # missing, and a crashing cascade fails open, each of which leaves the
+    # target equal to the raw transcript. The writer never reads that file:
+    # `reflect_cascade.py bound` renders the dialogue, strips <private> spans
+    # and redacts secrets, and caps the size (MAX_INPUT_CHARS; sessions past
+    # ~1MB came back "Prompt is too long" before any work). Over the cap the
+    # bounded view is a genuine reduction and counts as the slice, so the
+    # extract writer (the default) runs on it; under the cap it is the whole
+    # dialogue and the agentic writer reads it (a whole-session rendering is
+    # not a signal slice). If bound cannot produce it, nothing is sent and
+    # the entry stays queued.
+    # skill_refresh targets a SKILL.md the writer edits in place, not a
+    # transcript, so it is not bounded.
+    if [[ "$reflect_target" == "$transcript" && "$trigger" != "skill_refresh" ]]; then
+        local bound_json="" bound_path="" target_bytes
         target_bytes=$(wc -c < "$reflect_target" 2>/dev/null | tr -d '[:space:]')
         [[ "$target_bytes" =~ ^[0-9]+$ ]] || target_bytes=0
-        if [[ "$target_bytes" -gt "$MAX_INPUT_CHARS" ]]; then
-            local bound_json bound_path
+        if [[ -f "$CASCADE_SCRIPT" ]]; then
             bound_json=$(python3 "$CASCADE_SCRIPT" bound "$reflect_target" \
                 --max-chars "$MAX_INPUT_CHARS" 2>>"$LOG_FILE")
             bound_path=$(printf '%s' "$bound_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("path",""))' 2>/dev/null || echo "")
-            if [[ -n "$bound_path" && -s "$bound_path" ]]; then
-                reflect_target="$bound_path"
-                slice_path="$bound_path"   # same lifecycle: consumed then removed
-                log "  bounded input: ${target_bytes} bytes > ${MAX_INPUT_CHARS} cap -> $bound_path"
+        fi
+        if [[ -n "$bound_path" && -s "$bound_path" ]]; then
+            reflect_target="$bound_path"
+            if [[ "$target_bytes" -gt "$MAX_INPUT_CHARS" ]]; then
+                slice_path="$bound_path"       # a real reduction: the extract writer may run on it
             else
-                log "  bounded input FAILED for $reflect_target (${target_bytes} bytes); handing the raw transcript to the writer"
+                bounded_target="$bound_path"   # the whole dialogue, rendered: agentic path
             fi
+            log "  bounded input: raw transcript (${target_bytes} bytes) -> $bound_path (cap ${MAX_INPUT_CHARS} chars)"
+        else
+            log "  BOUND FAILED for $transcript; not sending raw bytes, entry stays queued"
+            emit_error error drain_bound_failed "could not produce the bounded view of the transcript" "$transcript"
+            bump_retry_count "$transcript" >/dev/null
+            record_cost_event 1 "$transcript" "fail_bound"
+            return 1
         fi
     fi
 
@@ -661,6 +679,7 @@ process_entry() {
             log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect $reflect_target"
         fi
         [[ -n "$slice_path" ]] && rm -f "$slice_path"
+        [[ -n "$bounded_target" ]] && rm -f "$bounded_target"
         record_cost_event 1 "$transcript" "dry_run"
         return 0
     fi
@@ -808,8 +827,9 @@ print(json.dumps({
     quota_ingest "$out_json" "$stderr_tmp"
     rm -f "$stderr_tmp"
 
-    # Slice is consumed — remove it regardless of how the run turns out.
+    # Slice and bounded view are consumed — removed regardless of the outcome.
     [[ -n "$slice_path" ]] && rm -f "$slice_path"
+    [[ -n "$bounded_target" ]] && rm -f "$bounded_target"
 
     # ── Landing evidence ──────────────────────────────────────────────────────
     # From the receipt: notes_landed = distinct notes indexed by this run,

@@ -1524,6 +1524,23 @@ def _tail_dialogue(p: Path, budget: int) -> str:
     return "\n".join(parts)[-budget:]
 
 
+class RedactorUnavailable(RuntimeError):
+    """secret_redact.py is not importable next to this script."""
+
+
+def _redact_or_fail(text: str) -> str:
+    """The secrets-only redaction every LLM-bound payload passes through.
+    Raises RedactorUnavailable instead of returning the text unredacted when
+    the plugin layout does not ship secret_redact.py."""
+    try:
+        from secret_redact import redact_secrets_text  # noqa: E402
+    except ImportError as exc:
+        raise RedactorUnavailable(
+            "secret_redact.py is not installed next to reflect_cascade.py; "
+            "refusing to hand out unredacted text") from exc
+    return redact_secrets_text(text)
+
+
 def bound_transcript(transcript: str | Path, *, out_path: Optional[str | Path] = None,
                      max_chars: int = _MAX_SLICE_CHARS) -> dict:
     """Write a bounded, privacy-filtered rendering of a transcript for the writer.
@@ -1582,6 +1599,16 @@ def bound_transcript(transcript: str | Path, *, out_path: Optional[str | Path] =
         body = strip_private(body)
     except ImportError:  # pragma: no cover
         pass  # filter is best-effort; bounding must never hard-fail on it
+    # Credentials never leave the machine inside the writer's input: the same
+    # secrets-only redaction reflect add applies to notes runs on the slice.
+    # Without the redactor there is no bounded copy at all (fail closed); the
+    # hook then falls back to its own redacted copy or keeps the entry queued.
+    try:
+        body = _redact_or_fail(body)
+    except RedactorUnavailable as exc:
+        print(f"bound: {exc}", file=sys.stderr)
+        return {"path": "", "orig_chars": orig, "bounded_chars": 0, "bounded": orig > max_chars,
+                "error": str(exc)}
     if out_path is None:
         import os
         import tempfile
@@ -1677,6 +1704,15 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
         sliced = strip_private(sliced)
     except ImportError:  # pragma: no cover
         pass  # filter is best-effort; the cascade must never hard-fail on it
+    # Fail closed: with no redactor next to this script no slice is written,
+    # and the hook falls back to its own redacted copy of the raw transcript
+    # (or keeps the entry queued when that is missing too).
+    try:
+        sliced = _redact_or_fail(sliced)
+    except RedactorUnavailable as exc:
+        print(f"prepare: {exc}", file=sys.stderr)
+        prep.reason = "redactor-unavailable"
+        return prep
     body = header + sliced
     if related:
         # Appended AFTER the privacy filter on purpose: titles come from the
