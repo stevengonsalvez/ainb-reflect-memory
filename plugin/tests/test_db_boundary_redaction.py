@@ -17,9 +17,15 @@ def test_add_learning_redacts_at_the_database_boundary(tmp_path, monkeypatch) ->
     monkeypatch.setenv("REFLECT_DB_PATH", str(tmp_path / "reflect.db"))
     import importlib
 
+    import reflect_config
     import reflect_db
 
+    # reflect_config caches the resolved config, so reload it first or the
+    # env override is ignored and the rows land in the operator's real
+    # ~/.reflect/reflect.db.
+    importlib.reload(reflect_config)
     importlib.reload(reflect_db)
+    assert reflect_db.db_path() == tmp_path / "reflect.db", reflect_db.db_path()
     conn = reflect_db.get_conn()
     lid = reflect_db.add_learning(title=f"rotate {FAKE_TOKEN} nightly", category="ops",
                                   source_quote=f"export GH={FAKE_TOKEN}", conn=conn)
