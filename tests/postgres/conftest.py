@@ -5,36 +5,26 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import pathlib
 
 import pytest
+
+from _support.pg import WS_A, WS_B, connect_or_skip, test_dsn  # noqa: F401
 
 _MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 _M1 = _MIGRATIONS / "0001_reflect_memory_phase1.sql"
 _M2 = _MIGRATIONS / "0002_nanographrag_pgvector.sql"
 
-WS_A = "11111111-1111-1111-1111-111111111111"
-WS_B = "22222222-2222-2222-2222-222222222222"
-
-
-def _dsn() -> str | None:
-    return os.environ.get("DATABASE_URL") or os.environ.get("REFLECT_TEST_DATABASE_URL")
-
 
 @pytest.fixture(scope="session")
 def _migrated_dsn() -> str:
-    """Apply both migrations once per session; skip cleanly if no DB/psycopg."""
-    dsn = _dsn()
-    if not dsn:
-        pytest.skip("no DATABASE_URL — Postgres integration tests skipped")
-    psycopg = pytest.importorskip("psycopg", reason="psycopg not installed")
+    """Apply both migrations once per session against the disposable test
+    database (REFLECT_TEST_DATABASE_URL or a localhost DATABASE_URL); skip
+    cleanly otherwise. The fixtures truncate tables, so a DSN that may name a
+    real database is refused, never used."""
+    conn = connect_or_skip()
+    dsn = test_dsn()[0]
     try:
-        conn = psycopg.connect(dsn)
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"Postgres not reachable ({exc})")
-    try:
-        conn.autocommit = True
         with conn.cursor() as cur:
             try:
                 cur.execute(_M1.read_text())

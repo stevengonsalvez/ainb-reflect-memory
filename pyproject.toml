@@ -96,7 +96,7 @@ Specification = "https://github.com/stevengonsalvez/ai-coder-rules/blob/main/pla
 packages = ["src/reflect_kb"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "plugin/scripts"]
+pythonpath = ["src", "plugin/scripts", "tests"]
 # Behavioral proofs live in tests/eval/behavioral/proofs/proof_*.py — their test
 # FUNCTIONS are named test_* (default), but the FILE glob must include proof_*
 # so a plain `pytest tests/eval/behavioral/` discovers them. Additive: no other
@@ -105,6 +105,7 @@ pythonpath = ["src", "plugin/scripts"]
 python_files = ["test_*.py", "*_test.py", "proof_*.py"]
 markers = [
     "integration: tests that need a live Postgres (auto-skip when none reachable)",
+    "live: tests that call the real claude CLI (skip without ANTHROPIC_API_KEY or REFLECT_COMPAT_LIVE)",
 ]
 
 [tool.ruff]

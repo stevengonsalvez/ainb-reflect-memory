@@ -26,11 +26,15 @@ import os
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from _support.hermetic import hermetic_env  # noqa: E402
 
 HERE = Path(__file__).parent
 FIXTURES = HERE / "fixtures"
@@ -113,17 +117,12 @@ class EvalHarness:
     def env(self) -> dict:
         env = dict(os.environ)
         if not self.live:
-            env["GLOBAL_LEARNINGS_PATH"] = str(self.kb_dir)
-            env["REFLECT_STATE_DIR"] = str(self.state_dir)
-            # Isolate the qmd index (reads XDG_CACHE_HOME) so the BM25 arm sees
-            # an empty collection instead of the user's live one.
-            env["XDG_CACHE_HOME"] = str(self.cache_home)
-            # ...but pin the HF model caches back to the real home cache, or the
-            # XDG override forces a ~420MB model re-download into the tmp dir.
-            env.setdefault("HF_HOME", str(Path.home() / ".cache" / "huggingface"))
-            env.setdefault(
-                "SENTENCE_TRANSFORMERS_HOME",
-                str(Path.home() / ".cache" / "torch" / "sentence_transformers"),
+            # One hermetic builder shared with tests/compat: KB, state dir and
+            # the qmd index (XDG_CACHE_HOME) are isolated, the embedding model
+            # caches are pinned to the real home so nothing re-downloads.
+            env = hermetic_env(
+                kb_dir=self.kb_dir, state_dir=self.state_dir,
+                cache_home=self.cache_home, base=env,
             )
         # RECALL_EVAL_BIN_DIR: a venv bin dir holding a full-stack `reflect`
         # (the global install may be the slim build without [graph]). Prepended
