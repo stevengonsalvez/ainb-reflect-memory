@@ -40,12 +40,14 @@ class SourceResolver(Protocol):
 
 
 def resolve_all(resolver: Any, pins: Iterable[PinnedSource]) -> dict[PinnedSource, bool]:
-    """Resolve many pins, batching when the resolver supports ``resolve_many``."""
-    pins = list(pins)
+    """Resolve many pins once each (identical pins are deduplicated before
+    the resolver sees them), batching when the resolver supports
+    ``resolve_many``."""
+    unique = list(dict.fromkeys(pins))
     many = getattr(resolver, "resolve_many", None)
     if callable(many):
-        return many(pins)
-    return {pin: bool(resolver.resolve(pin)) for pin in pins}
+        return many(unique)
+    return {pin: bool(resolver.resolve(pin)) for pin in unique}
 
 
 class LocalGitResolver:
@@ -110,14 +112,43 @@ class LocalGitResolver:
         if len(lines) != len(names):
             return {pin: False for pin in group}
         result: dict[PinnedSource, bool] = {}
+        ranged: list[PinnedSource] = []
         for i, pin in enumerate(group):
             commit_line, blob_line = lines[2 * i], lines[2 * i + 1]
             ok = (" commit " in commit_line) and (" blob " in blob_line) and "missing" not in blob_line
             if ok and (pin.line_start is not None or pin.line_end is not None):
-                shown = self._git(root, "cat-file", "-p", f"{pin.sha}:{pin.path}")
-                ok = shown.returncode == 0 and _line_count_bytes(shown.stdout) >= (pin.line_end or pin.line_start or 0)
+                ranged.append(pin)
             result[pin] = ok
+        if ranged:
+            result.update(self._check_line_ranges(root, ranged))
         return result
+
+    def _check_line_ranges(self, root: Path, pins: list[PinnedSource]) -> dict[PinnedSource, bool]:
+        """One ``cat-file --batch`` for every line-ranged pin: the blob contents
+        arrive on the same stream (``<sha> blob <size>\\n<bytes>\\n`` per object),
+        so a request with many ranged pins costs one git process, not one each."""
+        names = [f"{pin.sha}:{pin.path}" for pin in pins]
+        proc = self._git(root, "cat-file", "--batch", stdin=("\n".join(names) + "\n").encode())
+        if proc.returncode != 0:
+            return {pin: False for pin in pins}
+        out: dict[PinnedSource, bool] = {}
+        data = proc.stdout
+        pos = 0
+        for pin in pins:
+            nl = data.find(b"\n", pos)
+            if nl < 0:
+                out[pin] = False
+                continue
+            header = data[pos:nl].decode("utf-8", errors="replace").split()
+            pos = nl + 1
+            if len(header) != 3 or header[1] != "blob":
+                out[pin] = False  # "missing" or not a blob; no body follows
+                continue
+            size = int(header[2])
+            body = data[pos:pos + size]
+            pos += size + 1  # the trailing newline after the body
+            out[pin] = _line_count_bytes(body) >= (pin.line_end or pin.line_start or 0)
+        return out
 
 
 class HttpForgeResolver:
@@ -132,12 +163,17 @@ class HttpForgeResolver:
     """
 
     DEFAULT_TEMPLATE = "https://raw.githubusercontent.com/{repo}/{sha}/{path}"
+    MEMO_LIMIT = 4096
+    # A line-ranged pin needs at most this many bytes of the file to count
+    # lines; the request carries a Range header and the body is capped.
+    BYTE_CAP = 1_048_576
 
     def __init__(self, url_template: str = DEFAULT_TEMPLATE, *, client: Any = None, timeout: float = 5.0) -> None:
         import httpx
 
         self._template = url_template
         self._client = client or httpx.Client(timeout=timeout, follow_redirects=True)
+        self._memo: set[PinnedSource] = set()
 
     @staticmethod
     def encode_path(path: str) -> str:
@@ -146,21 +182,39 @@ class HttpForgeResolver:
             raise SourcePinError(f"refusing to fetch a traversal path: {path!r}")
         return "/".join(urllib.parse.quote(seg, safe="") for seg in segments)
 
+    def resolve_many(self, pins: Iterable[PinnedSource]) -> dict[PinnedSource, bool]:
+        """Each distinct pin is fetched at most once per request, and a pin
+        that resolved before is answered from the memo without a request."""
+        out: dict[PinnedSource, bool] = {}
+        for pin in dict.fromkeys(pins):
+            if pin in self._memo:
+                out[pin] = True
+                continue
+            ok = self.resolve(pin)
+            if ok and len(self._memo) < self.MEMO_LIMIT:
+                self._memo.add(pin)
+            out[pin] = ok
+        return out
+
     def resolve(self, pin: PinnedSource) -> bool:
+        """One request per pin: HEAD when the pin has no line range (existence
+        is all that matters, no body travels back), a GET with a Range header
+        and a byte cap when lines must be counted."""
         try:
             url = self._template.format(
                 repo="/".join(urllib.parse.quote(s, safe="") for s in pin.repo.split("/")),
                 sha=pin.sha,
                 path=self.encode_path(pin.path),
             )
-            resp = self._client.get(url)
+            if pin.line_start is None and pin.line_end is None:
+                resp = self._client.head(url)
+                return resp.status_code == 200
+            resp = self._client.get(url, headers={"Range": f"bytes=0-{self.BYTE_CAP - 1}"})
         except Exception:  # noqa: BLE001 - a bad pin or any transport failure is "does not resolve"
             return False
-        if resp.status_code != 200:
+        if resp.status_code not in (200, 206):
             return False
-        if pin.line_start is None and pin.line_end is None:
-            return True
-        return _line_count_bytes(resp.content) >= (pin.line_end or pin.line_start or 0)
+        return _line_count_bytes(resp.content[: self.BYTE_CAP]) >= (pin.line_end or pin.line_start or 0)
 
 
 def _line_count_bytes(data: bytes) -> int:

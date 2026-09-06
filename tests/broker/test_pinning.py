@@ -12,6 +12,7 @@ from reflect_kb.broker.pinning import (
     SourcePinError,
     parse_source_uri,
     pinned_source_uri,
+    resolve_all,
 )
 
 from .conftest import REPO
@@ -170,3 +171,45 @@ def test_http_forge_resolver_percent_encodes_and_refuses_traversal() -> None:
     assert not r.resolve(PinnedSource(REPO, SHA, "../secrets.txt"))
     assert not r.resolve(PinnedSource(REPO, SHA, "src/./x.rs"))
     assert seen == []
+
+
+def test_http_forge_resolver_heads_rangeless_pins_ranges_ranged_pins_and_memoizes() -> None:
+    seen: list[tuple[str, str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, str(request.url), request.headers.get("range")))
+        if request.method == "HEAD":
+            return httpx.Response(200)
+        return httpx.Response(206, content=b"line1\nline2\nline3\n")
+
+    r = HttpForgeResolver(client=httpx.Client(transport=httpx.MockTransport(handler)))
+    plain = parse_source_uri("acme/widgets@" + "a" * 40 + ":src/auth.rs")
+    ranged = parse_source_uri("acme/widgets@" + "a" * 40 + ":src/auth.rs#L1-L3")
+    too_long = parse_source_uri("acme/widgets@" + "a" * 40 + ":src/auth.rs#L1-L9")
+    out = resolve_all(r, [plain, plain, ranged, too_long])
+    assert out == {plain: True, ranged: True, too_long: False}
+    methods = [(m, rng) for m, _, rng in seen]
+    assert methods.count(("HEAD", None)) == 1, seen  # the duplicate pin was fetched once
+    assert all(m == "GET" and rng == f"bytes=0-{HttpForgeResolver.BYTE_CAP - 1}" for m, rng in methods if m == "GET")
+    before = len(seen)
+    assert resolve_all(r, [plain, ranged]) == {plain: True, ranged: True}
+    assert len(seen) == before, "memoized pins must not be fetched again"
+
+
+def test_local_git_resolver_reads_line_ranges_with_one_batch_call(git_repo, monkeypatch) -> None:
+    root, sha = git_repo
+    r = LocalGitResolver({"acme/widgets": root})
+    calls: list[tuple[str, ...]] = []
+    original = r._git
+
+    def spy(root_, *args, **kwargs):
+        calls.append(args)
+        return original(root_, *args, **kwargs)
+
+    monkeypatch.setattr(r, "_git", spy)
+    a = parse_source_uri(f"acme/widgets@{sha}:src/auth.rs#L1-L2")
+    b = parse_source_uri(f"acme/widgets@{sha}:src/auth.rs#L2-L3")
+    out = r.resolve_many([a, b])
+    assert out[a] and out[b]
+    assert [c[:2] for c in calls] == [("cat-file", "--batch-check"), ("cat-file", "--batch")], calls
+
