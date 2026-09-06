@@ -441,7 +441,9 @@ def add(file_path: str, entities: str | None, force: bool):
     from reflect_kb.classification import CLASSIFICATIONS
 
     classification = frontmatter.get("classification")
-    if classification is not None and classification not in CLASSIFICATIONS:
+    if classification is not None and (
+        not isinstance(classification, str) or classification not in CLASSIFICATIONS
+    ):
         console.print(
             f"[red]Error: classification must be one of {', '.join(sorted(CLASSIFICATIONS))}; "
             f"got {classification!r}[/red]"
