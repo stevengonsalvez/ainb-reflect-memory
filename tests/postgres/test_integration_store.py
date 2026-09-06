@@ -481,7 +481,7 @@ def test_read_functions_filter_entities_and_edges_above_the_floor(conn, store) -
             cur.execute("select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
                         "where n.nspname = 'reflect_memory' and p.proname = %s", (fn,))
             body = cur.fetchone()["def"]
-            assert "'classification'" in body and "in ('public', 'internal')" in body, fn
+            assert "is_shareable(" in body, fn
     assert [h.canonical_name for h in store.lookup_entities(a, "auth")] == ["auth"]
     nb = store.neighborhood(a, auth.id, depth=2)
     assert {e.relation_type for e in nb.edges} == {"validates"}
