@@ -41,23 +41,30 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether the script is invoked directly
 # (``python claude_adapter.py install``) or through pytest. We deliberately
 # avoid turning ``adapters/`` into a proper package because the per-harness
 # scripts already work as standalone executables.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
-    _resolve_home,
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
-    parse_skill_frontmatter,
     run_cli,
 )
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
+)
+
+# Skill subdirs and plugin-root resources synced next to the skills so the
+# SessionStart hook command and the rendered skill commands resolve on disk.
+_SKILL_SUBDIRS: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
+_PLUGIN_ROOT_RESOURCES: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
+# reflect.toml carries the plugin defaults reflect_config reads; without it
+# every default is dropped on an adapter-only install.
+_PLUGIN_ROOT_FILES: tuple[str, ...] = ("reflect.toml",)
 
 # Sentinel written into the pointer file's ``managed_by:`` field so subsequent
 # runs (or uninstall) can tell the file belongs to us and is safe to replace.
@@ -113,19 +120,12 @@ class ClaudeAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Overrides :meth:`AdapterBase._pointer_body` which produces a
-        pointer-stub. See the module docstring for the rationale. Claude keeps
-        the upstream ``${CLAUDE_PLUGIN_ROOT}`` anchors verbatim: the runtime
-        sets that variable, so no rewrite is needed.
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
+        """Full plugin SKILL.md content with ``managed_by:`` injected. Written only
+        when the plugin runtime does not own reflect; marker rendering for the
+        ~/.claude/skills layout happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 
@@ -183,6 +183,39 @@ class ClaudeAdapter(AdapterBase):
                 f"reflect; skills resolve as reflect:<name> from the plugin cache"
             )
 
+        # The SessionStart hook command points at
+        # ``~/.claude/skills/recall/hooks/session_start_recall.py`` and the
+        # rendered skills name ``~/.claude/skills/reflect/scripts/...``. Those
+        # files must exist there, so (like the codex and copilot adapters) the
+        # per-skill hooks/scripts/assets/references dirs and the plugin-root
+        # resources are synced into the layout. Skipped when the plugin
+        # runtime owns reflect: the cache already holds them.
+        plugin_root = self.find_plugin_root()
+        dir_syncs: list[tuple[Path, Path]] = []
+        if not owns:
+            skills_dir = plan.target_harness_dir / "skills"
+            for name in PLUGIN_SKILLS:
+                for subdir in _SKILL_SUBDIRS:
+                    src = plugin_root / "skills" / name / subdir
+                    if src.is_dir():
+                        dir_syncs.append((src, skills_dir / name / subdir))
+            for resource in _PLUGIN_ROOT_RESOURCES:
+                src = plugin_root / resource
+                if src.is_dir():
+                    dir_syncs.append((src, skills_dir / "reflect" / resource))
+        file_copies: list[tuple[Path, Path]] = []
+        if not owns:
+            for filename in _PLUGIN_ROOT_FILES:
+                src = plugin_root / filename
+                if src.is_file():
+                    file_copies.append((src, plan.target_harness_dir / "skills" / "reflect" / filename))
+        plan.extras["dir_syncs"] = dir_syncs
+        plan.extras["file_copies"] = file_copies
+        for src, dst in dir_syncs:
+            describe_extra.append(f"sync dir: {src} -> {dst}")
+        for src, dst in file_copies:
+            describe_extra.append(f"copy file: {src} -> {dst}")
+
         # Only advertise the hook when execute_extra will actually write it.
         # Under the plugin runtime execute_extra skips the settings.json merge,
         # so a dry-run must not promise a SessionStart hook the real install
@@ -194,11 +227,32 @@ class ClaudeAdapter(AdapterBase):
         if describe_extra:
             plan.extras["describe_extra"] = describe_extra
 
+    def _sync_dir(self, src: Path, dst: Path) -> None:
+        """Mirror ``src`` into ``dst`` (same rules as the codex adapter: never
+        delete user-dropped siblings, skip build and IDE noise)."""
+        dst.mkdir(parents=True, exist_ok=True)
+        for entry in src.iterdir():
+            if entry.name in ("__pycache__", ".DS_Store"):
+                continue
+            target = dst / entry.name
+            if entry.is_dir():
+                self._sync_dir(entry, target)
+            else:
+                self.install_file(entry, target)
+
     def execute_extra(
         self, plan: InstallPlan, *, with_hooks: bool = True, **kwargs: Any,
     ) -> tuple[list[str], int]:
+        actions: list[str] = []
+        for src, dst in plan.extras.get("dir_syncs", []):
+            self._sync_dir(src, dst)
+            actions.append(f"synced {dst}")
+        for src, dst in plan.extras.get("file_copies", []):
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            self.install_file(src, dst)
+            actions.append(f"copied {dst}")
         if not with_hooks:
-            return [], 0
+            return actions, 0
         settings_path: Path = plan.extras["settings_path"]
 
         # Detect whether Claude Code's plugin runtime has already installed
@@ -226,7 +280,7 @@ class ClaudeAdapter(AdapterBase):
             )
             if removed:
                 msg += " — cleaned up legacy duplicate left by older installs"
-            return [msg], 0
+            return actions + [msg], 0
 
         try:
             changed = self._merge_session_start_hook(settings_path)
@@ -234,10 +288,10 @@ class ClaudeAdapter(AdapterBase):
             # Settings parse failure is fatal: refuse to silently continue,
             # otherwise we leave the user with broken JSON they can't trace.
             print(str(exc), file=sys.stderr)
-            return [], 2
+            return actions, 2
         if changed:
-            return [f"added SessionStart hook to {settings_path}"], 0
-        return [f"SessionStart hook already present in {settings_path}"], 0
+            return actions + [f"added SessionStart hook to {settings_path}"], 0
+        return actions + [f"SessionStart hook already present in {settings_path}"], 0
 
     def _plugin_runtime_owns_reflect(self, claude_dir: Path) -> bool:
         """Return True iff Claude Code's plugin runtime has installed the
@@ -437,8 +491,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
     with_hooks: bool = True,
 ) -> InstallPlan:
     """Compute (but do not execute) the work the adapter would do."""
@@ -458,7 +512,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
 
 
 def uninstall(
-    *, home: Optional[Path] = None, with_hooks: bool = True,
+    *, home: Path | None = None, with_hooks: bool = True,
 ) -> list[str]:
     """Remove pointer files and our SessionStart hook entry. Idempotent."""
     return _DEFAULT_ADAPTER.uninstall(home=home, with_hooks=with_hooks)

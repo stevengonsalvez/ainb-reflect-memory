@@ -101,21 +101,28 @@ def build_prompt(slice_text: str) -> str:
     return _EXTRACTION_INSTRUCTIONS % slice_text
 
 
+def writer_argv(prompt: str, *, model: str, claude_bin: str = "claude") -> list[str]:
+    """The exact claude -p argv the extract writer runs.
+
+    Single source of truth shared with tests/compat (the bash twin is
+    plugin/hooks/lib/writer_argv.sh), so the permission proof exercises the
+    same flags the drain uses. --allowedTools "" removes every tool, so the
+    model can only answer with text; --max-turns 1 guarantees a single billed
+    turn. Both together make the 'agentic loop' structurally impossible.
+    """
+    return [claude_bin, "-p", prompt,
+            "--model", model,
+            "--output-format", "json",
+            "--permission-mode", "bypassPermissions",
+            "--allowedTools", "",
+            "--max-turns", "1"]
+
+
 def call_model(prompt: str, *, model: str, timeout: int, claude_bin: str,
                cwd: str) -> dict:
-    """One tool-free turn. Returns the parsed claude -p envelope (dict).
-
-    --allowedTools "" removes every tool, so the model can only answer with
-    text; --max-turns 1 guarantees a single billed turn. Both together make the
-    'agentic loop' structurally impossible.
-    """
+    """One tool-free turn. Returns the parsed claude -p envelope (dict)."""
     proc = subprocess.run(
-        [claude_bin, "-p", prompt,
-         "--model", model,
-         "--output-format", "json",
-         "--permission-mode", "bypassPermissions",
-         "--allowedTools", "",
-         "--max-turns", "1"],
+        writer_argv(prompt, model=model, claude_bin=claude_bin),
         cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False,
     )
     if not proc.stdout.strip():

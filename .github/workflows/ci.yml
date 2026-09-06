@@ -4,9 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Manual trigger for the heavy golden-diff job (see `golden-diff` below): it
-  # pulls the [graph] stack (~2GB) + an embedding model, so it must never gate a
-  # PR — it runs ONLY on an explicit workflow_dispatch.
+  # Manual trigger kept for re-running the heavy jobs on demand. golden-diff
+  # runs on every PR as the compat gate (see the job comment).
   workflow_dispatch:
 
 # Cancel in-progress runs on the same ref so a series of pushes doesn't pile up.
@@ -19,15 +18,18 @@ permissions:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Lint + type-check + fast unit tests on the SLIM ([dev]) install.
+  # Lint + type-check + unit and Postgres integration tests on the SLIM
+  # ([dev,postgres]) install.
   #
   # We deliberately do NOT install the [graph] extra here: it pulls
-  # sentence-transformers -> torch (~2GB) and nano-graphrag's import-time
-  # chain. graph_engine.py lazy-imports that stack inside _get_graph_engine(),
-  # and the unit tests under tests/ stub networkx / inject a fake
-  # sentence_transformers (or pytest.importorskip), so the base suite is green
-  # without it. The heavy GraphRAG + LOCOMO suites live under tests/eval/ and
-  # need [graph] + model downloads + an API key — they are excluded here.
+  # sentence-transformers -> torch and nano-graphrag's import-time chain.
+  # graph_engine.py lazy-imports that stack inside _get_graph_engine(), and the
+  # unit tests under tests/ stub networkx / inject a fake sentence_transformers
+  # (or pytest.importorskip), so the base suite is green without it. The
+  # nano-graphrag adapter tests (tests/postgres/nanographrag) importorskip
+  # nano_graphrag here and run for real in golden-diff. The heavy GraphRAG +
+  # LOCOMO suites under tests/eval/ need [graph] + model downloads + an API
+  # key and are excluded here.
   # ---------------------------------------------------------------------------
   test:
     name: lint + test (py${{ matrix.python-version }})
@@ -36,6 +38,23 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.11', '3.12']
+    # A real Postgres with pgvector so the integration tier (tests/postgres)
+    # runs instead of skipping. The migrations need the vector extension,
+    # hence the pgvector image rather than postgres:17. localhost is what the
+    # disposable-DSN guard in tests/_support/pg.py accepts.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: reflect
+          POSTGRES_PASSWORD: reflect_test
+          POSTGRES_DB: reflect_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reflect -d reflect_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://reflect:reflect_test@localhost:5432/reflect_test
     steps:
       - uses: actions/checkout@v4
 
@@ -55,7 +74,7 @@ jobs:
         # suite is green without it.
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install -e '.[dev]'
+          uv pip install -e '.[dev,postgres]'
 
       - name: ruff check
         # NON-BLOCKING for now: the freshly-extracted engine carries a backlog
@@ -76,12 +95,12 @@ jobs:
         continue-on-error: true
         run: uv run mypy src/reflect_kb
 
-      - name: pytest (fast unit tests; excludes heavy tests/eval suite)
-        # THE gate. tests/eval/{behavioral,locomo} need the [graph] extra,
-        # model downloads, and (LOCOMO) an Anthropic API key, so they are
-        # excluded here. Everything directly under tests/ runs on the slim
-        # install.
-        run: uv run pytest -q tests --ignore=tests/eval
+      - name: pytest (fast unit tests; excludes tests/eval and tests/compat)
+        # THE gate for unit + Postgres integration tests. tests/eval needs the
+        # [graph] extra, model downloads, and (LOCOMO) an Anthropic API key;
+        # tests/compat needs the [graph] extra too and runs once, in the
+        # golden-diff job, rather than three times across this matrix.
+        run: uv run pytest -q tests --ignore=tests/eval --ignore=tests/compat
 
   # ---------------------------------------------------------------------------
   # Playwright e2e for the `reflect serve` memory browser. The suite launches
@@ -204,7 +223,7 @@ jobs:
   # (reflect reindex + recall.py), which needs the [graph] extra + an embedding
   # model this slim job does not install, so they will skip (reflect absent) or
   # fail (reindex without [graph]) here. `continue-on-error` keeps that off the
-  # PR gate — the proofs are exercised for real in the manual `golden-diff` job.
+  # PR gate; the proofs are exercised for real in the `golden-diff` job.
   # ---------------------------------------------------------------------------
   fleet-guards:
     name: fleet regression guards (py3.12)
@@ -240,21 +259,125 @@ jobs:
             tests/eval/behavioral/proofs/proof_F3_quarantine_enforced.py
 
   # ---------------------------------------------------------------------------
-  # Heavy golden-snapshot diff — the FIRST job that installs the [graph] stack
-  # (~2GB torch + nano-graphrag) and downloads an embedding model, then runs the
-  # full recall eval and diffs it against tests/eval/results/baseline.json.
-  #
-  # It is gated behind `workflow_dispatch` (see the `on:` block) so it runs ONLY
-  # on a manual trigger and NEVER blocks a PR on a multi-hundred-MB model
-  # download. `continue-on-error` is belt-and-braces; snapshot_diff.py itself
-  # already exits 0 (skips) when the model/graph stack is unavailable or the
-  # baseline is missing, and exits 1 only on a genuine ranking regression.
+  # Heavy job: the compat gate and the recall snapshot diff, on the [graph]
+  # install. Runs on every PR and push (it used to be manual only): the compat
+  # gate diffs this checkout against the merge-base with main (install matrix,
+  # Mode 1 reindex and search, hooks, cascade, extract writer), and that is a
+  # HARD step. The recall-ranking snapshot diff keeps its own
+  # continue-on-error. Cost controls: CPU torch on Linux (the default index
+  # resolves the CUDA build, ~3 GB), a dedicated unpruned uv cache, a
+  # restore/save cache for the embedding model, and a 30 minute cap.
   # ---------------------------------------------------------------------------
   golden-diff:
-    name: golden snapshot diff (heavy — manual only)
-    if: github.event_name == 'workflow_dispatch'
+    name: compat gate + golden snapshot diff (graph extra)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: reflect
+          POSTGRES_PASSWORD: reflect_test
+          POSTGRES_DB: reflect_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U reflect -d reflect_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      DATABASE_URL: postgresql://reflect:reflect_test@localhost:5432/reflect_test
+      HF_HOME: ${{ github.workspace }}/.hf-cache
+      SENTENCE_TRANSFORMERS_HOME: ${{ github.workspace }}/.hf-cache/sentence_transformers
+      EMBEDDING_MODEL: sentence-transformers/all-mpnet-base-v2
+    steps:
+      # Full history: the compat gate resolves `git merge-base origin/main HEAD`
+      # and checks that commit out into a throwaway worktree.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: install uv (own cache, never pruned, so torch is not re-downloaded)
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          # graph-v2: the v1 cache held an hnswlib wheel built from source
+          # with -march=native on one runner generation and replayed on
+          # another (SIGILL, exit -4, on EPYC 7763 after a build on 9V74).
+          cache-suffix: graph-v2
+          prune-cache: false
+          cache-dependency-glob: 'pyproject.toml'
+
+      - name: restore the embedding model cache
+        id: hf-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: .hf-cache
+          key: hf-${{ env.EMBEDDING_MODEL }}-v1
+
+      - name: 'install package with graph extra (CPU torch first, then the stack)'
+        env:
+          # hnswlib has no cp312 manylinux wheel, so uv builds it from source
+          # and caches the result; setup.py adds -march=native unless this is
+          # set. A native build from one runner CPU must never be replayed on
+          # another, so build a portable wheel.
+          HNSWLIB_NO_NATIVE: "1"
+        run: |
+          uv venv --python 3.12
+          uv pip install torch --index-url https://download.pytorch.org/whl/cpu
+          uv pip install -e '.[dev,graph,postgres]'
+
+      # A SIGILL (exit -4) from reflect add on some runners: name the CPU and
+      # the torch build so a crash can be tied to an instruction set, not
+      # guessed. PYTHONFAULTHANDLER turns the signal into a traceback naming
+      # the module (capture.py sets it for every captured process too).
+      - name: runner cpu and torch build
+        run: |
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -m1 '^flags' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|avx512[a-z_]*|amx[a-z_]*|fma|sse4_2)$' | sort | tr '\n' ' '; echo
+          uv run python -c "import torch, numpy; print('torch', torch.__version__, 'numpy', numpy.__version__); print(torch.__config__.show())"
+          uv run python -X faulthandler -c "import hnswlib; print('hnswlib import ok')" || echo "hnswlib import failed: $?"
+          uv run python -X faulthandler -c "import reflect_kb.cli.graph_engine as g; print('graph_engine import ok')" || echo "graph_engine import failed: $?"
+
+      - name: warm the embedding model (tolerates a partial cache)
+        run: |
+          uv run python - <<'PY'
+          from sentence_transformers import SentenceTransformer
+          import os
+          SentenceTransformer(os.environ["EMBEDDING_MODEL"])
+          print("model ready")
+          PY
+
+      - name: compat gate (HARD gate, diff against the merge-base with main)
+        run: uv run pytest -q tests/compat -m "not live" -rs
+
+      - name: nano-graphrag adapter + Postgres tier on the graph install
+        run: uv run pytest -q tests/postgres
+
+      - name: recall snapshot diff vs baseline (non-blocking)
+        continue-on-error: true
+        run: uv run python tests/eval/snapshot_diff.py
+
+      - name: save the embedding model cache
+        if: always() && steps.hf-restore.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .hf-cache
+          key: hf-${{ env.EMBEDDING_MODEL }}-v1
+
+  # ---------------------------------------------------------------------------
+  # Live drain permission proof (tests/compat, marker `live`). Calls the real
+  # claude CLI with the exact argv the drain hook builds. Gated at job level on
+  # the repository variable COMPAT_LIVE=true so fork PRs never pay for it, and
+  # needs the ANTHROPIC_API_KEY secret to do anything (without it the tests
+  # skip). What is proven with and without it is documented in PR #42.
+  # Budget: under 0.20 USD per model call.
+  # ---------------------------------------------------------------------------
+  compat-live:
+    name: compat gate, live drain permissions
+    if: vars.COMPAT_LIVE == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -264,10 +387,17 @@ jobs:
           enable-cache: true
           cache-dependency-glob: 'pyproject.toml'
 
-      - name: install package with graph extra (heavy — torch + model stack)
+      - name: install package
         run: |
           uv venv --python 3.12
-          uv pip install -e '.[dev,graph]'
+          uv pip install -e '.[dev]'
 
-      - name: recall snapshot diff vs baseline
-        run: uv run python tests/eval/snapshot_diff.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: install claude CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: live drain permission scenarios (skip without the secret)
+        run: uv run pytest -q tests/compat -m live -rs

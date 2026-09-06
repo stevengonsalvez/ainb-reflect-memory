@@ -29,7 +29,7 @@ POST_LLM = SHIM_DIR / "post_llm_capture.py"
 
 sys.path.insert(0, str(ADAPTER_DIR))
 
-import hermes_adapter  # noqa: E402
+import hermes_adapter
 
 
 @pytest.fixture(autouse=True)
@@ -474,3 +474,24 @@ def test_post_llm_capture_transcript_failure_is_silent_no_dangling_entry(tmp_pat
     event = json.loads(breadcrumb.read_text())
     assert event["event"] == "error"
     assert event["hook"] == "post_llm_capture"
+
+
+def test_installed_skill_bodies_have_no_unresolved_marker(tmp_path):
+    """Hermes goes through AdapterBase._write_pointer, so the HOME_TOOL_DIR
+    marker and the ${CLAUDE_PLUGIN_ROOT} anchors are rendered for ~/.hermes."""
+    import re
+    import subprocess
+    import sys
+
+    subprocess.run(
+        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
+        check=True, capture_output=True,
+    )
+    marker = re.compile(r"\{\{[A-Z_]+\}\}|\$\{CLAUDE_PLUGIN_ROOT")
+    skills = tmp_path / ".hermes" / "skills"
+    bodies = list(skills.glob("*/SKILL.md"))
+    assert bodies
+    for skill_md in bodies:
+        assert not marker.search(skill_md.read_text(encoding="utf-8")), skill_md
+    reflect = (skills / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    assert f"python3 {skills}/reflect/scripts/reflect_cascade.py" in reflect
