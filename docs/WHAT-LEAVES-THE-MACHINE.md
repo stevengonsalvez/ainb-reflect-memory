@@ -16,10 +16,13 @@ what stops it, and how to turn it off.
 ┌──────────────┐   redacted notes,     ┌──────────────────┐
 │ Mode 2 write │──────────────────────▶│ Supabase Postgres │  3. optional shared store
 └──────────────┘   vectors, graph      └──────────────────┘
-┌──────────────┐   evidence pack only  ┌──────────────────┐
+┌──────────────┐  authenticated request┌──────────────────┐
 │ Context      │◀──────────────────────│ authenticated     │  4. broker (serves 3, adds nothing)
 │ Broker       │──────────────────────▶│ caller            │
-└──────────────┘                       └──────────────────┘
+└──────────────┘   evidence pack only  └──────────────────┘
+┌──────────────┐   issue bodies, PRs   ┌──────────────────┐
+│ issues / kb  │──────────────────────▶│ GitHub (gh, git) │  5. the forge
+└──────────────┘   (redacted, opt-in)  └──────────────────┘
 ```
 
 ## 1. The Claude drain
