@@ -49,3 +49,19 @@ def test_bash_and_python_writers_share_the_frame(home) -> None:
         assert argv[1:3] == ["-p", "prompt"]
         assert "--output-format" in argv and argv[argv.index("--output-format") + 1] == "json"
         assert "--max-turns" in argv
+
+
+def test_hook_fails_loudly_when_the_library_is_missing(home, tmp_path) -> None:
+    """The hook runs under set -u without -e; a silently failed source would
+    reach an unset WRITER_ARGV expansion much later. It must stop at once."""
+    import shutil
+
+    hooks = tmp_path / "hooks"
+    hooks.mkdir()
+    shutil.copy(PLUGIN / "hooks" / "reflect-drain-bg.sh", hooks / "reflect-drain-bg.sh")
+    env = clean_env(home)
+    env.pop("REFLECT_DISABLED", None)
+    proc = subprocess.run(["bash", str(hooks / "reflect-drain-bg.sh")], env=env,
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert proc.returncode == 1
+    assert "missing" in proc.stderr and "writer_argv.sh" in proc.stderr

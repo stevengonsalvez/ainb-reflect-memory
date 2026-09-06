@@ -160,8 +160,13 @@ MAX_INPUT_CHARS="${REFLECT_DRAIN_MAX_INPUT_CHARS:-60000}"  # #34: hard cap on wr
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # The writer's claude -p argv lives in a side-effect-free library so the compat
 # gate can source the same definition the hook runs (see lib/writer_argv.sh).
+# The script runs under set -u without -e, so a failed source would continue
+# into an unset WRITER_ARGV expansion; stop here instead, loudly.
 # shellcheck source=lib/writer_argv.sh
-source "${SCRIPT_DIR}/lib/writer_argv.sh"
+source "${SCRIPT_DIR}/lib/writer_argv.sh" || {
+    echo "reflect drain: missing ${SCRIPT_DIR}/lib/writer_argv.sh" >&2
+    exit 1
+}
 CASCADE_SCRIPT="${SCRIPT_DIR}/../scripts/reflect_cascade.py"
 EXTRACT_SCRIPT="${SCRIPT_DIR}/../scripts/drain_extract.py"   # W7: single-shot writer
 CLASSIFIER_SCRIPT="${SCRIPT_DIR}/../scripts/output_classifier.py"
