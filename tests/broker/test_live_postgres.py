@@ -33,14 +33,9 @@ def live_dsn() -> str:
     except Exception as exc:  # noqa: BLE001
         pytest.skip(f"Postgres not reachable ({exc})")
     with conn, conn.cursor() as cur:
-        # 0004 reads the role passwords from session settings.
-        cur.execute("select set_config('reflect.broker_password', 'live-test-password', false)")
-        cur.execute("select set_config('reflect.writer_password', 'live-test-password', false)")
+        # A migration that does not apply is a failure of this PR, never a skip.
         for name in sorted(p.name for p in _MIGRATIONS.glob("000*.sql")):
-            try:
-                cur.execute((_MIGRATIONS / name).read_text())
-            except Exception as exc:  # noqa: BLE001
-                pytest.skip(f"migration {name} did not apply ({exc})")
+            cur.execute((_MIGRATIONS / name).read_text())
         cur.execute(
             "truncate reflect_memory.memory_items, reflect_memory.entities, "
             "reflect_memory.edges cascade;"
@@ -162,3 +157,50 @@ def test_broker_serves_pinned_evidence_for_the_token_tenant_only(
     finally:
         server.should_exit = True
         thread.join(timeout=10)
+
+
+def test_live_path_drops_a_restricted_row_that_predates_the_constraint(live_dsn, issuer, git_repo, resolver) -> None:
+    """get_evidence_pack must hand the broker the row's metadata; with an
+    empty dict every hit passed the floor. A restricted row can only exist
+    from before 0003, so the constraint is lifted to plant one."""
+    import psycopg
+    from fastapi.testclient import TestClient
+    from psycopg.rows import dict_row
+
+    from reflect_kb.broker.app import create_app, psycopg_store_factory
+
+    _, sha = git_repo
+    with psycopg.connect(live_dsn, row_factory=dict_row, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute("alter table reflect_memory.memory_items drop constraint if exists memory_items_classification_floor")
+        cur.execute(
+            "insert into reflect_memory.memory_items (workspace_id, source_type, content, content_hash, source_uri, metadata) "
+            "values (%s, 'codebase_note', 'restricted auth token note', 'hr', %s, '{\"classification\":\"restricted\"}'::jsonb)",
+            (WS_A, f"{REPO}@{sha}:src/auth.rs"))
+        cur.execute(
+            "insert into reflect_memory.memory_items (workspace_id, source_type, content, content_hash, source_uri, metadata) "
+            "values (%s, 'codebase_note', 'internal auth token note', 'hi', %s, '{\"classification\":\"internal\"}'::jsonb)",
+            (WS_A, f"{REPO}@{sha}:src/auth.rs"))
+    try:
+        app = create_app(verifier=issuer.verifier(), store_factory=psycopg_store_factory(live_dsn), resolver=resolver)
+        r = TestClient(app).post("/v1/evidence", json={"query": "auth token"},
+                                 headers={"Authorization": f"Bearer {issuer.mint(workspace_id=WS_A)}"})
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert "restricted" not in r.text
+        assert [h["content"] for h in body["lexical"]] == ["internal auth token note"]
+        # The read function filters the restricted row in SQL (0003), so the
+        # broker's own floor sees only what survives; that floor now reads the
+        # real metadata the store hands it, proven here on the live path.
+        from reflect_kb.postgres import EvidencePackQuery, MemoryStore, Tenant
+
+        with psycopg.connect(live_dsn, row_factory=dict_row) as conn:
+            pack = MemoryStore(conn).get_evidence_pack(EvidencePackQuery(tenant=Tenant(workspace_id=WS_A), query="auth token"))
+        assert [h.metadata.get("classification") for h in pack.lexical] == ["internal"]
+    finally:
+        # The shared test database is reused: remove the planted row and put
+        # the constraint back so the next migration pass does not stop on it.
+        with psycopg.connect(live_dsn, autocommit=True) as conn, conn.cursor() as cur:
+            cur.execute("delete from reflect_memory.memory_items where content_hash in ('hr', 'hi')")
+            cur.execute("alter table reflect_memory.memory_items add constraint memory_items_classification_floor "
+                        "check (metadata->>'classification' is null or metadata->>'classification' in ('public', 'internal'))")
+

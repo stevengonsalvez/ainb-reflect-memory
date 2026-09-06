@@ -234,6 +234,9 @@ class MemoryStore:
                 snippet=r["snippet"],
                 source_type=r["source_type"],
                 source_uri=r.get("source_uri"),
+                # The classification floor reads this on the live path; an
+                # empty dict would pass every hit.
+                metadata=r.get("metadata") or {},
             )
             for r in lexical_rows
         ]
