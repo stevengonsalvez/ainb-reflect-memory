@@ -489,8 +489,10 @@ def test_read_functions_filter_entities_and_edges_above_the_floor(conn, store) -
 
 
 def test_bind_workspace_scopes_a_non_bypass_role_through_rls(conn, store) -> None:
-    """The broker binds app.current_workspace inside the request transaction;
-    a role subject to RLS then reads only that workspace through the store."""
+    """Every store call binds the tenant it acts for with SET LOCAL, so a role
+    subject to RLS reads exactly the workspace each call names and nothing
+    when nothing is bound (fail closed). The broker's tenant is the token's,
+    and it is the tenant every store call it makes is built for."""
     a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
     store.insert_memory(InsertMemoryInput(tenant=a, content="alpha bound row"))
     store.insert_memory(InsertMemoryInput(tenant=b, content="beta bound row"))
@@ -504,11 +506,17 @@ def test_bind_workspace_scopes_a_non_bypass_role_through_rls(conn, store) -> Non
         conn.commit()
         cur.execute("set role reflect_bind_test;")
         try:
-            store.bind_workspace(WS_A)
-            # Even a query built for B returns nothing: RLS sees workspace A only.
-            assert store.search_memory(SearchMemoryInput(tenant=b, query="bound")) == []
+            cur.execute("select count(*) as n from reflect_memory.memory_items")
+            assert cur.fetchone()["n"] == 0, "unbound reads must see nothing"
             hits = store.search_memory(SearchMemoryInput(tenant=a, query="bound"))
             assert [h.item.content for h in hits] == ["alpha bound row"]
+            hits = store.search_memory(SearchMemoryInput(tenant=b, query="bound"))
+            assert [h.item.content for h in hits] == ["beta bound row"]
+            store.bind_workspace(WS_A)
+            cur.execute("select content from reflect_memory.memory_items order by content")
+            assert [r["content"] for r in cur.fetchall()] == ["alpha bound row"]
         finally:
             cur.execute("reset role;")
             conn.rollback()
+
+
