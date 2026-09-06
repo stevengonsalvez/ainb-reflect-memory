@@ -429,11 +429,16 @@ def add(file_path: str, entities: str | None, force: bool):
     # carries it. Secrets only; commit shas, ids and paths survive.
     from reflect_kb.issues.sanitize import redact_secrets
 
-    redacted = redact_secrets(source.read_text())
+    raw_note = source.read_text(encoding="utf-8")
+    redacted = redact_secrets(raw_note)
     content = redacted.text
     if redacted.total_redactions:
         kinds = ", ".join(f"{k}={n}" for k, n in sorted(redacted.redactions.items()))
         console.print(f"[yellow]Redacted {redacted.total_redactions} secret(s): {kinds}[/yellow]")
+        # The project-tree copy the skill wrote (docs/solutions/...) is the
+        # file that gets committed; it must not keep what the KB copy lost.
+        source.write_text(content, encoding="utf-8", newline="")
+        console.print(f"[yellow]Rewrote {source} in place without the secret(s)[/yellow]")
 
     frontmatter, body = parse_frontmatter(content)
 
@@ -459,10 +464,21 @@ def add(file_path: str, entities: str | None, force: bool):
         )
         sys.exit(2)
 
-    # Generate document ID (slug + sha256(title+body)[:6]) and copy to repo.
+    # Generate document ID (slug + sha256(title+body)[:6]) from the bytes that
+    # are written (the redacted body) and copy to repo.
     doc_id = generate_document_id(frontmatter["title"], body)
     repo = get_repo_path()
     dest = repo / DOCUMENTS_DIR / f"{doc_id}.md"
+    # A note added before redaction existed has the id of its unredacted body;
+    # --force replaces that leaked copy instead of leaving it next to a clean one.
+    if redacted.total_redactions and force:
+        _, raw_body = parse_frontmatter(raw_note)
+        old_id = generate_document_id(frontmatter["title"], raw_body)
+        if old_id != doc_id:
+            for old in (repo / DOCUMENTS_DIR / f"{old_id}.md", repo / DOCUMENTS_DIR / f"{old_id}.entities.yaml"):
+                if old.exists():
+                    old.unlink()
+                    console.print(f"[yellow]Removed {old.name}: the same note under its unredacted id[/yellow]")
 
     if dest.exists():
         # If --force is set, overwrite silently. Else require a TTY for the
@@ -482,7 +498,7 @@ def add(file_path: str, entities: str | None, force: bool):
             if not click.confirm(f"Document {dest.name} exists. Overwrite?"):
                 return
 
-    dest.write_text(content, encoding="utf-8")
+    dest.write_text(content, encoding="utf-8", newline="")
 
     # Load or auto-generate entity sidecar
     entities_formatted = None
@@ -496,19 +512,20 @@ def add(file_path: str, entities: str | None, force: bool):
     )
 
     if entities:
-        # Explicit sidecar provided — use it as-is
+        # Explicit sidecar: redacted BEFORE it is parsed, so the entities that
+        # reach the graph index and the sidecar written next to the note are
+        # the same clean data (a free-form description can carry a credential).
         entities_path = Path(entities)
-        doc_entities = DocumentEntities.from_yaml_file(entities_path)
+        raw_sidecar = entities_path.read_text(encoding="utf-8")
+        clean_sidecar = redact_secrets(raw_sidecar)
+        if clean_sidecar.total_redactions:
+            entities_path.write_text(clean_sidecar.text, encoding="utf-8", newline="")
+            console.print(f"[yellow]Rewrote {entities_path} in place without the secret(s)[/yellow]")
+        doc_entities = DocumentEntities.from_yaml(clean_sidecar.text)
         entities_formatted = doc_entities.to_graphrag_format()
         entity_count = doc_entities.entity_count
         rel_count = doc_entities.relationship_count
-
-        # Save sidecar alongside document, through the same capture gate as
-        # the note: a free-form entity description can carry a credential too.
-        sidecar_dest = dest.with_suffix(".entities.yaml")
-        sidecar_dest.write_text(
-            redact_secrets(entities_path.read_text(encoding="utf-8")).text, encoding="utf-8"
-        )
+        write_sidecar(dest, doc_entities)
     else:
         # Auto-generate entities from document content (heuristic, no LLM)
         try:

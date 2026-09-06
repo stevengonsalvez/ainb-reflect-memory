@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
@@ -130,9 +131,6 @@ def test_team_kb_copy_and_sidecar_are_redacted(tmp_path: Path) -> None:
         for secret in SECRETS:
             assert secret not in copied, path
     assert "<REDACTED:github_token>" in staged[1].read_text(encoding="utf-8")
-    # The local source of truth is never rewritten by the team copy step.
-    assert GITHUB_TOKEN in doc.read_text(encoding="utf-8")
-    assert GITHUB_TOKEN in sidecar.read_text(encoding="utf-8")
 
 
 def test_reflect_add_redacts_an_explicit_sidecar(tmp_path: Path, monkeypatch) -> None:
@@ -183,3 +181,168 @@ def test_fleet_ingest_redacts_imported_artifacts(tmp_path: Path, monkeypatch) ->
         if path.is_file():
             text = path.read_text(encoding="utf-8")
             assert GITHUB_TOKEN not in text and AWS_KEY not in text, path
+
+
+# --------------------------------------------------------------------------- #
+# Capture posture: never lose a legitimate value (items 26 and 39)
+# --------------------------------------------------------------------------- #
+
+LEGITIMATE = [
+    "auth_method: certificate_based",
+    "secret_name: my-app-db-credentials",
+    "api_key_env: ANTHROPIC_API_KEY",
+    "token_count: 123456789012",
+    "key_takeaway: SomethingLongValue",
+    "task-abcdefghijklmnopqrstuvwxyz",
+    "key_path: /home/u/.ssh/id_rsa.pub",
+    "token_file: ~/.config/gh/hosts.yml",
+    "cache_key: user-123-profile-v2",
+    "sort_key: created_at_desc",
+    "s3_key: exports/2026/report.csv",
+    "primary_key: user_id_bigint",
+    "secret_manager: aws-secrets-manager",
+    "password_manager: 1password-cli",
+    "- key: ANTHROPIC_API_KEY",
+    "token = request.headers.get('Authorization')",
+    "api_key = settings.anthropic_api_key",
+    "const apiKey = process.env.X",
+]
+CREDENTIALS = [
+    "password: Tr0ub4dor3xyzabcdefgh",
+    "api_key=AbCd3fGh1jK2LmN0pQrStUv",
+    'DB_PASSWORD: "x9Lm2qR8vT4wY7zA1bC3"',
+]
+
+
+def test_capture_rule_keeps_every_legitimate_value_and_drops_credentials() -> None:
+    from reflect_kb.issues.sanitize import sanitize
+
+    kept = [c for c in LEGITIMATE if redact_secrets(c).text != c]
+    assert kept == [], f"capture over-redacted: {kept}"
+    leaked = [c for c in CREDENTIALS if redact_secrets(c).text == c]
+    assert leaked == [], f"capture missed a credential: {leaked}"
+    # The publish posture stays strict on the same shared pattern list.
+    assert "<REDACTED:generic_secret>" in sanitize("secret_name: my-app-db-credentials").text
+
+
+def _corpus() -> list[Path]:
+    root = Path(__file__).resolve().parents[1]
+    out: list[Path] = []
+    for folder in ("tests/samples", "tests/e2e/fixture-kb", "tests/compat/fixtures", "plugin/references",
+                   "plugin/skills", "docs", "plugin/docs"):
+        out += [p for p in (root / folder).rglob("*.md") if p.is_file()]
+    out += [root / "README.md"]
+    return [p for p in out if "secret" not in p.name and "transcript" not in p.name]
+
+
+@pytest.mark.parametrize("path", _corpus(), ids=lambda p: str(p.relative_to(Path(__file__).resolve().parents[1])))
+def test_real_notes_pass_through_capture_redaction_unchanged(path: Path) -> None:
+    text = path.read_text(encoding="utf-8")
+    assert redact_secrets(text).text == text, path
+
+
+def test_corpus_is_large_enough_to_mean_something() -> None:
+    assert len(_corpus()) >= 40, len(_corpus())
+
+
+# --------------------------------------------------------------------------- #
+# The indexed entities, the project-tree copy, ids and dedupe (items 25, 31, 41, 42)
+# --------------------------------------------------------------------------- #
+
+class _Engine:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str | None]] = []
+
+    def insert_document(self, text, entities_formatted=None):
+        self.calls.append((text, entities_formatted))
+
+
+def _kb(tmp_path: Path, monkeypatch) -> Path:
+    kb = tmp_path / "kb"
+    (kb / learnings_cli.DOCUMENTS_DIR).mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(kb))
+    monkeypatch.setattr(learnings_cli, "_sync_qmd", lambda: None)
+    return kb
+
+
+def test_explicit_sidecar_is_redacted_before_it_is_parsed_and_indexed(tmp_path: Path, monkeypatch) -> None:
+    kb = _kb(tmp_path, monkeypatch)
+    engine = _Engine()
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: engine)
+    src = tmp_path / "note.md"
+    src.write_text(_note_with_secrets(), encoding="utf-8")
+    sidecar = tmp_path / "note.entities.yaml"
+    sidecar.write_text(
+        "document_id: note\nentities:\n  - name: deploy token\n    type: credential\n"
+        f"    description: \"value was {GITHUB_TOKEN}\"\nrelationships: []\n",
+        encoding="utf-8",
+    )
+    result = CliRunner().invoke(learnings_cli.cli, ["add", "--force", str(src), "--entities", str(sidecar)])
+    assert result.exit_code == 0, result.output
+    text, entities = engine.calls[0]
+    assert GITHUB_TOKEN not in text and entities and GITHUB_TOKEN not in entities
+    written = list((kb / learnings_cli.DOCUMENTS_DIR).glob("*.entities.yaml"))
+    assert len(written) == 1 and GITHUB_TOKEN not in written[0].read_text(encoding="utf-8")
+    # The project-tree copies the skill wrote are rewritten clean in place.
+    assert GITHUB_TOKEN not in src.read_text(encoding="utf-8")
+    assert GITHUB_TOKEN not in sidecar.read_text(encoding="utf-8")
+
+
+def test_force_replaces_the_note_stored_under_its_unredacted_id(tmp_path: Path, monkeypatch) -> None:
+    kb = _kb(tmp_path, monkeypatch)
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: _Engine())
+    raw = _note_with_secrets()
+    frontmatter, raw_body = learnings_cli.parse_frontmatter(raw)
+    old_id = learnings_cli.generate_document_id(frontmatter["title"], raw_body)
+    docs = kb / learnings_cli.DOCUMENTS_DIR
+    (docs / f"{old_id}.md").write_text(raw, encoding="utf-8")  # a note added before the gate existed
+    (docs / f"{old_id}.entities.yaml").write_text("document_id: x\nentities: []\nrelationships: []\n", encoding="utf-8")
+    src = tmp_path / "note.md"
+    src.write_text(raw, encoding="utf-8")
+    result = CliRunner().invoke(learnings_cli.cli, ["add", "--force", str(src)])
+    assert result.exit_code == 0, result.output
+    notes = sorted(p.name for p in docs.glob("*.md"))
+    assert len(notes) == 1 and notes[0] != f"{old_id}.md", notes
+    assert GITHUB_TOKEN not in (docs / notes[0]).read_text(encoding="utf-8")
+    assert not (docs / f"{old_id}.entities.yaml").exists()
+    _, clean_body = learnings_cli.parse_frontmatter((docs / notes[0]).read_text(encoding="utf-8"))
+    assert notes[0] == learnings_cli.generate_document_id(frontmatter["title"], clean_body) + ".md"
+
+
+def test_reflect_add_round_trips_non_ascii_bytes(tmp_path: Path, monkeypatch) -> None:
+    kb = _kb(tmp_path, monkeypatch)
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: _Engine())
+    body = "caf\u00e9 \u2014 na\u00efve r\u00e9sum\u00e9\n"
+    src = tmp_path / "note.md"
+    src.write_bytes(("---\ntitle: unicode\ncategory: c\nkey_insight: k\n---\n" + body).encode("utf-8"))
+    result = CliRunner().invoke(learnings_cli.cli, ["add", "--force", str(src)])
+    assert result.exit_code == 0, result.output
+    written = next((kb / learnings_cli.DOCUMENTS_DIR).glob("*.md"))
+    assert written.read_bytes() == src.read_bytes()
+
+
+def test_fleet_dedupe_re_redacts_a_leaky_existing_note(tmp_path: Path, monkeypatch) -> None:
+    import json
+
+    from reflect_kb import metrics
+    from reflect_kb.fleet import importer as importer_mod
+
+    kb = tmp_path / "kb"
+    (kb / "documents").mkdir(parents=True)
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(kb))
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(metrics, "METRICS_PATH", tmp_path / "state" / "metrics.jsonl")
+    root = tmp_path / "fleet"
+    root.mkdir()
+    (root / "patterns.jsonl").write_text(
+        json.dumps({"title": "Leaky pattern", "description": f"export GH={GITHUB_TOKEN}"}) + "\n")
+    first = importer_mod.ingest(root, ["patterns"])
+    assert first.imported == 1, first.error_details
+    note = next((kb / "documents").glob("*.md"))
+    assert GITHUB_TOKEN not in note.read_text(encoding="utf-8")
+    # The id is derived from the redacted body: importing again dedupes onto it.
+    note.write_text(note.read_text(encoding="utf-8") + f"\nleaked later: {GITHUB_TOKEN}\n", encoding="utf-8")
+    second = importer_mod.ingest(root, ["patterns"])
+    assert second.deduped == 1 and second.imported == 0, second
+    assert GITHUB_TOKEN not in note.read_text(encoding="utf-8")
+

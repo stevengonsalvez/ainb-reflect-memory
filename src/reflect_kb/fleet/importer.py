@@ -388,6 +388,33 @@ def _bump_occurrences(dest: Path, occurrences: int) -> None:
     dest.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8")
 
 
+def _redacted(doc: ImportResult) -> ImportResult:
+    """The document with every text field through the capture gate."""
+    from dataclasses import replace
+
+    fields = {}
+    for name in ("title", "body", "key_insight"):
+        value = getattr(doc, name, None)
+        if isinstance(value, str):
+            fields[name] = redact_secrets(value).text
+    return replace(doc, **fields) if fields else doc
+
+
+def _re_redact_in_place(dest: Path) -> None:
+    """A note imported before the gate existed can still carry a secret; on
+    dedupe it and its sidecar are rewritten clean instead of only bumped."""
+    for path in (dest, dest.with_suffix(".entities.yaml")):
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        clean = redact_secrets(text)
+        if clean.total_redactions:
+            path.write_text(clean.text, encoding="utf-8", newline="")
+
+
 def _write_sidecar(dest: Path, content: str, frontmatter: dict) -> None:
     """Best-effort entity sidecar, mirroring the ``reflect add`` auto path."""
     try:
@@ -420,6 +447,10 @@ def ingest(
 
     for doc in _iter_docs(root, kinds, result):
         try:
+            # Capture gate first, so the id and the dedupe hash are computed
+            # from the bytes that are written, never from a body a secret
+            # still sits in.
+            doc = _redacted(doc)
             doc_id = generate_document_id(doc.title, doc.body)
             dest = docs_dir / f"{doc_id}.md"
             hash_ = doc.content_hash()
@@ -439,12 +470,13 @@ def ingest(
 
             if dest.exists():
                 _bump_occurrences(dest, occurrences)
+                _re_redact_in_place(dest)
                 result.deduped += 1
             else:
-                # Capture gate: fleet artifacts are transcripts of other agents'
-                # sessions, so they get the same secret redaction as reflect add.
+                # The rendered frontmatter can carry a secret too (a tag, a
+                # key insight), so the whole note passes the gate once more.
                 content = redact_secrets(doc.render(doc_id, occurrences)).text
-                dest.write_text(content, encoding="utf-8")
+                dest.write_text(content, encoding="utf-8", newline="")
                 frontmatter, _ = parse_frontmatter(content)
                 _write_sidecar(dest, content, frontmatter or {})
                 result.imported += 1
