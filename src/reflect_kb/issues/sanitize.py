@@ -49,7 +49,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from typing import Optional
 
 # ── Layer 2: secret patterns (ordered; most specific first) ──────────────────
 # Each entry is (compiled_regex, replacement, kind). ``kind`` is surfaced in
@@ -57,32 +56,34 @@ from typing import Optional
 # stripped.
 
 _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"), "<REDACTED:anthropic_key>", "anthropic_key"),
-    (re.compile(r"sk-proj-[A-Za-z0-9_\-]{20,}"), "<REDACTED:openai_key>", "openai_key"),
-    (re.compile(r"sk-[A-Za-z0-9]{20,}"), "<REDACTED:openai_key>", "openai_key"),
+    # Every prefix rule is anchored at a word boundary: without it ``task-abc...``
+    # matched the ``sk-`` rule from its second letter.
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}"), "<REDACTED:anthropic_key>", "anthropic_key"),
+    (re.compile(r"\bsk-proj-[A-Za-z0-9_\-]{20,}"), "<REDACTED:openai_key>", "openai_key"),
+    (re.compile(r"\bsk-[A-Za-z0-9]{20,}"), "<REDACTED:openai_key>", "openai_key"),
     # Fine-grained GitHub PATs (github_pat_<22>_<59>) must precede the classic
     # gh[posru]_ rule — the underscore mid-body and the ``i`` after ``gh`` make
     # them invisible to that pattern, so a bare token would otherwise pass
     # through unredacted into a published issue.
     (
-        re.compile(r"github_pat_[A-Za-z0-9_]{50,}"),
+        re.compile(r"\bgithub_pat_[A-Za-z0-9_]{50,}"),
         "<REDACTED:github_token>",
         "github_token",
     ),
-    (re.compile(r"gh[posru]_[A-Za-z0-9]{20,}"), "<REDACTED:github_token>", "github_token"),
+    (re.compile(r"\bgh[posru]_[A-Za-z0-9]{20,}"), "<REDACTED:github_token>", "github_token"),
     # GitLab personal-access / pipeline tokens (glpat-…). No generic-keyword
     # anchor, so without this prefix rule a bare token leaks into a published
     # issue unredacted.
-    (re.compile(r"glpat-[A-Za-z0-9_\-]{16,}"), "<REDACTED:gitlab_token>", "gitlab_token"),
+    (re.compile(r"\bglpat-[A-Za-z0-9_\-]{16,}"), "<REDACTED:gitlab_token>", "gitlab_token"),
     # Google API keys (AIza…). Fixed 39-char total in practice; match ≥30 of
     # body to stay tolerant without being greedy.
     (re.compile(r"\bAIza[A-Za-z0-9_\-]{30,}\b"), "<REDACTED:google_api_key>", "google_api_key"),
     # npm automation/access tokens (npm_…).
     (re.compile(r"\bnpm_[A-Za-z0-9]{30,}\b"), "<REDACTED:npm_token>", "npm_token"),
-    (re.compile(r"xox[baprs]-[A-Za-z0-9\-]{10,}"), "<REDACTED:slack_token>", "slack_token"),
+    (re.compile(r"\bxox[baprs]-[A-Za-z0-9\-]{10,}"), "<REDACTED:slack_token>", "slack_token"),
     # Slack incoming-webhook URLs carry a posting credential in the path.
     (
-        re.compile(r"https://hooks\.slack\.com/services/\S+"),
+        re.compile(r"https://hooks\.slack\.com/services/[^\s)\]\"',]+"),
         "<REDACTED:slack_webhook>",
         "slack_webhook",
     ),
@@ -143,12 +144,15 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
 # after a lowercase letter). Surrounding ``\w*`` still lets the keyword match
 # anywhere inside the identifier; group 1 captures the FULL env-var name so
 # it's preserved verbatim and only the value is stripped.
+# The key may carry a closing quote before the separator and the value an
+# opening one, so the JSON form (``"api_key": "..."``) that a JSONL transcript
+# uses matches as well as ``KEY=value`` and ``key: value``.
 _GENERIC_SECRET_RE = re.compile(
     r"\b(\w*(?:"
     r"(?i:(?<![A-Za-z])(?:token|key|secret|password|passwd|api[_-]?key|auth(?:orization)?)(?![A-Za-z]))"
     r"|(?<=[a-z])(?:Token|Key|Secret|Password|Passwd|ApiKey|Auth|Authorization)(?![a-z])"
     r")\w*)"
-    r"(\s*[:=]\s*)"
+    r"(['\"]?\s*[:=]\s*)"
     r"(['\"]?)(?!<REDACTED:)([^\s'\"]{12,})\3"
 )
 
@@ -215,7 +219,7 @@ def _bump(tally: dict[str, int], kind: str, n: int) -> None:
         tally[kind] = tally.get(kind, 0) + n
 
 
-def sanitize(text: str, *, maps: Optional[dict[str, str]] = None) -> SanitizeResult:
+def sanitize(text: str, *, maps: dict[str, str] | None = None) -> SanitizeResult:
     """Sanitize ``text`` for external publication.
 
     Args:
@@ -239,16 +243,9 @@ def sanitize(text: str, *, maps: Optional[dict[str, str]] = None) -> SanitizeRes
                 out = out.replace(needle, replacement)
                 _bump(tally, "custom_map", count)
 
-    # 2. Secrets (highest priority, ordered most-specific first).
-    for pattern, replacement, kind in _SECRET_PATTERNS:
-        out, n = pattern.subn(replacement, out)
-        _bump(tally, kind, n)
-
-    def _generic(m: re.Match[str]) -> str:
-        return f"{m.group(1)}{m.group(2)}<REDACTED:generic_secret>"
-
-    out, n = _GENERIC_SECRET_RE.subn(_generic, out)
-    _bump(tally, "generic_secret", n)
+    # 2. Secrets (highest priority, ordered most-specific first). Publish
+    #    posture: over-redact, every generic KEY=value goes.
+    out = _strip_secrets(out, tally, keep_value=lambda key, value: False)
 
     # 3. Emails.
     out, n = _EMAIL_RE.subn("<REDACTED:email>", out)
@@ -306,3 +303,108 @@ def _audit(text: str) -> list[dict]:
                     }
                 )
     return findings
+
+
+# ── capture boundary: secrets only ───────────────────────────────────────────
+# Frontmatter keys whose values the generic KEY=value rule must leave alone.
+def _strip_secrets(text: str, tally: dict[str, int], *, keep_value) -> str:
+    """The secret layer shared by both postures: the structured prefix rules,
+    then the generic KEY=value rule. ``keep_value(key, value)`` returns True
+    when a generic match must be left alone; publish passes a constant False
+    (over-redact), capture passes the conservative credential test."""
+    out = text
+    for pattern, replacement, kind in _SECRET_PATTERNS:
+        out, n = pattern.subn(replacement, out)
+        _bump(tally, kind, n)
+    rewrites = 0
+
+    def _generic(m: re.Match[str]) -> str:
+        nonlocal rewrites
+        if keep_value(m.group(1), m.group(4)):
+            return m.group(0)
+        rewrites += 1
+        # The value's quote (group 3, closed by the backreference) is kept
+        # around the placeholder, so a redacted JSON cell still parses.
+        return f"{m.group(1)}{m.group(2)}{m.group(3)}<REDACTED:generic_secret>{m.group(3)}"
+
+    out = _GENERIC_SECRET_RE.sub(_generic, out)
+    _bump(tally, "generic_secret", rewrites)
+    return out
+
+
+_ALL_CAPS_IDENT_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_SLUG_RE = re.compile(r"^[A-Za-z0-9]+(?:[-_.][A-Za-z0-9]+)+$")
+_NUMBER_RE = re.compile(r"^[0-9][0-9._-]*$")
+# A numeral prefix on a word (1password, 2fa, 3rd): letters and digits, but
+# not the shape of a credential segment.
+_NUMERAL_WORD_RE = re.compile(r"^\d{1,2}[A-Za-z]+$")
+# A path: slash-separated segments of at most 15 word characters each
+# (exports/2026/report.csv, ~/.config/gh/hosts.yml). A base64 credential with
+# slashes has long segments and never looks like this.
+_PATH_RE = re.compile(r"^(?:~|\.{1,2})?/?[\w.-]{1,15}(?:/[\w.-]{1,15})+/?$")
+
+
+def _shannon_bits(value: str) -> float:
+    import math
+
+    counts: dict[str, int] = {}
+    for ch in value:
+        counts[ch] = counts.get(ch, 0) + 1
+    n = len(value)
+    return -sum(c / n * math.log2(c / n) for c in counts.values())
+
+
+def _mixes_letters_and_digits(text: str) -> bool:
+    return any(ch.isalpha() for ch in text) and any(ch.isdigit() for ch in text)
+
+
+def looks_like_credential(value: str) -> bool:
+    """The capture posture: never lose a legitimate value. A generic
+    KEY=value match is treated as a credential only when the value has the
+    shape of one: 12 or more characters that are not a number or a path; an
+    ALL_CAPS identifier only counts as one when it carries an underscore or
+    is shorter than 16 (a base32 seed, upper hex or a licence key is all
+    caps too); a hyphen, underscore or dot separated slug is a credential
+    when any segment of four or more characters mixes letters and digits
+    (a numeral-prefixed word such as 1password is not); otherwise a value
+    that mixes letters and digits, or a long high-entropy one, is one."""
+    v = value.strip()
+    if len(v) < 12 or _NUMBER_RE.match(v) or _PATH_RE.match(v):
+        return False
+    if _ALL_CAPS_IDENT_RE.match(v) and ("_" in v or len(v) < 16):
+        return False
+    if _SLUG_RE.match(v):
+        return any(
+            len(seg) >= 4 and _mixes_letters_and_digits(seg) and not _NUMERAL_WORD_RE.match(seg)
+            for seg in re.split(r"[-_.]", v)
+        )
+    if v.startswith(("/", "./", "~/")) or "(" in v:
+        return False
+    if _mixes_letters_and_digits(v):
+        return True
+    return len(v) >= 20 and _shannon_bits(v) >= 3.9
+
+
+# ``key_insight`` contains the substring ``key`` at a sub-token boundary, so a
+# one-word insight of 12+ chars would otherwise be redacted as a credential.
+_CAPTURE_EXEMPT_KEYS = frozenset({"key_insight"})
+
+
+def redact_secrets(text: str) -> SanitizeResult:
+    """Strip credentials from a learning note before it is written to disk.
+
+    This is the capture-side gate: it runs the secret layer only (structured
+    token rules plus the generic ``KEY=value`` rule) and leaves emails, paths,
+    UUIDs and long hex alone, because a learning note legitimately carries
+    commit shas, document ids and file paths. Capture posture: never lose a
+    legitimate value, so the generic rule fires only when the value looks
+    like a credential (see ``looks_like_credential``); the structured prefix
+    rules always fire. The publish posture (``sanitize``) stays strict.
+    """
+    tally: dict[str, int] = {}
+
+    def _keep(key: str, value: str) -> bool:
+        return key.lower() in _CAPTURE_EXEMPT_KEYS or not looks_like_credential(value)
+
+    out = _strip_secrets(text, tally, keep_value=_keep)
+    return SanitizeResult(text=out, redactions=tally, audit=[])

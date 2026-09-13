@@ -83,3 +83,13 @@ def test_additional_properties_allowed(validator: Draft202012Validator) -> None:
         "source_project": "biolift",
     }
     assert validator.is_valid(frontmatter)
+
+
+def test_classification_enum(validator: Draft202012Validator) -> None:
+    """Four labels, lowercase only; missing is allowed and means internal."""
+    base = {"title": "x", "created": "2026-04-24", "confidence": "high"}
+    assert validator.is_valid(base)
+    for good in ("public", "internal", "restricted", "pii"):
+        assert validator.is_valid({**base, "classification": good})
+    for bad in ("Public", "secret", "PII", ""):
+        assert not validator.is_valid({**base, "classification": bad}), bad

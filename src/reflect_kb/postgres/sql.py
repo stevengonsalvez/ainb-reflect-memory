@@ -223,7 +223,12 @@ def memory_by_ids(tenant: Tenant, ids: Sequence[str]) -> SqlAndParams:
 
 
 def entities_by_ids(tenant: Tenant, ids: Sequence[str]) -> SqlAndParams:
-    """Fetch entities by id, scoped to the tenant (for neighborhood hydration)."""
-    sql = f"SELECT {_ENTITY_COLS} FROM {SCHEMA}.entities WHERE workspace_id = %s AND id = ANY(%s)"
+    """Fetch entities by id, scoped to the tenant (for neighborhood hydration).
+    Composes the floor predicate (migration 0006): a restricted entity is not
+    hydrated for an edge that touches it."""
+    sql = (
+        f"SELECT {_ENTITY_COLS} FROM {SCHEMA}.entities "
+        f"WHERE workspace_id = %s AND id = ANY(%s) AND {SCHEMA}.is_shareable(metadata)"
+    )
     params: List[Any] = [tenant.workspace_id, list(ids)]
     return sql, params

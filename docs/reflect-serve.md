@@ -64,7 +64,9 @@ only metadata is editable here. Postgres backends are read-only in this release.
 Curation is guarded: the server rejects any request whose `Host` isn't loopback
 (defeats DNS-rebinding) and requires an `X-Reflect` header on mutations, so only
 this same-origin SPA can drive them. There is no auth — do not bind a public
-interface.
+interface. For an authenticated, read-only HTTP surface over the shared store
+use the Context Broker (README, "Context Broker"), which is the only route
+meant to be reached from another machine.
 
 Soft-archive moves the note into an `archived/` sibling directory. This is the
 browser's own reversible delete and is **separate** from the forget sweep's

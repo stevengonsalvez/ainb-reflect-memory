@@ -19,11 +19,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import subprocess
 import sys
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha1
 from pathlib import Path
 
@@ -69,7 +70,8 @@ explanation. Schema:
           {"source": "<entity>", "target": "<entity>",
            "type": "caused_by|causes|enables|prevents"}
         ],
-        "body": "<markdown: ## Problem / ## Solution / ## Anti-Pattern / ## Context>"
+        "body": "<markdown: ## Problem / ## Solution / ## Anti-Pattern / ## Context>",
+        "file": "<the one file this learning is about, relative to the repo root, or omit>"
       }
     },
     // MERGE into an existing learning the slice restates (prefer this over CREATE):
@@ -94,29 +96,56 @@ Rules:
 
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def build_prompt(slice_text: str) -> str:
     return _EXTRACTION_INSTRUCTIONS % slice_text
 
 
+# The structural no-tools flags every tool-free claude -p child carries: no
+# built-in tool (--tools ""), no MCP server, one turn, and an explicit
+# permission mode the operator's settings cannot widen. The engine's
+# reflect_kb.issues.analyze.NO_TOOLS_FLAGS is the same tuple (parity test).
+NO_TOOLS_FLAGS: tuple[str, ...] = (
+    "--permission-mode", "default",
+    "--tools", "",
+    "--strict-mcp-config",
+    "--max-turns", "1",
+)
+
+# Every claude -p child runs with this set: the operator's hooks still load,
+# and each reflect hook exits at once under it, so a child never queues or
+# drains a reflection of its own (recursion).
+NESTED_ENV = {"REFLECT_NESTED": "1"}
+
+
+def writer_argv(prompt: str, *, model: str, claude_bin: str = "claude") -> list[str]:
+    """The exact claude -p argv the extract writer runs.
+
+    Single source of truth shared with tests/compat (the bash twin is
+    plugin/hooks/lib/writer_argv.sh). --tools "" removes every built-in tool
+    and --strict-mcp-config every MCP tool, so the model can only answer with
+    text (--allowedTools "" only left them unapproved, and under an inherited
+    bypassPermissions they still ran); --permission-mode default is an
+    explicit flag that takes precedence over the operator's settings.json
+    defaultMode; --max-turns 1 guarantees a single billed turn. Setting
+    sources are kept: clearing them drops apiKeyHelper and the env block
+    (ANTHROPIC_BASE_URL, ANTHROPIC_AUTH_TOKEN, Bedrock) from settings.json,
+    so an operator who authenticates that way would see every entry fail
+    (proven live: with "--setting-sources" cleared the helper is never run
+    and the CLI answers "Not logged in").
+    """
+    return [claude_bin, "-p", prompt, "--model", model, "--output-format", "json", *NO_TOOLS_FLAGS]
+
+
 def call_model(prompt: str, *, model: str, timeout: int, claude_bin: str,
                cwd: str) -> dict:
-    """One tool-free turn. Returns the parsed claude -p envelope (dict).
-
-    --allowedTools "" removes every tool, so the model can only answer with
-    text; --max-turns 1 guarantees a single billed turn. Both together make the
-    'agentic loop' structurally impossible.
-    """
+    """One tool-free turn. Returns the parsed claude -p envelope (dict)."""
     proc = subprocess.run(
-        [claude_bin, "-p", prompt,
-         "--model", model,
-         "--output-format", "json",
-         "--permission-mode", "bypassPermissions",
-         "--allowedTools", "",
-         "--max-turns", "1"],
+        writer_argv(prompt, model=model, claude_bin=claude_bin),
         cwd=cwd, capture_output=True, text=True, timeout=timeout, check=False,
+        env={**os.environ, **NESTED_ENV},
     )
     if not proc.stdout.strip():
         raise RuntimeError(f"claude -p produced no output (exit={proc.returncode}): "
@@ -132,7 +161,7 @@ def parse_actions(result_text: str) -> list[dict]:
     non-JSON so the caller records a failure instead of silently capturing zero.
     """
     text = result_text.strip()
-    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.S)
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.DOTALL)
     # Outermost {...}; the schema is a single object.
     start, end = text.find("{"), text.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -201,11 +230,81 @@ def _yaml_str(s: str) -> str:
     return '"' + flat.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def render_md(learning: dict, *, source_path: str, session_id: str) -> str:
+def session_cwd(transcript: str) -> str:
+    """The working directory the session ran in, from the first transcript
+    record that carries an existing ``cwd``; empty when none does."""
+    try:
+        with open(transcript, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(cwd, str) and os.path.isdir(cwd):
+                    return cwd
+    except OSError:
+        pass
+    return ""
+
+
+def git_provenance(cwd: str) -> dict:
+    """``{"repo": "owner/name", "commit": "<sha>"}`` for the session's working
+    repo, or ``{}`` when the cwd is not a git checkout with a remote. The
+    remote URL is normalised (ssh or https, with or without .git)."""
+    import re as _re
+    import subprocess as _sp
+
+    def _git(*args: str) -> str:
+        proc = _sp.run(["git", "-C", cwd, *args], capture_output=True, text=True, timeout=10, check=False)
+        return proc.stdout.strip() if proc.returncode == 0 else ""
+
+    sha = _git("rev-parse", "HEAD")
+    url = _git("remote", "get-url", "origin")
+    if not (sha and url):
+        return {}
+    repo = repo_from_remote(url)
+    if not repo:
+        return {}
+    return {"repo": repo, "commit": sha}
+
+
+def repo_from_remote(url: str) -> str:
+    """The repository name a pin carries, from any remote spelling: the full
+    path minus ``.git`` (gitlab subgroups and Azure DevOps ``_git/<repo>``
+    keep every segment), for ``https://``, ``ssh://``, ``git://``, ``file://``
+    and the scp form ``git@host:path``. Empty when the URL has no path."""
+    import re as _re
+    from urllib.parse import urlsplit
+
+    url = url.strip()
+    if "://" in url:
+        parts = urlsplit(url)
+        path = parts.path
+    else:
+        m = _re.match(r"^(?:[^@/\s]+@)?[^:/\s]+:(?P<path>.+)$", url)  # scp form
+        if not m:
+            return ""
+        path = m.group("path")
+    path = path.strip("/")
+    if path.endswith(".git"):
+        path = path[:-4]
+    path = path.strip("/")
+    segments = [s for s in path.split("/") if s]
+    if len(segments) < 2 or any(seg in (".", "..") for seg in segments):
+        return ""
+    if not all(_re.fullmatch(r"[A-Za-z0-9._-]+", seg) for seg in segments):
+        return ""
+    return "/".join(segments)
+
+
+def render_md(learning: dict, *, source_path: str, session_id: str, provenance: dict | None = None) -> str:
     """Render a corpus note the `reflect add` importer accepts.
 
     Requires at least title/category/key_insight (per `reflect add --help`); the
     typed extraction fields ride alongside so recall can return one field.
+    ``provenance`` (repo, commit) plus the learning's ``file`` become the
+    top-level repo, commit and source_path keys the Context Broker pins on;
+    the transcript path is recorded as source_transcript.
     """
     title = str(learning.get("title", "") or "untitled").strip()
     conf_num = learning.get("confidence_num")
@@ -247,7 +346,21 @@ def render_md(learning: dict, *, source_path: str, session_id: str) -> str:
     else:
         fm.append("causal_relations: []")
     if source_path:
-        fm.append(f"source_path: {_yaml_str(source_path)}")
+        # The transcript path, under both keys the readers know: the
+        # top-level source_transcript and the template's provenance block.
+        # Top-level source_path is the pin's repo-relative code path only.
+        fm.append(f"source_transcript: {_yaml_str(source_path)}")
+        fm.append("provenance:")
+        fm.append(f"  source_path: {_yaml_str(source_path)}")
+    file_path = str(learning.get("file", "") or "").strip()
+    if file_path.startswith("./"):
+        file_path = file_path[2:]
+    clean_path = bool(file_path) and not file_path.startswith("/") and not any(
+        seg in ("", ".", "..") for seg in file_path.split("/"))
+    if provenance and provenance.get("repo") and provenance.get("commit") and clean_path:
+        fm.append(f"repo: {_yaml_str(provenance['repo'])}")
+        fm.append(f"commit: {_yaml_str(provenance['commit'])}")
+        fm.append(f"source_path: {_yaml_str(file_path)}")
     if session_id:
         fm.append(f"session_id: {_yaml_str(session_id)}")
     fm.append("---")
@@ -289,15 +402,28 @@ def render_sidecar(learning: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _receipt(md: Path, yaml: Path, add_stdout: str) -> None:
+    """One JSON line per indexed note, when the drain asked for a receipt
+    (REFLECT_DRAIN_RECEIPT): the same line `reflect skill-step index` writes,
+    so the hook counts what this run indexed from the receipt alone."""
+    receipt = os.environ.get("REFLECT_DRAIN_RECEIPT")
+    if not receipt:
+        return
+    m = re.search(r"Document id: (\S+)", add_stdout or "")
+    line = {"ts": _now_iso(), "note": str(md), "sidecar": str(yaml), "doc_id": m.group(1) if m else ""}
+    with open(receipt, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + "\n")
+
+
 def execute_create(learning: dict, *, source_path: str, session_id: str,
-                   reflect_bin: str) -> tuple[bool, str]:
+                   reflect_bin: str, provenance: dict | None = None) -> tuple[bool, str]:
     """Write .md + .entities.yaml, index via `reflect add --force`."""
     with tempfile.TemporaryDirectory(prefix="drain-extract-") as td:
         title = str(learning.get("title", "") or "learning")
         md = Path(td) / f"{_slug(title)}.md"
         yaml = Path(td) / f"{_slug(title)}.entities.yaml"
         md.write_text(render_md(learning, source_path=source_path,
-                                session_id=session_id), encoding="utf-8")
+                                session_id=session_id, provenance=provenance), encoding="utf-8")
         yaml.write_text(render_sidecar(learning), encoding="utf-8")
         # 60s per index call: keeps the sum of the create pass inside the
         # ~90s the hook reserves below the outer entry timeout, so a slow write
@@ -308,6 +434,7 @@ def execute_create(learning: dict, *, source_path: str, session_id: str,
         )
         if proc.returncode != 0:
             return False, (proc.stderr or proc.stdout)[:200]
+        _receipt(md, yaml, proc.stdout)
         # `reflect add` writes the corpus note + graph but not the learnings
         # table, so record-chunk (which links by source_memory_ids) would never
         # find extract-written learnings. Mirror the agentic path's revise-CREATE
@@ -349,6 +476,9 @@ def execute_revisions(revisions: list[dict], *, source_id: str) -> dict:
 
 def run(*, slice_path: str, transcript: str, session_id: str, model: str,
         timeout: int, claude_bin: str, reflect_bin: str, cwd: str) -> dict:
+    # The model runs in the neutral cwd; the pin comes from the session's own
+    # checkout, which the transcript records (the drain's cwd is $HOME).
+    provenance = git_provenance(session_cwd(transcript) or cwd)
     slice_text = Path(slice_path).read_text(encoding="utf-8")
     envelope = call_model(build_prompt(slice_text), model=model, timeout=timeout,
                           claude_bin=claude_bin, cwd=cwd)
@@ -416,7 +546,7 @@ def run(*, slice_path: str, transcript: str, session_id: str, model: str,
             summary["errors"].append("CREATE missing learning.title")  # benign
             continue
         ok, msg = execute_create(learning, source_path=transcript,
-                                 session_id=session_id, reflect_bin=reflect_bin)
+                                 session_id=session_id, reflect_bin=reflect_bin, provenance=provenance)
         if ok:
             summary["created"] += 1
             if msg:                       # non-fatal provenance warning
