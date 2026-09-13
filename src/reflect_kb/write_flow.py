@@ -58,19 +58,15 @@ def _default_runner(cmd: list[str], cwd: Optional[Path] = None, check: bool = Tr
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
-    """Split a ``--- yaml --- body`` document. Missing/invalid → ``({}, text)``."""
-    if not text.startswith("---"):
+    """Split a ``--- yaml --- body`` document. Missing/invalid → ``({}, text)``.
+    Delimiters are whole lines (``reflect_kb.frontmatter``), never a ``---``
+    inside a value."""
+    from reflect_kb.frontmatter import split_frontmatter
+
+    fm = split_frontmatter(text)
+    if fm.mapping is None:
         return {}, text
-    parts = text.split("---", 2)
-    if len(parts) < 3:
-        return {}, text
-    try:
-        fm = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        return {}, text
-    if not isinstance(fm, dict):
-        return {}, text
-    return fm, parts[2].strip()
+    return dict(fm.mapping), fm.body.strip()
 
 
 def classify_confidence(frontmatter: dict) -> str:
