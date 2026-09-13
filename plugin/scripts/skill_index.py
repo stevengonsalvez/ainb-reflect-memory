@@ -41,12 +41,14 @@ enough for SKILL.md frontmatter without a yaml dependency.
 
 from __future__ import annotations
 
+from secret_redact import redact_secrets_text  # noqa: E402, same directory, load-time
+
 import json
 import os
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import reflect_db
 
@@ -132,13 +134,15 @@ def parse_frontmatter(text: str) -> dict[str, Any]:
 
 
 def _summarize(description: Any) -> str:
-    """First meaningful line of *description*, whitespace-collapsed, capped."""
+    """First meaningful line of *description*, whitespace-collapsed, capped,
+    and through the secrets-only redactor: the summary lands in reflect.db
+    and in the export."""
     if not isinstance(description, str):
         return ""
     for line in description.splitlines():
         line = " ".join(line.split())
         if line:
-            return line[:SUMMARY_MAX_CHARS]
+            return redact_secrets_text(line)[:SUMMARY_MAX_CHARS]
     return ""
 
 
@@ -185,7 +189,7 @@ def parse_skill_md(path: Path) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def scan_skill_files(base: Optional[Path] = None) -> dict[str, float]:
+def scan_skill_files(base: Path | None = None) -> dict[str, float]:
     """Map of SKILL.md path -> mtime for every installed skill.
 
     Looks one and two directory levels under *base* (``<skill>/SKILL.md``
@@ -209,9 +213,9 @@ def scan_skill_files(base: Optional[Path] = None) -> dict[str, float]:
 
 
 def rebuild_index(
-    base: Optional[Path] = None,
+    base: Path | None = None,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, int]:
     """Full rebuild: parse every SKILL.md, upsert all, prune missing rows.
 
@@ -239,9 +243,9 @@ def rebuild_index(
 
 
 def refresh_if_stale(
-    base: Optional[Path] = None,
+    base: Path | None = None,
     *,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> dict[str, int]:
     """Cheap incremental refresh: re-parse ONLY new/mtime-changed skills.
 
@@ -289,7 +293,7 @@ def match_skills(
     query: str,
     *,
     limit: int = 5,
-    conn: Optional[sqlite3.Connection] = None,
+    conn: sqlite3.Connection | None = None,
 ) -> list[dict[str, Any]]:
     """Rank indexed skills against *query* by token overlap.
 

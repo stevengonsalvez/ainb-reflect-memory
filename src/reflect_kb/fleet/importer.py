@@ -26,9 +26,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import yaml
 
@@ -39,6 +40,7 @@ from reflect_kb.cli.learnings_cli import (
     parse_frontmatter,
 )
 from reflect_kb.fleet import ledger as ledger_mod
+from reflect_kb.issues.sanitize import redact_secrets
 
 _CATEGORY = {
     "patterns": "fleet-pattern",
@@ -68,7 +70,7 @@ class ImportResult:
     skipped_details: list[str] = field(default_factory=list)
     error_details: list[str] = field(default_factory=list)
 
-    def merge(self, other: "ImportResult") -> None:
+    def merge(self, other: ImportResult) -> None:
         self.imported += other.imported
         self.deduped += other.deduped
         self.skipped += other.skipped
@@ -125,7 +127,7 @@ class _Doc:
     source_path: str
     domain: str
     workflow_state: str = "open"
-    supersedes: Optional[str] = None
+    supersedes: str | None = None
 
     def content_hash(self) -> str:
         return _content_hash(self.title, self.body)
@@ -262,7 +264,7 @@ def _split_corrections_markdown(text: str) -> list[dict]:
     """
     lines = text.splitlines()
     entries: list[dict] = []
-    current_title: Optional[str] = None
+    current_title: str | None = None
     current_body: list[str] = []
 
     def flush() -> None:
@@ -369,13 +371,16 @@ def _iter_docs(root: Path, kinds: list[str], result: ImportResult) -> Iterable[_
 
 
 def _bump_occurrences(dest: Path, occurrences: int) -> None:
-    """Rewrite the ``occurrences`` frontmatter field on an existing doc.
+    """Rewrite the ``occurrences`` frontmatter field on an existing doc, and
+    pass the note through the capture gate on the way: a note imported
+    before the gate existed can still carry a secret, and this is the one
+    read and write the dedupe path makes. Its sidecar is checked too.
 
     The dedupe key (``content_hash``) is over title+body only, so touching a
     frontmatter field never changes the hash or the filename.
     """
     try:
-        content = dest.read_text(encoding="utf-8")
+        content = redact_secrets(dest.read_text(encoding="utf-8")).text
         frontmatter, body = parse_frontmatter(content)
     except OSError:
         return
@@ -383,7 +388,27 @@ def _bump_occurrences(dest: Path, occurrences: int) -> None:
         return
     frontmatter["occurrences"] = occurrences
     front = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
-    dest.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8")
+    dest.write_text(f"---\n{front}\n---\n\n{body.strip()}\n", encoding="utf-8", newline="")
+    sidecar = dest.with_suffix(".entities.yaml")
+    if sidecar.exists():
+        try:
+            clean = redact_secrets(sidecar.read_text(encoding="utf-8"))
+        except OSError:
+            return
+        if clean.total_redactions:
+            sidecar.write_text(clean.text, encoding="utf-8", newline="")
+
+
+def _redacted(doc: ImportResult) -> ImportResult:
+    """The document with every text field through the capture gate."""
+    from dataclasses import replace
+
+    fields = {}
+    for name in ("title", "body", "key_insight"):
+        value = getattr(doc, name, None)
+        if isinstance(value, str):
+            fields[name] = redact_secrets(value).text
+    return replace(doc, **fields) if fields else doc
 
 
 def _write_sidecar(dest: Path, content: str, frontmatter: dict) -> None:
@@ -403,7 +428,7 @@ def ingest(
     kinds: list[str],
     *,
     dry_run: bool = False,
-    ledger_file: Optional[Path] = None,
+    ledger_file: Path | None = None,
 ) -> ImportResult:
     """Import every ``kinds`` artifact under ``root`` into the KB.
 
@@ -418,14 +443,23 @@ def ingest(
 
     for doc in _iter_docs(root, kinds, result):
         try:
+            # Capture gate first, so the id and the dedupe hash are computed
+            # from the bytes that are written, never from a body a secret
+            # still sits in. The id the raw note would have had is kept so a
+            # copy imported before the gate (stored under that id, secret
+            # included) is replaced by the clean one, not left beside it.
+            raw_id = generate_document_id(doc.title, doc.body)
+            doc = _redacted(doc)
             doc_id = generate_document_id(doc.title, doc.body)
             dest = docs_dir / f"{doc_id}.md"
             hash_ = doc.content_hash()
+            leaky = [p for p in (docs_dir / f"{raw_id}.md", docs_dir / f"{raw_id}.entities.yaml")
+                     if raw_id != doc_id and p.exists()]
 
             if dry_run:
                 # Existence check only — a filename collision means the same
                 # content is already imported (dedupe), not an error.
-                if dest.exists():
+                if dest.exists() and not leaky:
                     result.deduped += 1
                 else:
                     result.imported += 1
@@ -435,12 +469,16 @@ def ingest(
             entry = ledger_mod.record_occurrence(hash_, doc_id, path=ledger_file)
             occurrences = int(entry.get("count", 1))
 
+            for stale in leaky:
+                stale.unlink()
             if dest.exists():
                 _bump_occurrences(dest, occurrences)
                 result.deduped += 1
             else:
-                content = doc.render(doc_id, occurrences)
-                dest.write_text(content, encoding="utf-8")
+                # The rendered frontmatter can carry a secret too (a tag, a
+                # key insight), so the whole note passes the gate once more.
+                content = redact_secrets(doc.render(doc_id, occurrences)).text
+                dest.write_text(content, encoding="utf-8", newline="")
                 frontmatter, _ = parse_frontmatter(content)
                 _write_sidecar(dest, content, frontmatter or {})
                 result.imported += 1
