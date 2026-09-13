@@ -91,3 +91,15 @@ def test_pin_falls_back_to_nested_provenance() -> None:
 
     fm = {"provenance": {"repo": "acme/widgets", "commit": "a" * 40, "source_path": "src/x.py"}}
     assert pinned_source_uri(fm) == "acme/widgets@" + "a" * 40 + ":src/x.py"
+
+
+def test_the_pin_comes_from_the_session_checkout_not_the_drain_cwd(tmp_path: Path) -> None:
+    root, sha = _repo(tmp_path, "git@github.com:acme/widgets.git")
+    transcript = tmp_path / "session.jsonl"
+    transcript.write_text('{"type":"summary"}\nnot json\n'
+                          f'{{"type":"user","cwd":"{tmp_path / "gone"}"}}\n'
+                          f'{{"type":"user","cwd":"{root}"}}\n')
+    assert drain_extract.session_cwd(str(transcript)) == str(root)
+    assert drain_extract.session_cwd(str(tmp_path / "missing.jsonl")) == ""
+    assert drain_extract.git_provenance(drain_extract.session_cwd(str(transcript))) == {
+        "repo": "acme/widgets", "commit": sha}

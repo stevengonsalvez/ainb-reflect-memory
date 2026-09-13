@@ -230,6 +230,23 @@ def _yaml_str(s: str) -> str:
     return '"' + flat.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def session_cwd(transcript: str) -> str:
+    """The working directory the session ran in, from the first transcript
+    record that carries an existing ``cwd``; empty when none does."""
+    try:
+        with open(transcript, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                try:
+                    cwd = json.loads(line).get("cwd")
+                except (ValueError, AttributeError):
+                    continue
+                if isinstance(cwd, str) and os.path.isdir(cwd):
+                    return cwd
+    except OSError:
+        pass
+    return ""
+
+
 def git_provenance(cwd: str) -> dict:
     """``{"repo": "owner/name", "commit": "<sha>"}`` for the session's working
     repo, or ``{}`` when the cwd is not a git checkout with a remote. The
@@ -459,7 +476,9 @@ def execute_revisions(revisions: list[dict], *, source_id: str) -> dict:
 
 def run(*, slice_path: str, transcript: str, session_id: str, model: str,
         timeout: int, claude_bin: str, reflect_bin: str, cwd: str) -> dict:
-    provenance = git_provenance(cwd)  # repo and commit of the session's checkout, if any
+    # The model runs in the neutral cwd; the pin comes from the session's own
+    # checkout, which the transcript records (the drain's cwd is $HOME).
+    provenance = git_provenance(session_cwd(transcript) or cwd)
     slice_text = Path(slice_path).read_text(encoding="utf-8")
     envelope = call_model(build_prompt(slice_text), model=model, timeout=timeout,
                           claude_bin=claude_bin, cwd=cwd)

@@ -266,8 +266,9 @@ optional `lines: "12-20"`; the same three keys nested under `provenance:`
 are accepted as a fallback. All three of repo, sha and path are required; a
 note missing any of them is stored unpinned and is never served.
 
-**Who writes the pin.** The drain writes `repo`, `commit` and `source_path`
-at capture: the session checkout's remote (normalised to `owner/name`), its
+**Who writes the pin.** The drain's default extract writer writes `repo`,
+`commit` and `source_path` at capture: the session checkout (the `cwd` the
+transcript records, not the drain's own cwd): its remote (normalised to `owner/name`), its
 HEAD, and the file the learning is about, as top-level frontmatter (declared
 in `schemas/frontmatter.schema.json` and carried by the note template). A
 session outside a git checkout, a checkout without a remote, and a note
