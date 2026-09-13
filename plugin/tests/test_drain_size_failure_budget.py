@@ -55,15 +55,17 @@ _BROKE = {
 def _stub_claude(tmp_path: Path, oversized_marker: str = "toobig") -> Path:
     """Stub `claude` that fails on the oversized transcript and succeeds else.
 
-    The drain passes the target path inside the prompt, so the stub can decide
-    per entry exactly like the real binary does per input size.
+    The drain names the file the writer must read inside the prompt (a
+    redacted copy of the transcript, never the raw file), so the stub reads
+    that file and decides per entry on its content, exactly like the real
+    binary does per input size.
     """
     stub = tmp_path / "bin" / "claude"
     stub.parent.mkdir(parents=True, exist_ok=True)
     stub.write_text(
         "#!/usr/bin/env bash\n"
-        'args="$*"\n'
-        f'if [[ "$args" == *{oversized_marker}* ]]; then\n'
+        "target=$(printf '%s' \"$2\" | sed -n 's/^Process the transcript at: //p' | head -1)\n"
+        f'if [[ -n "$target" ]] && grep -q "{oversized_marker}" "$target"; then\n'
         f"cat <<'EOF'\n{json.dumps(_TOO_LONG)}\nEOF\n"
         "else\n"
         f"cat <<'EOF'\n{json.dumps(_HEALTHY)}\nEOF\n"
@@ -84,11 +86,12 @@ def _stub_fixed(tmp_path: Path, envelope: dict, name: str = "claude-fixed") -> P
 
 
 def _transcript(path: Path) -> Path:
-    """A transcript with enough signal to reach the writer."""
+    """A transcript with enough signal to reach the writer; its session id is
+    in the dialogue so the stub can tell the entries apart by content."""
     rows = [
         {"type": "user", "message": {"role": "user", "content":
             "No, that's wrong. Never use a bare except here, it swallowed the "
-            "KeyError and the root cause was a missing index on user_id."},
+            f"KeyError and the root cause was a missing index on user_id (session {path.stem})."},
          "uuid": "u1", "timestamp": "2026-08-01T10:00:00Z", "sessionId": "s1"},
         {"type": "assistant", "message": {"role": "assistant", "model": "claude-sonnet-5",
             "content": [{"type": "text", "text": "Fixed by catching KeyError explicitly."}],

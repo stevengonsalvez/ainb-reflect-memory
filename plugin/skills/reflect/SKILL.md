@@ -316,22 +316,15 @@ relationships:
 2. Write knowledge notes to `docs/solutions/{category}/`
 3. Write entity sidecar alongside each knowledge note
 4. Index globally (validates sidecar first to catch schema errors early):
+   One command: it validates the sidecar strictly first, so a malformed
+   sidecar fails loudly here and is never indexed; then it runs `reflect add`
+   with `--force` (no y/N prompt; the content-hash doc id makes re-runs
+   idempotent) and exits non-zero if the add fails. Spell it exactly like
+   this, with the real paths in place (no shell variables, no `uv run`, no
+   `python3`: every scripted step is a `reflect skill-step` command and the
+   headless drain allows exactly that):
    ```bash
-   SIDECAR="docs/solutions/{category}/{filename}.entities.yaml"
-   DOC="docs/solutions/{category}/{filename}.md"
-   VALIDATE="{{HOME_TOOL_DIR}}/skills/reflect/scripts/validate_sidecar.py"
-
-   if command -v reflect >/dev/null 2>&1; then
-       # Validate before ingest — malformed sidecars fail loudly here, not
-       # silently at GraphRAG time
-       uv run "$VALIDATE" --strict "$SIDECAR" || {
-           echo "ERROR: sidecar validation failed for $SIDECAR" >&2
-           exit 1
-       }
-       # --force skips the interactive y/N prompt; content-hash doc_id makes
-       # the call idempotent so re-runs no-op cleanly.
-       reflect add "$DOC" --entities "$SIDECAR" --force
-   fi
+   reflect skill-step index docs/solutions/{category}/{filename}.md docs/solutions/{category}/{filename}.entities.yaml
    ```
    Capture → index is now closed: every accepted learning flows into GraphRAG
    + QMD immediately, so the next session's SessionStart recall will surface
@@ -339,13 +332,13 @@ relationships:
 5. Create episode note (auto, no approval needed)
 6. Update metrics:
    ```bash
-   python {{HOME_TOOL_DIR}}/skills/reflect/scripts/metrics_updater.py \
+   reflect skill-step metrics \
        --accepted N --rejected M --confidence high:X,medium:Y,low:Z \
        --agents "agent1,agent2" --skills S
    ```
 7. Update state:
    ```bash
-   python {{HOME_TOOL_DIR}}/skills/reflect/scripts/state_manager.py status
+   reflect skill-step state status
    ```
 8. Commit with descriptive message
 
@@ -415,7 +408,7 @@ exactly ONE structured action instead of unconditionally creating a new note:
 Execute via the cascade (stdlib-only, no engine deps):
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_cascade.py revise \
+reflect skill-step revise \
     --source "<transcript-path>" \
     --actions '[{"action":"UPDATE","target_id":"<id>","reason":"..."}]'
 ```
@@ -475,7 +468,7 @@ against the listed existing observations:
 Execute via the cascade (stdlib-only, no engine deps):
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_cascade.py observe \
+reflect skill-step observe \
     --actions '[{"action":"UPDATE","target_id":"<id>","source_correction_ids":["<lrn-id>"],"reason":"..."}]'
 ```
 
@@ -505,8 +498,8 @@ I fix X?") skip the tier entirely.
 ## Toggle Auto-Reflect
 
 ```
-reflect on   -> python {{HOME_TOOL_DIR}}/skills/reflect/scripts/state_manager.py on
-reflect off  -> python {{HOME_TOOL_DIR}}/skills/reflect/scripts/state_manager.py off
+reflect on   -> reflect skill-step state on
+reflect off  -> reflect skill-step state off
 ```
 
 ## State Management

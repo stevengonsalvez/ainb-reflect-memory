@@ -317,9 +317,12 @@ def _real_qmd_available() -> bool:
 
 @pytest.mark.skipif(not _real_reflect_available(),
                     reason="reflect CLI not on $PATH (install with `uv tool install reflect-kb`)")
+@pytest.mark.skipif(os.environ.get("REFLECT_REAL_KB_TESTS") != "1",
+                    reason="runs against the operator's real KB; opt in with REFLECT_REAL_KB_TESTS=1")
 def test_real_reflect_cli_returns_results():
     """Smoke test: the real reflect CLI actually returns something for a
-    generic query. Catches if the local KB is empty or broken."""
+    generic query. Catches if the local KB is empty or broken. Opt-in: an
+    empty operator KB is not a defect of this checkout."""
     result = subprocess.run(
         ["reflect",
          "search", "the", "--mode", "naive", "--format", "json", "--limit", "3"],

@@ -479,13 +479,13 @@ def add(file_path: str, entities: str | None, force: bool):
 
     if not frontmatter:
         console.print("[red]Error: Document must have YAML frontmatter.[/red]")
-        return
+        sys.exit(1)
 
     required = ["title", "category", "key_insight"]
     missing = [f for f in required if f not in frontmatter]
     if missing:
         console.print(f"[red]Error: Missing required fields: {', '.join(missing)}[/red]")
-        return
+        sys.exit(1)
 
     from reflect_kb.classification import CLASSIFICATIONS
 
@@ -536,6 +536,7 @@ def add(file_path: str, entities: str | None, force: bool):
                 return
 
     dest.write_text(content, encoding="utf-8", newline="")
+    console.print(f"[dim]Document id: {doc_id}[/dim]")
 
     # Load or auto-generate entity sidecar
     entities_formatted = None
@@ -1097,6 +1098,10 @@ cli.add_command(errors_group)
 cli.add_command(_issues_group)
 cli.add_command(_serve_command)
 cli.add_command(_fleet_group)
+
+from reflect_kb.cli.skill_step_cli import skill_step as _skill_step_group  # noqa: E402
+
+cli.add_command(_skill_step_group)
 
 
 if __name__ == "__main__":

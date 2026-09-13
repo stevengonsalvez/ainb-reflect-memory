@@ -145,7 +145,35 @@ def test_cascade_slice_and_bounded_input(behaviour) -> None:
     baseline, branch = behaviour
     assert branch["cascade"]["exit"] == 0, branch["cascade"]
     assert branch["cascade"]["slice"], "the cascade produced no slice for the recorded transcript"
-    assert_same_as_baseline("cascade", baseline["cascade"], branch["cascade"], allowed=ALLOWED_BEHAVIOUR_DIFF)
+
+    # Whitelist bucket for the drain fix: the bounded input is redacted on the
+    # way out, so its body equals redact_secrets(baseline body), its header
+    # counter and bounded_chars both equal the redacted length, and the
+    # header's first number (chars of dialogue before the cap) is unchanged.
+    import re
+
+    _counter = re.compile(r"(?m)^(# \d+ chars of dialogue capped to )(\d+)( for the writer's context\.)$")
+
+    def redacted_bounded(key: str, old, new) -> bool:
+        if redact_secrets is None:
+            return False
+        if key == "bounded.text":
+            if not isinstance(old, str) or not isinstance(new, str):
+                return False
+            expected = redact_secrets(old).text
+            m_new, m_exp = _counter.search(new), _counter.search(expected)
+            if not (m_new and m_exp):
+                return False
+            head_len = m_exp.end() + 2  # header line plus the blank line after it
+            body_len = len(expected) - head_len
+            return int(m_new.group(2)) == body_len and _counter.sub(r"\1N\3", new, 1) == _counter.sub(r"\1N\3", expected, 1)
+        if key == "bounded.bounded_chars":
+            m = _counter.search(branch["cascade"]["bounded"]["text"] or "")
+            return m is not None and str(new) == m.group(2) and int(new) <= int(old)
+        return False
+
+    assert_same_as_baseline("cascade", baseline["cascade"], branch["cascade"],
+                            allowed=lambda k, o, n: ALLOWED_BEHAVIOUR_DIFF(k, o, n) or redacted_bounded(k, o, n))
 
 
 def _canonical_sidecar(key: str, old, new) -> bool:

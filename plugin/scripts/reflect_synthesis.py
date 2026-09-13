@@ -273,6 +273,16 @@ def should_auto_trigger(
     return False, f"below threshold ({count} < {threshold})", count
 
 
+def synthesis_argv(prompt: str, model: str) -> list[str]:
+    """The exact claude -p argv synthesis runs: the prompt carries note
+    titles from the corpus, so the child gets no tool at all, no MCP server,
+    one turn and an explicit permission mode (the shared no-tools flags);
+    the nested marker keeps its reflect hooks quiet."""
+    from drain_extract import NO_TOOLS_FLAGS
+
+    return ["claude", "-p", prompt, "--model", model, "--output-format", "json", *NO_TOOLS_FLAGS]
+
+
 def main() -> None:
     import argparse
 
@@ -350,9 +360,9 @@ def main() -> None:
                 f"{titles}"
             )
             subprocess.run(
-                ["claude", "-p", prompt, "--model", args.model,
-                 "--output-format", "json", "--max-turns", "3"],
+                synthesis_argv(prompt, args.model),
                 capture_output=True, text=True, timeout=180,
+                env={**os.environ, "REFLECT_NESTED": "1"},
             )
     except Exception as exc:  # noqa: BLE001
         print(f"  (synthesis model call skipped: {exc})", file=sys.stderr)

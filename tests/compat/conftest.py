@@ -97,9 +97,9 @@ def agentic_writer_argv(prompt: str, env: dict[str, str], lib: Path = WRITER_ARG
                     f"{proc.stderr.decode(errors='replace')}")
     parts = proc.stdout.split(b"\0")
     assert parts[-1] == b"", "argv stream must end with a NUL terminator"
-    # Keep empty elements: a flag whose value is "" (for example
-    # --setting-sources "") must reach the CLI as an empty argument, and a
-    # test that dropped it would silently test a different command line.
+    # Keep empty elements: a flag whose value is "" (for example --tools "")
+    # must reach the CLI as an empty argument, and a test that dropped it
+    # would silently test a different command line.
     return [p.decode("utf-8") for p in parts[:-1]]
 
 
@@ -133,7 +133,8 @@ def absolute_paths_in_rules(rules: list[str]) -> set[str]:
     paths: set[str] = set()
     for rule in rules:
         inner = rule[rule.find("(") + 1 : rule.rfind(")")] if "(" in rule else ""
-        for m in re.finditer(r"(/[^\s:*)\"',]+)", inner):
+        # Only rooted paths count; docs/solutions/** is cwd-relative by design.
+        for m in re.finditer(r"(?:(?<=^)|(?<=[\s(\"']))(/[^\s:*)\"',]+)", inner):
             paths.add(m.group(1).rstrip("/"))
     return paths
 

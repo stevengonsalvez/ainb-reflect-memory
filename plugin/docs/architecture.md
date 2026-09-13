@@ -309,7 +309,7 @@ sequenceDiagram
     participant U as User
     participant A as Agent (/reflect skill)
     participant SD as signal_detector.py
-    participant V as validate_sidecar.py
+    participant RI as reflect skill-step index
     participant LC as learnings CLI
     participant WF as write_flow.py
     participant KB as ~/.learnings/
@@ -321,10 +321,10 @@ sequenceDiagram
     U-->>A: Y / selective approval
     A->>A: write docs/solutions/<cat>/<slug>.md
     A->>A: write docs/solutions/<cat>/<slug>.entities.yaml
-    A->>V: validate_sidecar.py --strict <sidecar>
-    V-->>A: ok / schema error
+    A->>RI: reflect skill-step index <doc> <sidecar>
+    RI->>RI: validate_sidecar.py --strict <sidecar>
     alt validation passes
-        A->>LC: reflect add <doc> --entities <sidecar> --force
+        RI->>LC: reflect add <doc> --entities <sidecar> --force
         LC->>KB: copy to documents/learnings/<id>.md + sidecar
         LC->>KB: nano-graphrag insert (batch)
         LC->>KB: qmd update + embed
@@ -333,6 +333,7 @@ sequenceDiagram
         WF-->>A: RouteResult (route, branch, pr_url, queue_path)
         A->>A: write metrics, episode note, commit
     else validation fails
+        RI-->>A: non-zero exit, nothing indexed
         A->>U: error — sidecar schema violation, re-run
     end
 ```
@@ -456,7 +457,7 @@ sequenceDiagram
                 DRN-->>Q: drop from queue (never spent a token)
             else cascade verdict = reflect
                 CASC-->>DRN: {action: reflect, slice_path} (~10x smaller input)
-                DRN->>CP: --model sonnet, bypassPermissions, neutral cwd ($HOME)
+                DRN->>CP: --model sonnet, permission-mode default (explicit flag beats the operator's defaultMode), own allow rules plus a PreToolUse guard via --settings (every Bash call decided before it runs), REFLECT_NESTED=1 (no hooks in the child), neutral cwd ($HOME)
                 alt exit 0 (success, tokens <= REFLECT_DRAIN_TOKEN_MAX)
                     CP->>DOC: write learning markdown
                     CP->>SC: write entity sidecar YAML

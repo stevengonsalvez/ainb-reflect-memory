@@ -26,8 +26,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import os
 import subprocess
-from typing import Callable, Optional
+from collections.abc import Callable
 
 from reflect_kb.issues.dedupe import CandidateIssue
 
@@ -59,8 +60,15 @@ Distilled timelines:
 """
 
 
+# The child loads the operator's hooks (setting sources stay for apiKeyHelper
+# and the env block); every reflect hook exits at once under REFLECT_NESTED,
+# so the analyzer never queues or drains a reflection of its own.
+NESTED_ENV = {"REFLECT_NESTED": "1"}
+
+
 def _default_runner(cmd: list[str], *, timeout: int = 300) -> subprocess.CompletedProcess:
-    return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout,
+                          env={**os.environ, **NESTED_ENV})
 
 
 def claude_available() -> bool:
@@ -90,7 +98,7 @@ def _coerce_candidates(payload) -> list[CandidateIssue]:
     return out
 
 
-def _extract_json_array(text: str) -> Optional[list]:
+def _extract_json_array(text: str) -> list | None:
     """Pull the first top-level JSON array out of model stdout.
 
     ``claude -p --output-format json`` wraps the answer in an envelope; the
@@ -130,11 +138,30 @@ def _extract_json_array(text: str) -> Optional[list]:
     return None
 
 
+# Structural no-tools flags, the same set the drain's extract writer uses:
+# the prompt carries untrusted distilled transcript text, so the model gets
+# no tools at all (--tools ""), no MCP servers, one turn, and an explicit
+# permission mode that cannot be widened by the operator's settings. Setting
+# sources stay loaded: they carry apiKeyHelper and the env block operators
+# authenticate through.
+NO_TOOLS_FLAGS: tuple[str, ...] = (
+    "--permission-mode", "default",
+    "--tools", "",
+    "--strict-mcp-config",
+    "--max-turns", "1",
+)
+
+
+def analyzer_argv(prompt: str, model: str) -> list[str]:
+    """The exact claude -p argv the analyzer runs."""
+    return ["claude", "-p", prompt, "--model", model, "--output-format", "json", *NO_TOOLS_FLAGS]
+
+
 def analyze(
     timelines: list[str],
     *,
     model: str = "sonnet",
-    runner: Optional[Runner] = None,
+    runner: Runner | None = None,
     require_claude: bool = True,
     timeout: int = 300,
 ) -> tuple[list[CandidateIssue], str]:
@@ -157,17 +184,7 @@ def analyze(
         surfaces=list(_SURFACES),
         timelines="\n\n---\n\n".join(timelines),
     )
-    cmd = [
-        "claude",
-        "-p",
-        prompt,
-        "--model",
-        model,
-        "--output-format",
-        "json",
-        "--max-turns",
-        "3",
-    ]
+    cmd = analyzer_argv(prompt, model)
     try:
         res = run(cmd, timeout=timeout) if runner is None else run(cmd)
     except subprocess.CalledProcessError as exc:

@@ -15,6 +15,7 @@ permission rules name exists, and every script a rendered skill names exists.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import subprocess
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import pytest
 
+from ._drain_skill_rewrite import drain_skill_rewrite
 from .conftest import (
     HARNESS_DIR,
     HARNESSES,
@@ -94,7 +96,30 @@ ALLOWED_PLUGIN_CHANGES: dict[str, str] = {
     "scripts/skill_index.py": "#38: the skill summary is redacted before it is stored",
     # #39 broker route
     "assets/learning_template.md": "#39: top-level repo, commit and source_path keys a pin is built from",
-    "skills/recall/scripts/recall.py": "#39: recall reads the transcript path from source_transcript, then provenance",
+    # #40 drain allowlist
+    "scripts/drain_guard.py": "#40: PreToolUse guard the writer's settings document installs, new file",
+    "scripts/drain_extract.py": "#40: shared no-tools flags, the nested marker and the receipt line",
+    "scripts/reflect_cascade.py": "#40: the cascade fails closed without secret_redact.py",
+    "scripts/reflect_synthesis.py": "#40: the synthesis child is tool-free and nested",
+    "skills/recall/hooks/session_start_recall.py": "#40: exits at once under REFLECT_NESTED",
+    "skills/recall/hooks/user_prompt_submit_recall.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/idle_reflect.sh": "#40: exits at once under REFLECT_NESTED",
+    "hooks/reflect-maintenance-watch.sh": "#40: exits at once under REFLECT_NESTED",
+    "hooks/README.md": "#40: the guard, the receipt and the nested marker rows",
+    "docs/architecture.md": "#40: the reworked drain surface",
+    "hooks/error_occurred_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/notification_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/permission_request_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/postcompact_bookkeeping.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/posttooluse_minilearning.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/posttoolusefailure_minilearning.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/precompact_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/pretooluse_context.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/session_end_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/stop_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/subagent_start_recall.py": "#40: exits at once under REFLECT_NESTED",
+    "hooks/subagent_stop_reflect.py": "#40: exits at once under REFLECT_NESTED",
+    "skills/recall/scripts/recall.py": "#39: the transcript path from source_transcript; #40: HyDE keeps setting sources, nested",
 }
 
 
@@ -112,12 +137,15 @@ def _make_whitelist(harness: str, baseline_tree: Path):
     harness_dir = f"$HOME/{HARNESS_DIR[harness]}"
 
     def rendered_skill(key: str, old, new) -> bool:
-        """A SKILL.md may change only into render(baseline text) for this layout."""
+        """A SKILL.md may change only into render(baseline text) for this layout,
+        or, for the reflect skill, render(drain_skill_rewrite(baseline text)):
+        the drain fix turned the index block into two literal commands and the
+        metrics/state lines into python3 (tests/compat/_drain_skill_rewrite.py)."""
         split = _split(key)
         if not split or split[1] != "text" or not isinstance(old, str) or not isinstance(new, str):
             return False
         dst = Path(f"{harness_dir}/{split[0]}")
-        return new == render_for_layout(old, dst)
+        return new in (render_for_layout(old, dst), render_for_layout(drain_skill_rewrite(old), dst))
 
     def mirrors_unchanged_source(key: str, old, new) -> bool:
         """A new or changed non-skill file must equal its plugin source AS IT
@@ -203,8 +231,23 @@ def _installed_lib(harness: str, harness_dir: Path) -> Path:
     return harness_dir / "skills" / "reflect" / "hooks" / "lib" / "writer_argv.sh"
 
 
+def _lib_value(lib: Path, fn: str, env: dict[str, str]) -> str:
+    proc = subprocess.run(["bash", "-c", f'source "$1" && {fn}', "x", str(lib)], env=env,
+                          capture_output=True, text=True, timeout=60, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout
+
+
+def _guard_and_rules(lib: Path, env: dict[str, str]) -> tuple[list[str], Path, dict]:
+    argv = agentic_writer_argv("compat probe", env, lib)
+    settings = json.loads(flag_values(argv, "--settings")[0])
+    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+    assert command.startswith("python3 /"), command
+    return permission_rules(argv), Path(command.split(" ", 1)[1]), settings
+
+
 @pytest.mark.parametrize("harness", HARNESSES)
-def test_every_drain_permission_path_exists_in_installed_layout(harness: str, home: Path) -> None:
+def test_installed_rules_carry_no_path_and_the_guard_exists(harness: str, home: Path) -> None:
     harness_dir = install_adapter(harness, home)
     lib = _installed_lib(harness, harness_dir)
     assert lib.exists(), f"writer argv library missing from the {harness} layout: {lib}"
@@ -215,15 +258,57 @@ def test_every_drain_permission_path_exists_in_installed_layout(harness: str, ho
     assert flag_values(argv, "--output-format") == ["json"]
     assert len(flag_values(argv, "--model")) == 1
     assert len(flag_values(argv, "--max-turns")) == 1
-    rules = permission_rules(argv)
-    missing = sorted(p for p in absolute_paths_in_rules(rules) if not Path(p).exists())
-    assert not missing, (
-        f"{harness}: drain permission rules name paths missing from the installed layout: "
-        f"{missing}\nrules: {rules}"
-    )
-    for settings in flag_values(argv, "--settings"):
-        if settings.startswith("/"):
-            assert Path(settings).exists(), f"--settings file missing: {settings}"
+    rules, guard, _ = _guard_and_rules(lib, clean_env(home))
+    # One command surface: the rules name no path, so no layout can make the
+    # rule and the command the skill spells differ.
+    assert absolute_paths_in_rules(rules) == set(), rules
+    assert {r for r in rules if r.startswith("Bash(")} == {
+        "Bash(reflect skill-step:*)", "Bash(reflect add:*)", "Bash(reflect search:*)"}
+    assert guard.is_file() and guard.name == "drain_guard.py", guard
+    assert guard.is_relative_to(harness_dir / "skills" / "reflect" / "scripts")
+    skill = (harness_dir / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    assert not re.search(r"python3? \S+/scripts/\w+\.py", skill), "the rendered skill names a script path"
+    assert "reflect skill-step index docs/solutions/" in skill
+
+
+def test_symlinked_home_renders_and_rules_the_same(tmp_path: Path) -> None:
+    """A symlinked $HOME (or a symlinked ~/.claude, macOS /var versus
+    /private/var): the physical and the logical spelling of the same
+    directory. The rules carry no path, so they are identical under both;
+    the guard the settings document names exists under both spellings; and
+    the rendered SKILL.md names no directory that could differ."""
+    real = tmp_path / "real-home"
+    real.mkdir()
+    link = tmp_path / "home-link"
+    link.symlink_to(real, target_is_directory=True)
+    harness_dir = install_adapter("claude", link)
+    lib = _installed_lib("claude", harness_dir)
+    rules_link, guard_link, settings_link = _guard_and_rules(lib, clean_env(link))
+    rules_real, guard_real, settings_real = _guard_and_rules(real / ".claude" / "skills" / "reflect" / "hooks" / "lib" / "writer_argv.sh", clean_env(real))
+    assert rules_link == rules_real and absolute_paths_in_rules(rules_link) == set()
+    assert settings_link["permissions"] == settings_real["permissions"]
+    assert guard_link.is_file() and guard_real.is_file()
+    assert guard_link.resolve() == guard_real.resolve()
+    skill = (link / ".claude" / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    assert not re.search(r"(?:python3?|uv run)\s+\S+", skill), "the rendered skill names a script by path"
+    # Resources it names under the home resolve under both spellings.
+    for spelling in (link, real):
+        for m in re.finditer(re.escape(str(spelling)) + r"/[^\s`'\")]+", skill):
+            assert Path(m.group(0)).exists(), m.group(0)
+
+
+def test_plugin_runtime_addendum_and_guard_match_the_checkout(home: Path) -> None:
+    """Under the plugin runtime SKILL.md is served raw; it names no script
+    path, the addendum states the one command surface, and the guard the
+    settings document names is this checkout's."""
+    env = clean_env(home)
+    addendum = _lib_value(WRITER_ARGV_LIB, 'drain_writer_prompt ""', env)
+    assert "reflect skill-step index <note> <sidecar>" in addendum
+    rules, guard, _ = _guard_and_rules(WRITER_ARGV_LIB, env)
+    assert absolute_paths_in_rules(rules) == set() and guard == (PLUGIN / "scripts" / "drain_guard.py").resolve()
+    raw = (PLUGIN / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
+    assert "{{HOME_TOOL_DIR}}/skills/reflect/scripts" not in raw
+    assert "reflect skill-step index docs/solutions/" in raw
 
 
 def test_plugin_manifest_asset_contract_holds() -> None:

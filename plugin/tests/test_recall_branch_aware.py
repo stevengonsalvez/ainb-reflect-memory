@@ -41,6 +41,13 @@ sys.path.insert(0, str(SCRIPTS))
 import recall as recall_mod  # noqa: E402
 
 
+def _populate(shard: Path) -> None:
+    """An empty shard falls back to the pooled KB (recall 5dbf29a), so the
+    tests plant one document where they expect resolution to land."""
+    (shard / "documents").mkdir(parents=True, exist_ok=True)
+    (shard / "documents" / "lrn-one.md").write_text("# one\n")
+
+
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
     """Sandbox the shard tree + clear project/branch memoization per test."""
@@ -52,6 +59,10 @@ def _isolate(monkeypatch, tmp_path):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(recall_mod, "_CURRENT_PROJECT_CACHE", None, raising=False)
     monkeypatch.setattr(recall_mod, "_CURRENT_BRANCH_CACHE", None, raising=False)
+    # RECALL_GLOBAL / RECALL_ALL_BRANCHES are read at import time; an operator
+    # shell with RECALL_GLOBAL=1 would pin every test to the pooled KB.
+    monkeypatch.setattr(recall_mod, "RECALL_GLOBAL_ENV", False, raising=False)
+    monkeypatch.setattr(recall_mod, "RECALL_ALL_BRANCHES_ENV", False, raising=False)
     yield
     monkeypatch.setattr(recall_mod, "_CURRENT_PROJECT_CACHE", None, raising=False)
     monkeypatch.setattr(recall_mod, "_CURRENT_BRANCH_CACHE", None, raising=False)
@@ -84,6 +95,7 @@ def test_default_scope_resolves_to_current_branch_shard(monkeypatch, tmp_path):
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
     monkeypatch.setattr(recall_mod, "detect_current_branch", lambda: "feat__auth")
+    _populate(root / "shards" / "proj" / "branches" / "feat__auth")
     kb = recall_mod.resolve_kb_root(scope_global=False)
     assert kb == root / "shards" / "proj" / "branches" / "feat__auth"
 
@@ -93,8 +105,9 @@ def test_recall_env_points_subprocess_at_branch_shard(monkeypatch, tmp_path):
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
     monkeypatch.setattr(recall_mod, "detect_current_branch", lambda: "feat__b")
-    env, kb_root = recall_mod.recall_env(scope_global=False)
     expected = root / "shards" / "proj" / "branches" / "feat__b"
+    _populate(expected)
+    env, kb_root = recall_mod.recall_env(scope_global=False)
     assert kb_root == expected
     assert env["GLOBAL_LEARNINGS_PATH"] == str(expected)
 
@@ -106,6 +119,8 @@ def test_worktree_a_and_b_resolve_to_different_kb_roots(monkeypatch, tmp_path):
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
 
+    _populate(root / "shards" / "proj" / "branches" / "feat__a")
+    _populate(root / "shards" / "proj" / "branches" / "feat__b")
     monkeypatch.setattr(recall_mod, "detect_current_branch", lambda: "feat__a")
     kb_a = recall_mod.resolve_kb_root(scope_global=False)
 
@@ -122,6 +137,8 @@ def test_all_branches_widens_to_project_shard(monkeypatch, tmp_path):
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
     monkeypatch.setattr(recall_mod, "detect_current_branch", lambda: "feat__a")
+    _populate(root / "shards" / "proj" / "branches" / "feat__a")
+    _populate(root / "shards" / "proj")
     # default (current branch) vs all-branches (project level)
     narrow = recall_mod.resolve_kb_root(scope_global=False)
     wide = recall_mod.resolve_kb_root(scope_global=False, all_branches=True)
@@ -135,6 +152,7 @@ def test_recall_all_branches_env_widens_scope(monkeypatch, tmp_path):
     root = tmp_path / "learnings"
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setenv("RECALL_ALL_BRANCHES", "1")
+    _populate(root / "shards" / "proj")
     mod = importlib.reload(recall_mod)
     try:
         monkeypatch.setattr(mod, "detect_current_project", lambda: "proj")
@@ -155,6 +173,7 @@ def test_trunk_and_detached_collapse_to_project_shard(monkeypatch, tmp_path, tru
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
     monkeypatch.setenv("RECALL_BRANCH", trunk)
     monkeypatch.setattr(recall_mod, "_CURRENT_BRANCH_CACHE", None, raising=False)
+    _populate(root / "shards" / "proj")
     kb = recall_mod.resolve_kb_root(scope_global=False)
     # No /branches/ — byte-identical to R15's project-level shard.
     assert kb == root / "shards" / "proj"
@@ -189,6 +208,7 @@ def test_slash_branch_is_one_flat_dir(monkeypatch, tmp_path):
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj")
     monkeypatch.setenv("RECALL_BRANCH", "feat/auth")
     monkeypatch.setattr(recall_mod, "_CURRENT_BRANCH_CACHE", None, raising=False)
+    _populate(root / "shards" / "proj" / "branches" / "feat__auth")
     kb = recall_mod.resolve_kb_root(scope_global=False)
     assert kb == root / "shards" / "proj" / "branches" / "feat__auth"
 
