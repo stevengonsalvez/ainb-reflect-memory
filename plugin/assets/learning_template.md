@@ -53,6 +53,14 @@ superseded_by: null
 # ("avoid X service during the incident", "valid for the current migration /
 # sprint / quarter") — durable rules must stay null.
 forget_after: null
+# Provenance the Context Broker pins on (repo@sha:path). Write all three when
+# the learning is about a file in a git checkout; omit them otherwise.
+# {{PIN_PATH}} is the file's path relative to the repository root (never an
+# absolute path, never the transcript); the transcript path lives under
+# provenance.source_path and source_transcript.
+repo: {{REPO}}
+commit: {{COMMIT}}
+source_path: {{PIN_PATH}}
 provenance:
   source_tool: "{{SOURCE_TOOL}}"      # claude | codex | copilot | gemini
   source_path: "{{SOURCE_PATH}}"

@@ -2485,14 +2485,18 @@ def _fleet_authority_bucket(authority: str) -> str:
 
 
 def _fleet_source_path(lrn: Learning) -> str:
-    """The note's origin path for provenance in the injection block: the fleet
-    importer's ``source_path`` frontmatter, else ``provenance.source_path``,
-    else "" (rendered as unknown)."""
-    raw = lrn.frontmatter.get("source_path")
+    """The note's origin path for provenance in the injection block: the
+    drain's ``source_transcript``, else ``provenance.source_path`` (the
+    template's transcript key), else the fleet importer's top-level
+    ``source_path`` (which on a drain-written note is the pin's code path,
+    still a useful origin), else "" (rendered as unknown)."""
+    raw = lrn.frontmatter.get("source_transcript")
     if not raw:
         provenance = lrn.frontmatter.get("provenance")
         if isinstance(provenance, dict):
             raw = provenance.get("source_path")
+    if not raw:
+        raw = lrn.frontmatter.get("source_path")
     return str(raw).strip() if raw else ""
 
 

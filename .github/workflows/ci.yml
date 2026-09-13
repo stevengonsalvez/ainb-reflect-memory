@@ -74,7 +74,7 @@ jobs:
         # suite is green without it.
         run: |
           uv venv --python ${{ matrix.python-version }}
-          uv pip install -e '.[dev,postgres]'
+          uv pip install -e '.[dev,postgres,broker]'
 
       - name: ruff check
         # NON-BLOCKING for now: the freshly-extracted engine carries a backlog
@@ -323,7 +323,7 @@ jobs:
         run: |
           uv venv --python 3.12
           uv pip install torch --index-url https://download.pytorch.org/whl/cpu
-          uv pip install -e '.[dev,graph,postgres]'
+          uv pip install -e '.[dev,graph,postgres,broker]'
 
       # A SIGILL (exit -4) from reflect add on some runners: name the CPU and
       # the torch build so a crash can be tied to an instruction set, not

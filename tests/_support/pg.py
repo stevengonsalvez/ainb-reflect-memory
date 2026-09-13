@@ -74,19 +74,19 @@ def assert_resolved_local(dsn: str, *, source_var: str):
     any DDL when the resolved server is not this host."""
     import psycopg
 
+    from reflect_kb.postgres.dsn import is_local_connection
+
     conn = psycopg.connect(dsn, autocommit=True, application_name="reflect-tests-probe")
-    try:
+    # The same judgement the product makes on an open connection (dsn.py),
+    # inverted: the tests refuse anything that is not this host.
+    if not is_local_connection(conn.info):
         info = conn.info
-        for name, value in (("host", info.host or ""), ("hostaddr", info.hostaddr or "")):
-            if not _is_local(value):
-                raise NotDisposableDSN(
-                    f"{source_var} resolved to {name}={value!r}, not this host; the integration "
-                    "tests create and drop a reflect_test_<random> database, so they only run "
-                    "against a localhost server"
-                )
-    except NotDisposableDSN:
         conn.close()
-        raise
+        raise NotDisposableDSN(
+            f"{source_var} resolved to host={info.host!r} hostaddr={info.hostaddr!r}, not this host; "
+            "the integration tests create and drop a reflect_test_<random> database, so they only "
+            "run against a localhost server"
+        )
     return conn
 
 

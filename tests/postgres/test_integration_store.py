@@ -446,3 +446,77 @@ def test_0005_policies_use_an_initplan_and_the_resolver_has_no_handlers(conn) ->
         body = cur.fetchone()["def"].lower()
         assert "exception" not in body and "missing_ok" not in body
 
+# --------------------------------------------------------------------------- #
+# Migration 0003: the floor inside the read functions, before LIMIT
+# --------------------------------------------------------------------------- #
+
+
+def test_read_functions_filter_entities_and_edges_above_the_floor(conn, store) -> None:
+    """Rows above the floor cannot exist in entities or edges (the inputs and
+    the check constraints refuse them), and the read functions still carry
+    the classification predicate before their LIMIT as defence in depth, so
+    an egress path never post-filters graph rows after a limit already cut
+    the result."""
+    import psycopg
+
+    a = Tenant(workspace_id=WS_A)
+    auth = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="auth", entity_type="component"))
+    token = store.upsert_entity(UpsertEntityInput(tenant=a, canonical_name="token", entity_type="concept"))
+    store.upsert_edge(UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=token.id,
+                                      relation_type="validates"))
+    from reflect_kb.postgres.errors import ValidationError
+
+    with pytest.raises(ValidationError, match="never leaves the local store"):
+        UpsertEntityInput(tenant=a, canonical_name="vault secret", entity_type="concept",
+                          metadata={"classification": "restricted"})
+    with pytest.raises(ValidationError, match="never leaves the local store"):
+        UpsertEdgeInput(tenant=a, source_entity_id=auth.id, target_entity_id=token.id, relation_type="reads",
+                        metadata={"classification": "pii"})
+    with pytest.raises(psycopg.errors.CheckViolation), conn.transaction(), conn.cursor() as cur:
+        cur.execute(
+            "insert into reflect_memory.entities (workspace_id, canonical_name, entity_type, metadata) "
+            "values (%s, 'vault secret', 'concept', '{\"classification\":\"restricted\"}'::jsonb)", (WS_A,))
+    with conn.cursor() as cur:
+        for fn in ("search_memory", "search_entities", "entity_neighborhood"):
+            cur.execute("select pg_get_functiondef(p.oid) as def from pg_proc p join pg_namespace n on n.oid = p.pronamespace "
+                        "where n.nspname = 'reflect_memory' and p.proname = %s", (fn,))
+            body = cur.fetchone()["def"]
+            assert "is_shareable(" in body, fn
+    assert [h.canonical_name for h in store.lookup_entities(a, "auth")] == ["auth"]
+    nb = store.neighborhood(a, auth.id, depth=2)
+    assert {e.relation_type for e in nb.edges} == {"validates"}
+    assert {e.canonical_name for e in nb.entities} == {"auth", "token"}
+
+
+def test_bind_workspace_scopes_a_non_bypass_role_through_rls(conn, store) -> None:
+    """Every store call binds the tenant it acts for with SET LOCAL, so a role
+    subject to RLS reads exactly the workspace each call names and nothing
+    when nothing is bound (fail closed). The broker's tenant is the token's,
+    and it is the tenant every store call it makes is built for."""
+    a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="alpha bound row"))
+    store.insert_memory(InsertMemoryInput(tenant=b, content="beta bound row"))
+    with conn.cursor() as cur:
+        cur.execute(
+            "do $$ begin if not exists (select 1 from pg_roles where rolname='reflect_bind_test') "
+            "then create role reflect_bind_test nologin; end if; end $$;")
+        cur.execute("grant usage on schema reflect_memory to reflect_bind_test;")
+        cur.execute("grant select on all tables in schema reflect_memory to reflect_bind_test;")
+        cur.execute("grant execute on all functions in schema reflect_memory to reflect_bind_test;")
+        conn.commit()
+        cur.execute("set role reflect_bind_test;")
+        try:
+            cur.execute("select count(*) as n from reflect_memory.memory_items")
+            assert cur.fetchone()["n"] == 0, "unbound reads must see nothing"
+            hits = store.search_memory(SearchMemoryInput(tenant=a, query="bound"))
+            assert [h.item.content for h in hits] == ["alpha bound row"]
+            hits = store.search_memory(SearchMemoryInput(tenant=b, query="bound"))
+            assert [h.item.content for h in hits] == ["beta bound row"]
+            # (The per-call transaction is a savepoint inside this test's
+            # outer transaction; the idle-after-call proof lives in
+            # test_every_call_ends_its_own_transaction_and_unbinds.)
+        finally:
+            cur.execute("reset role;")
+            conn.rollback()
+
+

@@ -214,3 +214,16 @@ def test_entity_and_edge_inputs_refuse_local_only_classification() -> None:
     UpsertEntityInput(tenant=TENANT, canonical_name="Auth", entity_type="component",
                       metadata={"classification": "internal"})
 
+def test_from_note_pins_source_and_copies_classification() -> None:
+    t = Tenant(workspace_id=WS)
+    sha = "3f2a9c1d4e5b6a7f8091a2b3c4d5e6f708192a3b"
+    fm = {"title": "x", "repo": "acme/widgets", "commit": sha, "source_path": "src/a.rs",
+          "lines": "3-9", "classification": "public"}
+    inp = InsertMemoryInput.from_note(t, fm, "body")
+    assert inp.source_uri == f"acme/widgets@{sha}:src/a.rs#L3-L9"
+    assert inp.metadata["classification"] == "public"
+    # No sha: stored unpinned (source_uri None), never a guessed pin.
+    assert InsertMemoryInput.from_note(t, {"title": "x", "repo": "acme/widgets"}, "b").source_uri is None
+    # The floor applies at this boundary too.
+    with pytest.raises(ValidationError):
+        InsertMemoryInput.from_note(t, {"title": "x", "classification": "pii"}, "body")
