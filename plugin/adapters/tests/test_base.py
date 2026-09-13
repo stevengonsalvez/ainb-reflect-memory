@@ -10,14 +10,11 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-import pytest
-
 HERE = Path(__file__).resolve().parent
 ADAPTERS_DIR = HERE.parent
 sys.path.insert(0, str(ADAPTERS_DIR))
 
-import base  # noqa: E402
-
+import base
 
 # --- parse_skill_frontmatter --------------------------------------------
 
@@ -172,3 +169,27 @@ def test_pointer_body_handles_body_horizontal_rule(tmp_path):
     adapter = _DummyAdapter(__file__)
     body = adapter._pointer_body(src)
     assert "description: real-description" in body
+
+
+def test_render_for_layout_resolves_both_marker_kinds(tmp_path):
+    """One transform, applied where a skill body reaches disk: the HOME_TOOL_DIR
+    marker and both ${CLAUDE_PLUGIN_ROOT} anchor shapes, for any harness dir."""
+    from pathlib import Path
+
+    from base import UNRESOLVED_MARKER, render_for_layout
+
+    dst = tmp_path / ".codex" / "skills" / "reflect" / "SKILL.md"
+    text = (
+        "python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_cascade.py\n"
+        "${CLAUDE_PLUGIN_ROOT}/plugin/assets/episode_template.md\n"
+        "${CLAUDE_PLUGIN_ROOT:-}/plugin/scripts/recall.py\n"
+        "${CLAUDE_PLUGIN_ROOT}/plugin/skills/recall/scripts/recall.py\n"
+    )
+    out = render_for_layout(text, dst)
+    skills = tmp_path / ".codex" / "skills"
+    assert f"python3 {skills}/reflect/scripts/reflect_cascade.py" in out
+    assert f"{skills}/reflect/assets/episode_template.md" in out
+    assert f"{skills}/reflect/scripts/recall.py" in out
+    assert f"{skills}/recall/scripts/recall.py" in out
+    assert not UNRESOLVED_MARKER.search(out)
+    assert isinstance(dst, Path)

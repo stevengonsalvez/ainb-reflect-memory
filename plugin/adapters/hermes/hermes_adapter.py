@@ -34,18 +34,19 @@ from __future__ import annotations
 import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether this script is invoked directly or
 # through pytest. Mirrors codex_adapter.py's convention.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
     run_cli,
+)
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/hermes"
@@ -58,6 +59,8 @@ SKILL_SUBDIRS: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 # Single-file plugin-root resources copied next to the reflect skill (reflect.toml
 # carries the plugin defaults, including the [providers.hermes] block).
 PLUGIN_ROOT_FILES: tuple[str, ...] = ("reflect.toml",)
+# Plugin-root shared dirs synced under skills/reflect/ (see augment_plan).
+PLUGIN_ROOT_RESOURCES: tuple[str, ...] = ("hooks", "scripts", "assets", "references")
 
 
 class HermesAdapter(AdapterBase):
@@ -79,20 +82,12 @@ class HermesAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Hermes reads skill file content directly (no ``source:`` dereference),
-        so mirror the Codex adapter and copy the whole document. ``dst`` is
-        accepted for interface parity; Hermes does not yet rewrite the
-        ``${CLAUDE_PLUGIN_ROOT}`` resource anchors (see CodexAdapter for the
-        rewrite; the same treatment applies here as a follow-up).
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
+        """Full plugin SKILL.md content with ``managed_by:`` injected; marker
+        rendering (HOME_TOOL_DIR and the plugin-root anchors) happens once, in
+        AdapterBase._write_pointer, so Hermes is covered like every harness.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        return self._full_skill_body(source_skill, dst)
 
     # --- plan augmentation + extras --------------------------------------
 
@@ -115,6 +110,15 @@ class HermesAdapter(AdapterBase):
 
         reflect_umbrella = plan.target_harness_dir / "skills" / "reflect"
 
+        # Plugin-level shared resources (hooks/scripts/assets/references) land
+        # under the reflect umbrella skill, where the rendered SKILL.md anchors
+        # and HOME_TOOL_DIR commands point (same layout as codex and copilot).
+        root_resource_syncs: list[tuple[Path, Path]] = []
+        for resource in PLUGIN_ROOT_RESOURCES:
+            src_dir = plugin_root / resource
+            if src_dir.is_dir():
+                root_resource_syncs.append((src_dir, reflect_umbrella / resource))
+
         # Plugin-root single files (reflect.toml) land under the reflect skill.
         root_file_copies: list[tuple[Path, Path]] = []
         for filename in PLUGIN_ROOT_FILES:
@@ -130,11 +134,14 @@ class HermesAdapter(AdapterBase):
             shim_syncs.append((src_shim, reflect_umbrella / "shim"))
 
         plan.extras["subdir_syncs"] = subdir_syncs
+        plan.extras["root_resource_syncs"] = root_resource_syncs
         plan.extras["root_file_copies"] = root_file_copies
         plan.extras["shim_syncs"] = shim_syncs
 
         describe_extra: list[str] = []
         for src, dst in subdir_syncs:
+            describe_extra.append(f"sync dir: {src} → {dst}")
+        for src, dst in root_resource_syncs:
             describe_extra.append(f"sync dir: {src} → {dst}")
         for src, dst in shim_syncs:
             describe_extra.append(f"sync dir: {src} → {dst}")
@@ -152,6 +159,11 @@ class HermesAdapter(AdapterBase):
             self._sync_dir(src, dst)
             actions.append(f"synced {dst}")
 
+        # 1b. Sync plugin-root shared dirs into the reflect umbrella.
+        for src, dst in plan.extras.get("root_resource_syncs", []):
+            self._sync_dir(src, dst)
+            actions.append(f"synced {dst}")
+
         # 2. Sync the shim directory.
         for src, dst in plan.extras.get("shim_syncs", []):
             self._sync_dir(src, dst)
@@ -160,7 +172,7 @@ class HermesAdapter(AdapterBase):
         # 3. Copy plugin-root single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         return actions, 0
@@ -194,8 +206,7 @@ class HermesAdapter(AdapterBase):
 
     # --- helpers ---------------------------------------------------------
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst``, overwriting same-named files.
 
         Files under ``dst`` that are not in ``src`` survive so user-dropped
@@ -208,10 +219,10 @@ class HermesAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                HermesAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target)
+                self.install_file(entry, target)
 
 
 # --- backwards-compatible module-level API ------------------------------
@@ -225,8 +236,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
 ) -> InstallPlan:
     return _DEFAULT_ADAPTER.build_plan(home=home, plugin_root=plugin_root)
 
@@ -236,7 +247,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
     return actions
 
 
-def uninstall(*, home: Optional[Path] = None) -> list[str]:
+def uninstall(*, home: Path | None = None) -> list[str]:
     return _DEFAULT_ADAPTER.uninstall(home=home)
 
 

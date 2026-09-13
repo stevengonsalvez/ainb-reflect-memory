@@ -5,45 +5,37 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import pathlib
 
 import pytest
+from _support.pg import WS_A, WS_B, connect_or_skip, disposable_database  # noqa: F401
 
 _MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
-_M1 = _MIGRATIONS / "0001_reflect_memory_phase1.sql"
-_M2 = _MIGRATIONS / "0002_nanographrag_pgvector.sql"
-
-WS_A = "11111111-1111-1111-1111-111111111111"
-WS_B = "22222222-2222-2222-2222-222222222222"
-
-
-def _dsn() -> str | None:
-    return os.environ.get("DATABASE_URL") or os.environ.get("REFLECT_TEST_DATABASE_URL")
+_ALL_MIGRATIONS = sorted(_MIGRATIONS.glob("*.sql"))  # every file, name order
+_ROLE_PASSWORD = "postgres-tests-role-password"
 
 
 @pytest.fixture(scope="session")
-def _migrated_dsn() -> str:
-    """Apply both migrations once per session; skip cleanly if no DB/psycopg."""
-    dsn = _dsn()
-    if not dsn:
-        pytest.skip("no DATABASE_URL — Postgres integration tests skipped")
-    psycopg = pytest.importorskip("psycopg", reason="psycopg not installed")
-    try:
-        conn = psycopg.connect(dsn)
-    except Exception as exc:  # noqa: BLE001
-        pytest.skip(f"Postgres not reachable ({exc})")
-    try:
-        conn.autocommit = True
-        with conn.cursor() as cur:
-            try:
-                cur.execute(_M1.read_text())
-                cur.execute(_M2.read_text())
-            except Exception as exc:  # noqa: BLE001 — e.g. pgvector missing
-                pytest.skip(f"migrations did not apply ({exc})")
-    finally:
-        conn.close()
-    return dsn
+def _migrated_dsn():
+    """Create a reflect_test_<random> database on the localhost server named
+    by REFLECT_TEST_DATABASE_URL or DATABASE_URL, apply both migrations once
+    per session, drop it at the end; skip cleanly when no local server is
+    configured. The developer's own databases are never touched."""
+    with disposable_database() as dsn:
+        conn = connect_or_skip(dsn)
+        try:
+            with conn.cursor() as cur:
+                try:
+                    cur.execute("select set_config('reflect.broker_password', %s, false)", (_ROLE_PASSWORD,))
+                    cur.execute("select set_config('reflect.writer_password', %s, false)", (_ROLE_PASSWORD,))
+                    for path in _ALL_MIGRATIONS:
+                        cur.execute(path.read_text())
+                except Exception as exc:  # noqa: BLE001, e.g. pgvector missing
+                    pytest.skip(f"migrations did not apply ({exc})")
+        finally:
+            conn.close()
+        yield dsn
+
 
 
 # Alias used by the nano-graphrag tests.
