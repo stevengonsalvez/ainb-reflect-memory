@@ -208,7 +208,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 | `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
 | `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
 | `REFLECT_BROKER_PG_DSN` | The broker's own DSN. Must be a role RLS applies to: the broker refuses a superuser, a BYPASSRLS role (Supabase `service_role`) or the table owner at startup. Migration 0004 creates `reflect_broker` for it. Required. | |
-| `REFLECT_PG_ALLOW_INSECURE` | `1` permits a DSN without `sslmode=require|verify-ca|verify-full`. Otherwise both the broker and the Mode 2 writer refuse a plaintext DSN to a remote host. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
+| `REFLECT_PG_ALLOW_INSECURE` | `1` permits plaintext to a remote host. Otherwise both the broker and the Mode 2 writer upgrade a remote DSN that pins no encrypting sslmode to `sslmode=require` before connecting, and refuse any remote connection that did not negotiate TLS. `require` does not check the certificate; pin `verify-full` for that. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
 
 **Microsoft Entra ID is a config swap.** From the public Entra documentation
 (learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and

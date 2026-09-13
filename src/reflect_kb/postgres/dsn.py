@@ -73,6 +73,17 @@ def connect_secure(
         import psycopg
 
         connect = psycopg.connect
+    if (
+        env.get(ALLOW_INSECURE_VAR, "").strip() != "1"
+        and "sslmode" not in kwargs
+        and not requires_tls(dsn, env)
+        and not is_local_dsn(dsn, env)
+    ):
+        # libpq's default sslmode=prefer falls back to plaintext, which a
+        # network attacker can force, and the password handshake would run
+        # before the post-connect check refuses. Upgrade to require up front.
+        # A DSN that already pins require, verify-ca or verify-full is left alone.
+        kwargs["sslmode"] = "require"
     conn = connect(dsn, **kwargs)
     info = getattr(conn, "info", None)
     if info is None:

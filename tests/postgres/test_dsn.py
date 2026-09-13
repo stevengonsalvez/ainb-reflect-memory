@@ -68,6 +68,28 @@ def test_connect_kwargs_reach_the_driver_and_a_fake_without_info_passes() -> Non
     assert connect_secure("dsn", env={}, connect=lambda d, **k: bare) is bare
 
 
+def test_a_remote_dsn_without_a_pinned_mode_is_upgraded_to_require_before_connecting() -> None:
+    tls = _Conn(host="db.example.com", ssl=True)
+    for dsn in (
+        "postgresql://u:p@db.example.com/reflect",
+        "postgresql://u:p@db.example.com/reflect?sslmode=prefer",
+        "postgresql://u:p@db.example.com/reflect?sslmode=disable",
+        "host=db.example.com dbname=reflect",
+    ):
+        connect = _connect_to(tls)
+        connect_secure(dsn, env={}, connect=connect)
+        assert connect.calls[0][1].get("sslmode") == "require", dsn
+    for dsn, env in (
+        ("postgresql://u:p@db.example.com/reflect?sslmode=verify-full", {}),
+        ("postgresql://u:p@db.example.com/reflect", {"PGSSLMODE": "verify-ca"}),
+        ("postgresql://u:p@localhost/reflect", {}),
+        ("postgresql://u:p@db.example.com/reflect", {"REFLECT_PG_ALLOW_INSECURE": "1"}),
+    ):
+        connect = _connect_to(tls)
+        connect_secure(dsn, env=env, connect=connect)
+        assert "sslmode" not in connect.calls[0][1], dsn
+
+
 def test_is_local_connection() -> None:
     assert is_local_connection(SimpleNamespace(host="::1", hostaddr=""))
     assert is_local_connection(SimpleNamespace(host="", hostaddr=""))

@@ -111,10 +111,12 @@ Hugging Face cache on an air-gapped machine to avoid this path entirely.
 Unset `REFLECT_PG_DSN` and nothing here happens. When set, the derived store
 (vectors, entity graph, community reports, memory items) is written to the
 configured Postgres over whatever transport the DSN names. Transport security
-is the DSN's `sslmode`. Both the writer path and the broker refuse a DSN to a
-remote host without `sslmode=require` (or `verify-ca`, `verify-full`); loopback
-and Unix-socket servers pass, and `REFLECT_PG_ALLOW_INSECURE=1` is the single
-opt-out for anything else (`src/reflect_kb/postgres/dsn.py`). Supabase
+is the DSN's `sslmode`. For a remote host, both the writer path and the broker
+upgrade a DSN that pins no encrypting mode to `sslmode=require` before
+connecting, then refuse any connection that did not negotiate TLS. `require`
+encrypts but does not check the certificate; pin `verify-full` for that.
+Loopback and Unix-socket servers pass, and `REFLECT_PG_ALLOW_INSECURE=1` is the
+single opt-out for anything else (`src/reflect_kb/postgres/dsn.py`). Supabase
 connection strings carry TLS; check yours.
 The database is dumb: it stores, scopes by `workspace_id` and searches. No LLM
 or embedding call is made from the server.
