@@ -827,7 +827,7 @@ print(json.dumps({
     quota_ingest "$out_json" "$stderr_tmp"
     rm -f "$stderr_tmp"
 
-    # Slice and bounded view are consumed — removed regardless of the outcome.
+    # Slice and bounded view are consumed, removed regardless of the outcome.
     [[ -n "$slice_path" ]] && rm -f "$slice_path"
     [[ -n "$bounded_target" ]] && rm -f "$bounded_target"
 
