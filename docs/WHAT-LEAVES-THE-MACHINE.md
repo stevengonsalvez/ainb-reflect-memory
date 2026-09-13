@@ -61,14 +61,16 @@ granted the headless model every tool with no prompt. Now:
   library by `tests/test_docs_contracts.py`); they are not repeated here.
 - Every scripted step of the skill is one command, `reflect skill-step
   <step> ...`, so the rules carry no path. The guard decides every Bash call
-  before it runs: the command is normalised (a leading `cd`, `env` and
-  `NAME=value` prefixes) and allowed when it is `reflect skill-step`,
-  `reflect add` or `reflect search`, else denied with a reason naming that
+  before it runs: the command must be one plain command (optionally after `cd ~ &&`)
+  with nothing bash would expand and no `env`, `exec` or `NAME=value`
+  prefix, and is allowed only when it is `reflect skill-step`,
+  `reflect add` or `reflect search` (`add` and `index` name files under
+  `docs/solutions/` only), else denied with a reason naming that
   surface. A denial is a step the drain does not grant (git commit, memory
   files, the skill-index loop, a new skill, the global CLAUDE.md): logged,
   counted in the ledger, never a failure. What landed is read from a receipt
   `reflect skill-step index` writes, not from file mtimes.
-- The writer never reads the raw transcript: the cascade slice is cut and
+- The writer is never handed the raw transcript: the cascade slice is cut and
   redacted, and an entry with no slice (cascade off, missing or crashed) is
   handed the bounded view; if that view cannot be produced the entry stays
   queued.

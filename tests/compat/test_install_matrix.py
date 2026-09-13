@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shlex
 import os
 import re
 import subprocess
@@ -241,9 +242,9 @@ def _lib_value(lib: Path, fn: str, env: dict[str, str]) -> str:
 def _guard_and_rules(lib: Path, env: dict[str, str]) -> tuple[list[str], Path, dict]:
     argv = agentic_writer_argv("compat probe", env, lib)
     settings = json.loads(flag_values(argv, "--settings")[0])
-    command = settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
-    assert command.startswith("python3 /"), command
-    return permission_rules(argv), Path(command.split(" ", 1)[1]), settings
+    command = shlex.split(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+    assert command[0] == "python3" and command[1].startswith("/"), command
+    return permission_rules(argv), Path(command[1]), settings
 
 
 @pytest.mark.parametrize("harness", HARNESSES)

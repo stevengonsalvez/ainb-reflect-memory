@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import fnmatch
 import json
+import shlex
 import os
 import re
 import shutil
@@ -79,8 +80,11 @@ def test_agentic_writer_pins_mode_rules_and_guard_but_keeps_setting_sources() ->
     # The guard decides every Bash call before it runs, from the same document.
     hooks = settings["hooks"]["PreToolUse"]
     assert len(hooks) == 1 and hooks[0]["matcher"] == "Bash"
-    command = hooks[0]["hooks"][0]["command"]
-    assert command == f"python3 {_lib('guard')[0]}" and Path(_lib("guard")[0]).is_file()
+    command = shlex.split(hooks[0]["hooks"][0]["command"])
+    assert command[:2] == ["python3", _lib("guard")[0]] and Path(_lib("guard")[0]).is_file()
+    # The guard is told exactly the prefixes the Bash rules grant.
+    assert {command[i + 1] for i, a in enumerate(command) if a == "--allow"} == {
+        r[len("Bash("):-len(":*)")] for r in BASH_RULES}
     assert Path(_lib("guard")[0]) == _GUARD.resolve()
 
 
@@ -95,12 +99,21 @@ def test_model_and_turn_defaults_have_one_home() -> None:
     assert _flag(_lib("argv", "p", DRAIN_MODEL="haiku", MAX_TURNS="3"), "--model") == "haiku"
 
 
-def test_allow_rules_override_replaces_the_list_but_keeps_the_guard() -> None:
+def test_allow_rules_override_replaces_the_list_and_narrows_the_guard() -> None:
     argv = _lib("argv", "p", REFLECT_DRAIN_ALLOWED_TOOLS="Read,Bash(reflect add:*)")
     settings = json.loads(_flag(argv, "--settings"))
     assert settings["permissions"]["allow"] == ["Read", "Bash(reflect add:*)"]
     assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Bash"
+    command = shlex.split(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+    assert command[2:] == ["--allow", "reflect add"]
     assert _flag(argv, "--permission-mode") == "default"  # the mode is never overridable
+    # A search the override dropped is denied by the guard it installs.
+    proc = subprocess.run([sys.executable, *command[1:]], capture_output=True, text=True, timeout=30,
+                          input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "reflect search x"}}))
+    assert json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+    # No Bash rule at all: no guard, so nothing can allow Bash past the rules.
+    no_bash = json.loads(_flag(_lib("argv", "p", REFLECT_DRAIN_ALLOWED_TOOLS="Read,Grep"), "--settings"))
+    assert "hooks" not in no_bash and no_bash["permissions"]["allow"] == ["Read", "Grep"]
 
 
 def test_extract_writer_is_structurally_tool_free() -> None:
@@ -121,11 +134,28 @@ def test_extract_writer_is_structurally_tool_free() -> None:
 @pytest.mark.parametrize("command,decision", [
     ("reflect skill-step index docs/solutions/t/x.md docs/solutions/t/x.entities.yaml", "allow"),
     ("reflect skill-step state status", "allow"),
-    ("reflect add note.md --entities note.entities.yaml --force", "allow"),
+    ("reflect add docs/solutions/t/x.md --entities docs/solutions/t/x.entities.yaml --force", "allow"),
     ('reflect search "jwt expiry"', "allow"),
-    ("cd /Users/x && reflect skill-step metrics --accepted 1", "allow"),  # a leading cd
-    ("env FOO=1 reflect add x.md", "allow"),  # env prefixes
-    ("PYTHONPATH=. reflect skill-step revise --source s --actions '[]'", "allow"),
+    ("cd ~ && reflect skill-step metrics --accepted 1", "allow"),  # a leading cd home
+    ("reflect skill-step metrics \\\n    --accepted 1 --agents \"a,b\"", "allow"),  # line continuation
+    ("reflect skill-step revise --source \"/t.jsonl\" --actions '[{\"reason\":\"$5 `x`\"}]'", "allow"),
+    # bypasses: each of these used to be allowed
+    ("reflect add docs/solutions/x.md\nrm -rf ~", "deny"),  # a second line
+    ("reflect add `id`", "deny"),  # command substitution
+    ('reflect add "$(id)"', "deny"),
+    ("reflect search $HOME", "deny"),  # expansion
+    ("env FOO=1 reflect add docs/solutions/x.md", "deny"),  # env prefixes
+    ("PYTHONPATH=docs/solutions reflect search x", "deny"),
+    ("REFLECT_SKILL_SCRIPTS_DIR=docs/solutions/x reflect skill-step metrics", "deny"),
+    ("exec reflect search x", "deny"),
+    ("cd /tmp && reflect search x", "deny"),  # cd anywhere but home or cwd
+    ("reflect add ~/.ssh/id_rsa", "deny"),  # outside docs/solutions
+    ("reflect add docs/solutions/{x.md,../../.ssh/id_rsa}", "deny"),  # brace expansion
+    ("reflect add docs/solutions/../../.ssh/id_*", "deny"),  # glob
+    ("reflect add docs/solutions/x.md ~root/.ssh/id_rsa", "deny"),  # tilde
+    ("reflect add docs/solutions/../../.ssh/id_rsa --force", "deny"),
+    ("reflect add docs/solutions/x.md --entities /etc/passwd", "deny"),
+    ("reflect skill-step index /etc/passwd docs/solutions/x.entities.yaml", "deny"),
     ("reflect search jwt | head -3", "deny"),  # a pipe
     ("cd /x; reflect add x", "deny"),  # a second command
     ("reflect add x > out.txt", "deny"),  # a redirect
@@ -231,7 +261,9 @@ def _assert_skill_and_rules_agree(skill_text: str, rules: list[str], excluded: s
         if tool == "Bash":
             # The guard decides Bash: a granted command is allowed by both the
             # guard and exactly one rule; an excluded one by neither.
-            guard = drain_guard.decide({"tool_name": "Bash", "tool_input": tool_input})["permissionDecision"]
+            # The model fills the skill's {placeholders} before it runs the command.
+            filled = {"command": re.sub(r"\{(\w+)\}", r"\1", tool_input["command"])}
+            guard = drain_guard.decide({"tool_name": "Bash", "tool_input": filled})["permissionDecision"]
             if (n == 1 and guard == "allow" and not deliberate) or (n == 0 and guard == "deny" and deliberate):
                 continue
             problems.append(f"{label}: matched {n} rule(s), guard={guard}, deliberately excluded={deliberate}")

@@ -47,10 +47,8 @@
 #                             more than this many total tokens.
 # REFLECT_DRAIN_MODEL         Model alias for claude -p (--model).    Default: sonnet
 # REFLECT_DRAIN_ALLOWED_TOOLS Override of the agentic writer's allow rules (comma-separated,
-#                             passed via --settings). Default: Read, Grep, Glob,
-#                             Write(docs/solutions/**), Edit(docs/solutions/**),
-#                             Bash(reflect add:*), and python3 running each of the skill's
-#                             own scripts by exact path. See lib/writer_argv.sh. The extract
+#                             passed via --settings). Default and the guard: see
+#                             lib/writer_argv.sh (the one home of both). The extract
 #                             path runs with --tools "" (no tools at all).
 # REFLECT_DRAIN_DEBOUNCE_SEC  Min seconds between drain runs.         Default: 600
 # REFLECT_DRAIN_INVALID_THRESHOLD  Consecutive non-valid writer       Default: 3

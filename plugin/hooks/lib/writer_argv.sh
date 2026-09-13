@@ -17,7 +17,7 @@
 #   --settings <inline JSON>     the hook-owned allow rules below plus a
 #                                PreToolUse hook (scripts/drain_guard.py) that
 #                                decides every Bash call before it runs, on
-#                                the normalised command, with a reason; passed
+#                                one plain command, with a reason; passed
 #                                as one argv element so multi-word rules survive
 #   --strict-mcp-config          no MCP servers from the operator's config
 #
@@ -116,15 +116,34 @@ _drain_json_escape() {
     printf '%s' "$esc"
 }
 
+# _drain_sh_quote <word>: one shell word, whatever it contains (bash 3.2's
+# ${var//\'/...} mangles quotes, printf %q does not).
+_drain_sh_quote() {
+    printf '%q' "$1"
+}
+
 # drain_writer_settings_json: the inline --settings document: WRITER_RULES as
-# permissions.allow, and the guard as a PreToolUse hook on Bash. The guard is
-# always installed, override or not: it decides Bash calls, the rules the rest.
+# permissions.allow, and the guard as a PreToolUse hook on Bash. A hook allow
+# skips the rules, so the guard is told exactly the prefixes the Bash(...)
+# rules grant (an override that drops one drops it from the guard too), and
+# is not installed at all when no Bash(...) rule exists: then the rules alone
+# decide, and headless default mode denies Bash.
 drain_writer_settings_json() {
-    local out="" rule guard
+    local out="" rule guard="" prefix
     for rule in "${WRITER_RULES[@]}"; do
         out="${out:+$out,}\"$(_drain_json_escape "$rule")\""
+        case "$rule" in
+            "Bash("*")")
+                prefix="${rule#Bash(}"; prefix="${prefix%)}"; prefix="${prefix%:\*}"
+                guard="$guard --allow $(_drain_sh_quote "$prefix")"
+                ;;
+        esac
     done
-    guard="$(_drain_json_escape "python3 $(drain_writer_guard)")"
+    if [[ -z "$guard" ]]; then
+        printf '{"permissions":{"defaultMode":"default","allow":[%s]}}' "$out"
+        return 0
+    fi
+    guard="$(_drain_json_escape "python3 $(_drain_sh_quote "$(drain_writer_guard)")$guard")"
     printf '{"permissions":{"defaultMode":"default","allow":[%s]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"%s","timeout":15}]}]}}' \
         "$out" "$guard"
 }
