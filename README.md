@@ -117,7 +117,7 @@ graph store.
 | | **Mode 1 — Local** (default) | **Mode 2 — Shared** (Postgres) |
 |---|---|---|
 | Derived store | per-machine: QMD `index.sqlite` (BM25) + nano-graphrag (hnswlib + `.graphml`) | one **Supabase Postgres** (pgvector) for everyone |
-| Setup | nothing — works out of the box | set 2 env vars + apply 2 migrations |
+| Setup | nothing, works out of the box | set 2 env vars + apply the migrations ([`docs/setup.md`, section 3](./docs/setup.md#3-apply-the-migrations)) |
 | Share across machines | git-sync the markdown KB, then `reflect reindex` on each machine (re-embeds locally) | automatic — every machine queries the same store |
 | Best for | solo / single machine / offline | laptop + desktop + CI sharing one memory |
 
@@ -135,17 +135,165 @@ vector + graph + community store lives in one shared DB. Opt in per machine:
 
 ```bash
 pip install '.[graph,postgres]'                                   # postgres extra = psycopg
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0001_reflect_memory_phase1.sql
-psql "$REFLECT_PG_DSN" -f supabase/migrations/0002_nanographrag_pgvector.sql
-export REFLECT_PG_DSN=postgresql://…        # the trigger (NOT the generic DATABASE_URL)
+# apply supabase/migrations/ in order; the one ordered list is docs/setup.md, "Apply the migrations"
+export REFLECT_PG_DSN=postgresql://…        # the writer's DSN (reflect_writer or service_role), the trigger; NOT the generic DATABASE_URL, NOT the broker's
 export REFLECT_WORKSPACE_ID=<uuid>           # hard tenant boundary
 ```
+
+With both set, `reflect add` and `reflect reindex` write each note twice:
+nano-graphrag's Postgres-backed storage gets the chunks, vectors and graph
+(the `ng_*` tables), and the note itself is mirrored into `memory_items`,
+with the sidecar's entities and relationships as `entities` and `edges`,
+carrying the note's classification (`restricted` and `pii` are refused by
+the floor) and idempotent on the content hash. That mirror is the store the
+Context Broker reads; nothing else in the pipeline writes it. A mirror
+failure is logged and the local note stays the source of truth.
 
 Unset → Mode 1, unchanged. The DB is **dumb**: no LLM, no embeddings — it
 stores, scopes by tenant, and runs ANN/graph reads. Tenant isolation is RLS
 (fail-closed) on the direct path + explicit `workspace_id` scoping on the
-trusted-worker path; writes need a `service_role` DSN. Full setup + threat
+trusted-worker path; writes use the `reflect_writer` role from migration 0004
+(or `service_role` where you accept BYPASSRLS). Full setup + threat
 model: [`docs/setup.md`](./docs/setup.md) · [`docs/regression-suite.md`](./docs/regression-suite.md).
+
+---
+
+## Context Broker (authenticated evidence over HTTP)
+
+The broker is the shared-memory answer to "who can read what, and can a
+snippet be traced to a commit". It is a read-only FastAPI route over the Mode 2
+store that returns an **evidence pack**, never a synthesized answer, and only
+to a caller whose OIDC token names the workspace.
+
+```
+┌────────┐ Bearer JWT ┌─────────────────┐  claim   ┌─────────────┐
+│ caller │───────────▶│ OIDC verify     │─────────▶│ MemoryStore │
+└────────┘            │ iss · aud · exp │ tenant   │ workspace   │
+     ▲                └─────────────────┘          └──────┬──────┘
+     │  evidence only, every hit pinned                   │ hits
+     │                ┌─────────────────┐  ┌──────────────▼──────┐
+     └────────────────│ drop + count    │◀─│ floor · parse · git │
+                      └─────────────────┘  └─────────────────────┘
+```
+
+```bash
+pip install '.[broker]'                                   # fastapi, pyjwt[crypto], uvicorn, psycopg
+# Migration 0004 creates the reflect_broker role NOLOGIN: provision its password once (re-run to rotate)
+export DATABASE_URL='postgresql://postgres:…@…/postgres'  # a CREATEROLE or superuser connection, provisioning only
+export REFLECT_BROKER_PASSWORD='…'
+python scripts/provision_roles.py --only broker
+export REFLECT_BROKER_PG_DSN='postgresql://reflect_broker:…@…?sslmode=verify-full' # the broker's own DSN: the reflect_broker role from migration 0004, never the writer's
+export REFLECT_BROKER_ISSUER=https://issuer.example.com   # OIDC issuer; discovery is fetched from it
+export REFLECT_BROKER_AUDIENCE=reflect-broker             # the aud your tokens carry
+export REFLECT_BROKER_TENANT_CLAIM=workspace_id           # claim that names the workspace (default)
+export REFLECT_BROKER_REPOS='acme/widgets=/srv/mirrors/widgets'   # repo name -> local checkout; required with the git resolver
+python -m reflect_kb.broker                               # http://127.0.0.1:8787
+```
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST http://127.0.0.1:8787/v1/evidence -d '{"query": "auth token expiry"}'
+```
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `REFLECT_BROKER_ISSUER` | OIDC issuer URL. `/.well-known/openid-configuration` is fetched from it and the `jwks_uri` used for keys. Required. | |
+| `REFLECT_BROKER_AUDIENCE` | Expected `aud`. Required. | |
+| `REFLECT_BROKER_TENANT_CLAIM` | Claim whose value becomes the workspace id. A missing claim, or a value that is not a UUID, is 403. | `workspace_id` |
+| `REFLECT_BROKER_JWKS_URL` | Skip discovery and fetch keys here. | from discovery |
+| `REFLECT_BROKER_ALGORITHMS` | Accepted JWS algorithms, comma separated. Asymmetric only (RS*, PS*, ES*, EdDSA); an HMAC or `none` entry is a startup error. | `RS256` |
+| `REFLECT_BROKER_RESOLVER` | `git` (local checkouts) or `http` (forge raw URL). | `git` |
+| `REFLECT_BROKER_REPOS` | `repo=/path,repo2=/path2` checkouts for the git resolver. Required when `REFLECT_BROKER_RESOLVER` is `git` (the default); the broker refuses to start without it. | |
+| `REFLECT_BROKER_FORGE_URL_TEMPLATE` | For `http`: formatted with `{repo}`, `{sha}`, `{path}`. | GitHub raw |
+| `REFLECT_BROKER_MAX_LIMIT` | Cap on `lexical_limit` / `entity_limit`. | `50` |
+| `REFLECT_BROKER_HOST` / `REFLECT_BROKER_PORT` | Bind address. | `127.0.0.1` / `8787` |
+| `REFLECT_BROKER_PG_DSN` | The broker's own DSN. Must be a role RLS applies to: the broker refuses a superuser, a BYPASSRLS role (Supabase `service_role`) or the table owner at startup. Migration 0004 creates `reflect_broker` for it. Required. | |
+| `REFLECT_PG_ALLOW_INSECURE` | `1` permits a DSN without `sslmode=require|verify-ca|verify-full`. Otherwise both the broker and the Mode 2 writer refuse a plaintext DSN to a remote host. Loopback and Unix-socket databases pass without it. One opt-out, shared by both paths. | unset |
+
+**Microsoft Entra ID is a config swap.** From the public Entra documentation
+(learn.microsoft.com, "OpenID Connect on the Microsoft identity platform" and
+"Access tokens in the Microsoft identity platform"): the v2.0 issuer for a
+tenant is `https://login.microsoftonline.com/{tenant-id}/v2.0`, discovery is at
+`{issuer}/.well-known/openid-configuration`, keys are at
+`https://login.microsoftonline.com/{tenant-id}/discovery/v2.0/keys`, and an
+access token issued for your own API carries `aud` = the API's Application
+(client) ID and `tid` = the Entra tenant id. Request the token for your API's
+scope (`api://{client-id}/.default`), not for Microsoft Graph: Graph tokens
+are not meant to be validated by third parties.
+
+```bash
+export REFLECT_BROKER_ISSUER=https://login.microsoftonline.com/00000000-0000-0000-0000-000000000000/v2.0
+export REFLECT_BROKER_AUDIENCE=11111111-2222-3333-4444-555555555555     # app registration client id
+export REFLECT_BROKER_TENANT_CLAIM=tid          # one Entra tenant = one workspace
+# or map a custom claim (extension attribute / optional claim) to workspaces:
+# export REFLECT_BROKER_TENANT_CLAIM=extension_reflectWorkspace
+```
+
+The workspace id must be a UUID, because `workspace_id` is a `uuid` column. An
+Entra `tid` is one already; a custom claim must be minted as one. A claim that
+is not a UUID is refused with 403 before any query runs.
+
+**Tenant binding.** Each request runs in one transaction. The broker binds the
+verified claim with `SET LOCAL app.current_workspace` first, so Row-Level
+Security resolves the same tenant the explicit `workspace_id` parameters
+carry, and the binding dies with the transaction. The read functions apply
+the classification predicate in SQL, before `limit`, so a page is never
+padded with rows that are then dropped.
+
+**Source pinning.** Every hit the broker returns has a `source_uri` of the form
+
+```
+<repo>@<sha>:<path>[#L<start>[-L<end>]]      e.g. acme/widgets@3f2a9c1d…:src/auth.rs#L12-L20
+```
+
+`repo` is `/`-separated segments of `[A-Za-z0-9._-]`; `sha` is 7 to 64
+lowercase hex; `path` is a clean relative path (no `..`, not absolute). The
+resolver confirms the commit exists and the path exists at that commit.
+Measured behaviour per request: the pins are deduplicated first, so a hit
+set of N distinct pins costs at most N lookups, and a pin already memoized
+as resolved (up to 4096 per resolver, positives only) costs nothing. The git
+resolver answers all of a request's pins with one `git cat-file
+--batch-check` per repo and reads the line-ranged blobs from one `git
+cat-file --batch` stream; nothing leaves the machine. The http resolver
+sends one request per distinct unresolved pin with the path
+percent-encoded (traversal rejected): a HEAD for a pin without a line range,
+so only the status comes back, and a GET with `Range: bytes=0-1048575` for a
+pin with one, so at most 1 MiB of the file comes back, is used to count
+lines, and is discarded. Pins are built at ingest by
+`InsertMemoryInput.from_note` from frontmatter that carries `repo` (or
+`repository`), `commit` (or `sha`), and `source_path` (or `path`), plus
+optional `lines: "12-20"`; the same three keys nested under `provenance:`
+are accepted as a fallback. All three of repo, sha and path are required; a
+note missing any of them is stored unpinned and is never served.
+
+**Who writes the pin.** The drain writes `repo`, `commit` and `source_path`
+at capture: the session checkout's remote (normalised to `owner/name`), its
+HEAD, and the file the learning is about, as top-level frontmatter (declared
+in `schemas/frontmatter.schema.json` and carried by the note template). A
+session outside a git checkout, a checkout without a remote, and a note
+written by hand without the keys produce unpinned notes, which the broker
+never serves; run `reflect reindex` after adding the keys to pin them.
+
+**What is refused, and why.** This table is the one home for the refusal
+rules; the egress page links here rather than repeating them.
+
+| Request or item | Response | Why |
+|---|---|---|
+| no `Authorization` header, or not `Bearer` | 401 | nothing is served anonymously |
+| bad signature, wrong `iss` or `aud`, expired, unknown `kid`, `alg=none` or HMAC | 401 | the token is not from the configured issuer |
+| valid token, no tenant claim | 403 | the tenant comes from the token only; there is no fallback |
+| `workspace_id` in body or query | ignored | the body cannot choose a tenant; extra fields are dropped |
+| hit with free-text or missing `source_uri` | dropped, `meta.dropped.unpinned` | cannot be traced to a commit |
+| hit whose pin does not resolve | dropped, `meta.dropped.unresolvable` | the commit or path does not exist where we can see it |
+| hit classified `restricted` or `pii`, or an unknown label | dropped, `meta.dropped.classified` | above the floor (unknown fails closed); restricted and pii also cannot exist in the shared store (migration 0003) |
+| graph edge whose `evidence_memory_id` was not returned | dropped, `meta.dropped.unverified_edges` | an edge must not cite a memory the caller could not see |
+| `REFLECT_BROKER_PG_DSN` without TLS, or with a superuser, BYPASSRLS or owner role | broker refuses to start | notes and vectors cross the network on that DSN; RLS would not apply to that role |
+| `GET /healthz` | 200, unauthenticated, body `{"status": "ok"}` | liveness for the process supervisor; it reads no store and names no tenant |
+| `lexical_limit` above `REFLECT_BROKER_MAX_LIMIT` | capped | bounded reads |
+
+The loopback memory browser (`reflect serve`) remains unauthenticated and local
+only; the broker is the authenticated surface. Egress paths are listed in
+[`docs/WHAT-LEAVES-THE-MACHINE.md`](./docs/WHAT-LEAVES-THE-MACHINE.md).
 
 ---
 
@@ -335,6 +483,7 @@ The engine is the data layer (harness-agnostic); the plugin is the orchestrator.
 ## Documentation
 
 - 🐘 **[docs/setup.md](./docs/setup.md)** — shared Postgres backend: Supabase setup, secret names, migrations, enabling it, threat model
+- 🔒 **[docs/WHAT-LEAVES-THE-MACHINE.md](./docs/WHAT-LEAVES-THE-MACHINE.md)**: every egress path (Claude drain, model weights, optional Postgres, broker), what stops it, how to turn it off
 - 🔌 **[plugin/README.md](./plugin/README.md)** — the Claude Code plugin: install flow, hooks, sub-skills, cross-harness adapters, live timeline dashboard
 - 🖥️ **[docs/reflect-serve.md](./docs/reflect-serve.md)** — the memory browser: running it, what each view does, curation model, security
 - 📊 **[tests/eval/locomo/REPORT.md](./tests/eval/locomo/REPORT.md)** — full LOCOMO methodology, per-fix ablation, and judge calibration
