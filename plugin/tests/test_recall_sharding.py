@@ -48,6 +48,12 @@ def _isolate(monkeypatch, tmp_path):
         monkeypatch.delenv(var, raising=False)
     # detect_current_project memoizes per process.
     monkeypatch.setattr(recall_mod, "_CURRENT_PROJECT_CACHE", None, raising=False)
+    # RECALL_GLOBAL is read at import time; an operator shell with
+    # RECALL_GLOBAL=1 would pin every test to the pooled KB. The branch is
+    # pinned to trunk so the project shard is the expected answer everywhere.
+    monkeypatch.setattr(recall_mod, "RECALL_GLOBAL_ENV", False, raising=False)
+    monkeypatch.setenv("RECALL_BRANCH", "main")
+    monkeypatch.setattr(recall_mod, "_CURRENT_BRANCH_CACHE", None, raising=False)
     # A6: these R15 tests assert the PROJECT-level shard resolution; A6 adds a
     # branch dimension underneath it. Pin the branch to trunk ("" — main/master
     # / detached) so the default scope is the project shard exactly as R15
@@ -81,6 +87,9 @@ def test_default_scope_resolves_to_current_project_shard(monkeypatch, tmp_path):
     root = tmp_path / "learnings"
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "shotclubhouse")
+    # An empty shard falls back to the pooled KB (recall 5dbf29a): plant a note.
+    (root / "shards" / "shotclubhouse" / "documents").mkdir(parents=True)
+    (root / "shards" / "shotclubhouse" / "documents" / "lrn-one.md").write_text("# one\n")
     kb = recall_mod.resolve_kb_root(scope_global=False)
     assert kb == root / "shards" / "shotclubhouse"
 
@@ -91,6 +100,8 @@ def test_recall_env_points_subprocess_at_shard(monkeypatch, tmp_path):
     root = tmp_path / "learnings"
     monkeypatch.setenv("RECALL_LEARNINGS_ROOT", str(root))
     monkeypatch.setattr(recall_mod, "detect_current_project", lambda: "proj-a")
+    (root / "shards" / "proj-a" / "documents").mkdir(parents=True)
+    (root / "shards" / "proj-a" / "documents" / "lrn-one.md").write_text("# one\n")
     env, kb_root = recall_mod.recall_env(scope_global=False)
     assert kb_root == root / "shards" / "proj-a"
     assert env["GLOBAL_LEARNINGS_PATH"] == str(root / "shards" / "proj-a")

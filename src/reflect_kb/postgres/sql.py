@@ -40,6 +40,7 @@ __all__ = [
     "SCHEMA",
     "insert_memory",
     "search_memory",
+    "search_pinned_memory",
     "upsert_entity",
     "upsert_edge",
     "search_entities",
@@ -189,6 +190,16 @@ def search_memory(inp: SearchMemoryInput) -> SqlAndParams:
     return sql, params
 
 
+def search_pinned_memory(inp: SearchMemoryInput) -> SqlAndParams:
+    """As :func:`search_memory`, but only rows whose ``source_uri`` carries a
+    ``repo@sha:path`` pin, filtered inside the function before its LIMIT: the
+    broker serves pinned evidence only, and dropping unpinned rows afterwards
+    would hand back an empty page whenever the top matches are unpinned.
+    """
+    _, params = search_memory(inp)  # the same arguments, in the same order
+    return f"SELECT * FROM {SCHEMA}.search_pinned_memory(%s, %s, %s, %s, %s)", params
+
+
 def search_entities(tenant: Tenant, query: str, limit: int) -> SqlAndParams:
     """Fuzzy lookup of entities by canonical name or alias within one tenant."""
     sql = f"SELECT * FROM {SCHEMA}.search_entities(%s, %s, %s)"
@@ -223,7 +234,12 @@ def memory_by_ids(tenant: Tenant, ids: Sequence[str]) -> SqlAndParams:
 
 
 def entities_by_ids(tenant: Tenant, ids: Sequence[str]) -> SqlAndParams:
-    """Fetch entities by id, scoped to the tenant (for neighborhood hydration)."""
-    sql = f"SELECT {_ENTITY_COLS} FROM {SCHEMA}.entities WHERE workspace_id = %s AND id = ANY(%s)"
+    """Fetch entities by id, scoped to the tenant (for neighborhood hydration).
+    Composes the floor predicate (migration 0006): a restricted entity is not
+    hydrated for an edge that touches it."""
+    sql = (
+        f"SELECT {_ENTITY_COLS} FROM {SCHEMA}.entities "
+        f"WHERE workspace_id = %s AND id = ANY(%s) AND {SCHEMA}.is_shareable(metadata)"
+    )
     params: List[Any] = [tenant.workspace_id, list(ids)]
     return sql, params

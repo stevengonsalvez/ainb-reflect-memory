@@ -77,7 +77,19 @@ def _write_transcript(path: Path, turns):
     return path
 
 
-def test_cascade_slice_never_contains_private_content(tmp_path):
+def test_cascade_slice_never_contains_private_content(tmp_path, monkeypatch):
+    # The chunk-hash dedupe lives in reflect.db: isolate it from the operator's
+    # real state dir, or a second run of this test skips as dup-chunk-hash.
+    import importlib
+    import sys
+
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("REFLECT_DB_PATH", str(tmp_path / "reflect.db"))
+    monkeypatch.setenv("GLOBAL_LEARNINGS_PATH", str(tmp_path / "kb"))
+    for name in ("reflect_config", "reflect_db", "reflect_cascade"):
+        if name in sys.modules:
+            importlib.reload(sys.modules[name])
+    cascade = importlib.import_module("reflect_cascade")
     transcript = _write_transcript(
         tmp_path / "t.jsonl",
         [
@@ -89,7 +101,7 @@ def test_cascade_slice_never_contains_private_content(tmp_path):
              "<private>password hunter2 at prod-db.internal</private> leaking"),
         ],
     )
-    prep = reflect_cascade.prepare(transcript, out_path=str(tmp_path / "slice.txt"))
+    prep = cascade.prepare(transcript, out_path=str(tmp_path / "slice.txt"))
     assert prep.action == "reflect", prep.reason
     slice_text = Path(prep.slice_path).read_text()
     assert "hunter2" not in slice_text

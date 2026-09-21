@@ -27,10 +27,11 @@ from the injected ``embedding_func`` and Leiden clustering runs in-process.
 
 from __future__ import annotations
 
-from .graph import PgGraphStorage
-from .kv import PgKVStorage
-from .vectors import PgVectorStorage
+from typing import Any
 
+# The storage adapters need nano-graphrag itself; the purge does not, and the
+# half of it that clears the broker's tables has to run on a slim install. So
+# the adapters are imported on first use, not when this package is imported.
 __all__ = [
     "PgKVStorage",
     "PgVectorStorage",
@@ -40,8 +41,21 @@ __all__ = [
 ]
 
 
+def __getattr__(name: str) -> Any:
+    if name in ("PgKVStorage", "PgVectorStorage", "PgGraphStorage"):
+        module = {"PgKVStorage": "kv", "PgVectorStorage": "vectors", "PgGraphStorage": "graph"}[name]
+        from importlib import import_module
+
+        return getattr(import_module(f".{module}", __name__), name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 def storage_classes() -> dict:
     """The ``GraphRAG(...)`` kwargs that select the Postgres backends."""
+    from .graph import PgGraphStorage
+    from .kv import PgKVStorage
+    from .vectors import PgVectorStorage
+
     return {
         "key_string_value_json_storage_cls": PgKVStorage,
         "vector_db_storage_cls": PgVectorStorage,

@@ -7,26 +7,25 @@ using nano-graphrag for vector + graph-based retrieval.
 """
 
 import glob
+import hashlib
 import json
 import os
-import hashlib
 import shutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Any
 
 import click
 import yaml
 from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
+from rich.table import Table
 
 from reflect_kb import __version__
-from reflect_kb.metrics import write_metric
 from reflect_kb import errors as _err
+from reflect_kb.metrics import write_metric
 
 console = Console(stderr=True)
 
@@ -87,20 +86,16 @@ def index_is_stale() -> bool:
         return False
 
 
-def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
-    if not content.startswith("---"):
-        return {}, content
+def parse_frontmatter(content: str) -> tuple[dict[str, Any], str]:
+    """(frontmatter, body). No block, invalid YAML or a non-mapping block
+    gives ``({}, content)``. Split on delimiter lines, never on a ``---``
+    inside a value (``reflect_kb.frontmatter``)."""
+    from reflect_kb.frontmatter import split_frontmatter
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    fm = split_frontmatter(content)
+    if fm.mapping is None:
         return {}, content
-
-    try:
-        frontmatter = yaml.safe_load(parts[1])
-        body = parts[2].strip()
-        return frontmatter or {}, body
-    except yaml.YAMLError:
-        return {}, content
+    return dict(fm.mapping), fm.body.strip()
 
 
 def generate_document_id(title: str, body: str = "") -> str:
@@ -122,7 +117,7 @@ def generate_document_id(title: str, body: str = "") -> str:
     return f"{slug}-{hash_suffix}"
 
 
-def get_all_documents() -> List[Dict[str, Any]]:
+def get_all_documents() -> list[dict[str, Any]]:
     repo = get_repo_path()
     docs_dir = repo / DOCUMENTS_DIR
     documents = []
@@ -142,9 +137,79 @@ def get_all_documents() -> List[Dict[str, Any]]:
     return documents
 
 
+def _shared_store_target() -> tuple[str, str] | None:
+    """``(dsn, workspace_id)`` when Mode 2 is on, else None: the graph engine
+    owns the trigger (LearningsGraphEngine.shared_store_target)."""
+    return _get_graph_engine().shared_store_target
+
+
+def _mirror_to_shared_store(content: str, frontmatter: dict, doc_entities=None, *, title: str = "") -> None:
+    """Mode 2: the note, its entities and relationships become rows the
+    Context Broker can serve. Never fails the local write."""
+    try:
+        target = _shared_store_target()
+    except Exception as exc:  # noqa: BLE001 - no engine means no shared store; the local write stands
+        console.print(f"[yellow]Warning: shared store not updated ({type(exc).__name__}): {exc}[/yellow]")
+        return
+    if target is None:
+        return
+    from reflect_kb.postgres.mirror import MirrorError, mirror_note
+
+    try:
+        result = mirror_note(target[0], target[1], content=content, frontmatter=frontmatter,
+                             doc_entities=doc_entities)
+    except MirrorError as exc:
+        console.print(f"[yellow]Warning: shared store not updated: {exc}[/yellow]")
+        return
+    except Exception as exc:  # noqa: BLE001 - the mirror boundary: the local write never fails for it
+        console.print(f"[yellow]Warning: shared store not updated ({type(exc).__name__}): {exc}[/yellow]")
+        return
+    label = title or frontmatter.get("title", "")
+    if result.skipped:
+        console.print(f"[dim]{label}: stays local ({result.skipped})[/dim]")
+    else:
+        console.print(f"[dim]{label}: mirrored to the shared store "
+                      f"({result.entities} entities, {result.edges} edges)[/dim]")
+
+
+# What a purge costs the notes that stay: it also takes the graph nodes and
+# the mirrored entities they shared with the purged note, and reopens the
+# chunks that fed them. Only a reindex extracts a reopened chunk again.
+_REBUILD_HINT = (
+    "[yellow]Run 'learnings reindex' to rebuild the graph nodes, entities and edges "
+    "the notes that stay had shared with it[/yellow]"
+)
+
+
+def _purge_unredacted_copy(raw_note: str) -> None:
+    """The copy stored under the pre-redaction id is gone from the KB; the
+    rows it produced are not. In Mode 2 the purge takes every one of them
+    (the ng_* namespaces, the graph, and the broker's tables), so the secret
+    stops being searchable. A Mode 1 index lives in per-machine files that no
+    purge reaches, so there the rebuild is named instead of done."""
+    try:
+        engine = _get_graph_engine()
+        if engine.shared_store_target is None:
+            console.print(
+                "[yellow]The local index still holds that copy; run 'learnings reindex --force' "
+                "to rebuild it without the secret[/yellow]"
+            )
+            return
+        purged = engine.purge_local_only([raw_note])
+    except Exception as exc:  # noqa: BLE001 - the note is written either way
+        console.print(
+            f"[yellow]Warning: could not purge the unredacted copy from the shared store ({exc}); "
+            f"run 'learnings reindex --force'[/yellow]"
+        )
+        return
+    if purged:
+        console.print("[yellow]Purged the unredacted copy from the shared store[/yellow]")
+        console.print(_REBUILD_HINT)
+
+
 def _get_graph_engine():
     """Create a LearningsGraphEngine instance."""
-    from reflect_kb.cli.graph_engine import LearningsGraphEngine, GraphEngineError
+    from reflect_kb.cli.graph_engine import LearningsGraphEngine
 
     repo = get_repo_path()
     cache_dir = repo / CACHE_DIR
@@ -172,7 +237,7 @@ def cli():
     "--format", "-f", "output_format", default="rich",
     type=click.Choice(["rich", "json", "simple"]),
 )
-def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
+def search(query: str, mode: str, tags: str | None, category: str | None,
            limit: int, output_format: str):
     """Search learnings using GraphRAG.
 
@@ -271,7 +336,7 @@ def search(query: str, mode: str, tags: Optional[str], category: Optional[str],
     "--model", "model_name", default=None,
     help="Override the cross-encoder model (default: ms-marco-MiniLM-L-6-v2)",
 )
-def rerank(query: str, batch_size: int, model_name: Optional[str]):
+def rerank(query: str, batch_size: int, model_name: str | None):
     """Score (query, candidate) pairs with a local cross-encoder (R2).
 
     Reads JSON from stdin:  {"candidates": [{"id": "...", "text": "..."}]}
@@ -306,8 +371,8 @@ def rerank(query: str, batch_size: int, model_name: Optional[str]):
         }))
         return
 
-    ids: List[str] = []
-    texts: List[str] = []
+    ids: list[str] = []
+    texts: list[str] = []
     for cand in candidates:
         if isinstance(cand, dict) and "id" in cand and isinstance(cand.get("text"), str):
             ids.append(str(cand["id"]))
@@ -369,8 +434,8 @@ def embed(query: str):
         click.echo(json.dumps({"available": False, "error": "invalid payload"}))
         return
 
-    ids: List[str] = []
-    texts: List[str] = []
+    ids: list[str] = []
+    texts: list[str] = []
     for cand in candidates:
         if isinstance(cand, dict) and "id" in cand and isinstance(cand.get("text"), str):
             ids.append(str(cand["id"]))
@@ -417,7 +482,7 @@ def embed(query: str):
     "--force", "-f", is_flag=True, default=False,
     help="Overwrite an existing document with the same generated ID without prompting.",
 )
-def add(file_path: str, entities: Optional[str], force: bool):
+def add(file_path: str, entities: str | None, force: bool):
     """Add a learning document to the knowledge base.
 
     The document should have YAML frontmatter with at least:
@@ -429,24 +494,67 @@ def add(file_path: str, entities: Optional[str], force: bool):
         reflect add --force ./my-solution.md   # non-interactive overwrite
     """
     source = Path(file_path)
-    content = source.read_text()
+    # Capture gate: every learning note is redacted before it is written to the
+    # KB, so a transcript that carried a credential cannot yield a note that
+    # carries it. Secrets only; commit shas, ids and paths survive.
+    from reflect_kb.issues.sanitize import redact_secrets
+
+    raw_note = source.read_text(encoding="utf-8")
+    redacted = redact_secrets(raw_note)
+    content = redacted.text
+    if redacted.total_redactions:
+        kinds = ", ".join(f"{k}={n}" for k, n in sorted(redacted.redactions.items()))
+        console.print(f"[yellow]Redacted {redacted.total_redactions} secret(s): {kinds}[/yellow]")
+        # The source is the user's file: it is never rewritten (that destroyed
+        # the only unredacted copy). Only the KB copy and the index are clean,
+        # so say plainly that the source still carries the secret.
+        console.print(f"[yellow]{source} still contains the secret(s); remove them before committing it[/yellow]")
 
     frontmatter, body = parse_frontmatter(content)
 
     if not frontmatter:
         console.print("[red]Error: Document must have YAML frontmatter.[/red]")
-        return
+        sys.exit(1)
 
     required = ["title", "category", "key_insight"]
     missing = [f for f in required if f not in frontmatter]
     if missing:
         console.print(f"[red]Error: Missing required fields: {', '.join(missing)}[/red]")
-        return
+        sys.exit(1)
 
-    # Generate document ID (slug + sha256(title+body)[:6]) and copy to repo.
+    from reflect_kb.classification import CLASSIFICATIONS
+
+    classification = frontmatter.get("classification")
+    if classification is not None and (
+        not isinstance(classification, str) or classification not in CLASSIFICATIONS
+    ):
+        console.print(
+            f"[red]Error: classification must be one of {', '.join(sorted(CLASSIFICATIONS))}; "
+            f"got {classification!r}[/red]"
+        )
+        sys.exit(2)
+
+    # Generate document ID (slug + sha256(title+body)[:6]) from the bytes that
+    # are written (the redacted body) and copy to repo.
     doc_id = generate_document_id(frontmatter["title"], body)
     repo = get_repo_path()
     dest = repo / DOCUMENTS_DIR / f"{doc_id}.md"
+    # A note added before redaction existed has the id of its unredacted body.
+    # That copy is removed on every add, --force or not: leaving it beside the
+    # clean one keeps the secret in the KB.
+    if redacted.total_redactions:
+        # Both halves of the old id come from the unredacted note: a secret
+        # in the title changed the slug as well as the hash.
+        raw_frontmatter, raw_body = parse_frontmatter(raw_note)
+        old_id = generate_document_id(str(raw_frontmatter.get("title") or frontmatter["title"]), raw_body)
+        if old_id != doc_id:
+            for old in (repo / DOCUMENTS_DIR / f"{old_id}.md", repo / DOCUMENTS_DIR / f"{old_id}.entities.yaml"):
+                if old.exists():
+                    old.unlink()
+                    console.print(f"[yellow]Removed {old.name}: the same note under its unredacted id[/yellow]")
+            # The index outlives the file: a copy indexed on this machine and
+            # unlinked on another leaves rows behind with no file to spot.
+            _purge_unredacted_copy(raw_note)
 
     if dest.exists():
         # If --force is set, overwrite silently. Else require a TTY for the
@@ -466,26 +574,37 @@ def add(file_path: str, entities: Optional[str], force: bool):
             if not click.confirm(f"Document {dest.name} exists. Overwrite?"):
                 return
 
-    shutil.copy(source, dest)
+    dest.write_text(content, encoding="utf-8", newline="")
+    console.print(f"[dim]Document id: {doc_id}[/dim]")
 
     # Load or auto-generate entity sidecar
     entities_formatted = None
     entity_count = 0
     rel_count = 0
 
-    from reflect_kb.cli.entity_store import DocumentEntities, find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import (
+        DocumentEntities,
+        auto_extract_entities,
+        write_sidecar,
+    )
 
     if entities:
-        # Explicit sidecar provided — use it as-is
+        # Explicit sidecar: redacted BEFORE it is parsed, so the entities that
+        # reach the graph index and the sidecar written next to the note are
+        # the same clean data (a free-form description can carry a credential).
         entities_path = Path(entities)
-        doc_entities = DocumentEntities.from_yaml_file(entities_path)
+        raw_sidecar = entities_path.read_text(encoding="utf-8")
+        clean_sidecar = redact_secrets(raw_sidecar)
+        if clean_sidecar.total_redactions:
+            console.print(
+                f"[yellow]{entities_path} still contains {clean_sidecar.total_redactions} secret(s); "
+                f"the KB sidecar is redacted[/yellow]"
+            )
+        doc_entities = DocumentEntities.from_yaml(clean_sidecar.text)
         entities_formatted = doc_entities.to_graphrag_format()
         entity_count = doc_entities.entity_count
         rel_count = doc_entities.relationship_count
-
-        # Save sidecar alongside document
-        sidecar_dest = dest.with_suffix(".entities.yaml")
-        shutil.copy(entities_path, sidecar_dest)
+        write_sidecar(dest, doc_entities)
     else:
         # Auto-generate entities from document content (heuristic, no LLM)
         try:
@@ -502,12 +621,26 @@ def add(file_path: str, entities: Optional[str], force: bool):
         except Exception as e:
             console.print(f"[yellow]Warning: Auto-extraction failed: {e}[/yellow]")
 
+    # Mode 2: the broker reads memory_items, entities and edges; write them.
+    _mirror_to_shared_store(content, frontmatter, locals().get("doc_entities") if entity_count else None)
+
     # Insert into graph
     try:
         engine = _get_graph_engine()
         with console.status("[bold green]Indexing document..."):
-            engine.insert_document(content, entities_formatted=entities_formatted)
-        console.print(f"[green]Indexed into graph[/green]")
+            status = engine.insert_document(
+                content, entities_formatted=entities_formatted, label=classification
+            )
+        if status.indexed:
+            console.print("[green]Indexed into graph[/green]")
+        else:
+            console.print(f"[yellow]Skipped by the classification floor: {status.reason}[/yellow]")
+            purged = engine.purge_local_only([content])
+            if purged:
+                console.print(
+                    f"[yellow]Purged {purged} earlier copy of this note from the shared store[/yellow]"
+                )
+                console.print(_REBUILD_HINT)
     except Exception as e:
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")
@@ -570,7 +703,12 @@ def reindex(force: bool):
 
     console.print(f"[bold]Reindexing {len(documents)} documents...[/bold]")
 
-    from reflect_kb.cli.entity_store import DocumentEntities, find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import (
+        DocumentEntities,
+        auto_extract_entities,
+        find_sidecar,
+        write_sidecar,
+    )
 
     # Auto-generate missing sidecars before batch indexing
     generated_count = 0
@@ -603,12 +741,24 @@ def reindex(force: bool):
     batch = []
     entity_total = 0
     rel_total = 0
+    skipped_local_only = 0
+    skipped_notes: list[str] = []
+    to_mirror: list[tuple] = []
 
     for doc in documents:
         doc_path = Path(doc["_path"])
         title = doc.get("title", doc.get("name", doc_path.name))
+        label = doc.get("classification")
+        # The floor decides here, from the label already parsed with the
+        # frontmatter, so the counters below describe what is indexed.
+        if engine.local_only(doc["_full_content"], label):
+            skipped_local_only += 1
+            skipped_notes.append(doc["_full_content"])
+            console.print(f"  [dim]{title} - {label} stays local, not indexed in the shared store[/dim]")
+            continue
 
         entities_formatted = None
+        doc_entities = None
         sidecar_path = find_sidecar(doc_path)
 
         if sidecar_path:
@@ -630,12 +780,40 @@ def reindex(force: bool):
         else:
             console.print(f"  [dim]{title} - no sidecar (placeholder entities)[/dim]")
 
-        batch.append((doc["_full_content"], entities_formatted))
+        batch.append((doc["_full_content"], entities_formatted, label))
+        to_mirror.append((doc["_full_content"], {k: v for k, v in doc.items() if not k.startswith("_")},
+                          doc_entities, title))
+
+    # A note that was indexed under an earlier label and is restricted or
+    # pii now: the floor stops new writes, and this removes the rows the old
+    # label left in every ng_* namespace, the graph and the broker's tables.
+    # It runs before the batch and on its own, so a batch that fails cannot
+    # leave those rows in the shared store.
+    if skipped_notes:
+        try:
+            purged = engine.purge_local_only(skipped_notes)
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not purge relabelled notes from the shared store: {e}[/yellow]")
+        else:
+            if purged:
+                console.print(
+                    f"[yellow]Purged {purged} relabelled notes from the shared store (restricted or pii now)[/yellow]"
+                )
+
+    # Mode 2: keep the broker's tables in step with the corpus on reindex.
+    # mirror_note redacts every field, so a legacy note is safe here. This
+    # runs after the purge, which also removes rows a surviving note shared
+    # with a purged one (an entity it described, a graph node it fed); this
+    # loop and the batch insert that follows put the surviving half back.
+    for content, doc_frontmatter, doc_entities, title in to_mirror:
+        _mirror_to_shared_store(content, doc_frontmatter, doc_entities, title=title)
 
     try:
         with console.status("[bold green]Indexing batch..."):
-            engine.insert_documents_batch(batch)
-        console.print(f"\n[green]Indexed {len(batch)} documents[/green]")
+            indexed = engine.insert_documents_batch(batch)
+        console.print(f"\n[green]Indexed {indexed} documents[/green]")
+        if skipped_local_only:
+            console.print(f"[dim]{skipped_local_only} restricted or pii notes stay in the local store[/dim]")
     except Exception as e:
         console.print(f"\n[red]Batch indexing error: {e}[/red]")
         console.print("[dim]Try running 'learnings reindex --force' to rebuild from scratch.[/dim]")
@@ -668,7 +846,7 @@ def generate_sidecars(force: bool):
         console.print("[yellow]No documents found.[/yellow]")
         return
 
-    from reflect_kb.cli.entity_store import find_sidecar, auto_extract_entities, write_sidecar
+    from reflect_kb.cli.entity_store import auto_extract_entities, find_sidecar, write_sidecar
 
     generated = 0
     skipped = 0
@@ -702,13 +880,13 @@ def generate_sidecars(force: bool):
             failed += 1
             console.print(f"  [yellow]{title} - failed: {e}[/yellow]")
 
-    console.print(f"\n[bold]Results:[/bold]")
+    console.print("\n[bold]Results:[/bold]")
     console.print(f"  Generated: {generated}")
     console.print(f"  Skipped:   {skipped}")
     if failed:
         console.print(f"  Failed:    {failed}")
     console.print(
-        f"\n[dim]Run 'learnings reindex --force' to rebuild the graph with new sidecars.[/dim]"
+        "\n[dim]Run 'learnings reindex --force' to rebuild the graph with new sidecars.[/dim]"
     )
 
 
@@ -750,7 +928,7 @@ def init():
     else:
         console.print("[dim]Git repository already exists[/dim]")
 
-    console.print(f"[green]Ready.[/green]")
+    console.print("[green]Ready.[/green]")
     console.print(f"[dim]Documents: {repo / DOCUMENTS_DIR}[/dim]")
     console.print(f"[dim]Graph cache: {repo / CACHE_DIR}[/dim]")
 
@@ -758,7 +936,7 @@ def init():
 @cli.command("critical-patterns")
 @click.option("--language", "-l", help="Filter by programming language")
 @click.option("--domain", "-d", help="Filter by domain (backend, frontend, etc.)")
-def critical_patterns(language: Optional[str], domain: Optional[str]):
+def critical_patterns(language: str | None, domain: str | None):
     """Show critical patterns that should always be considered.
 
     These are high-confidence, widely-applicable patterns.
@@ -841,7 +1019,7 @@ def stats():
         return
 
     # Category breakdown
-    categories: Dict[str, int] = {}
+    categories: dict[str, int] = {}
     for doc in documents:
         cat = doc.get("category", "uncategorized")
         categories[cat] = categories.get(cat, 0) + 1
@@ -856,7 +1034,7 @@ def stats():
     console.print(cat_table)
 
     # Confidence breakdown
-    confidence: Dict[str, int] = {}
+    confidence: dict[str, int] = {}
     for doc in documents:
         conf = doc.get("confidence", "unknown")
         confidence[conf] = confidence.get(conf, 0) + 1
@@ -962,16 +1140,20 @@ def errors_append(severity, source, kind, message, context):
 
 # Register subcommand groups. Import here (after `cli` exists) to keep
 # circular-import risk at zero.
-from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group  # noqa: E402
-from reflect_kb.cli.issues_cli import issues_group as _issues_group  # noqa: E402
-from reflect_kb.cli.serve_cli import serve_command as _serve_command  # noqa: E402
-from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group  # noqa: E402
+from reflect_kb.cli.fleet_cli import fleet_group as _fleet_group
+from reflect_kb.cli.issues_cli import issues_group as _issues_group
+from reflect_kb.cli.metrics_cli import metrics_group as _metrics_group
+from reflect_kb.cli.serve_cli import serve_command as _serve_command
 
 cli.add_command(_metrics_group)
 cli.add_command(errors_group)
 cli.add_command(_issues_group)
 cli.add_command(_serve_command)
 cli.add_command(_fleet_group)
+
+from reflect_kb.cli.skill_step_cli import skill_step as _skill_step_group  # noqa: E402
+
+cli.add_command(_skill_step_group)
 
 
 if __name__ == "__main__":

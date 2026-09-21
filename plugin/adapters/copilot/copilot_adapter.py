@@ -60,21 +60,21 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether the script is invoked directly
 # or through pytest. See codex_adapter.py for the same pattern.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
     run_cli,
+)
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/copilot"
@@ -241,7 +241,7 @@ def _render_error_occurred_reflect_command(copilot_dir: Path) -> str:
     return _render(_ERROR_OCCURRED_REFLECT_TEMPLATE, copilot_dir)
 
 
-def _command_entry(command: str, *, timeout_sec: Optional[int] = None) -> dict:
+def _command_entry(command: str, *, timeout_sec: int | None = None) -> dict:
     """Build one copilot-native hook entry.
 
     Copilot entries are **flat**: ``{"type":"command","command":"...",
@@ -365,20 +365,11 @@ class CopilotAdapter(AdapterBase):
         "re-run the install once the source path is accessible.\n"
     )
 
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Copilot's skill loader reads file content directly (no ``source:``
-        dereference). Mirrors :meth:`CodexAdapter._pointer_body`. ``dst`` is
-        accepted for interface parity; Copilot does not yet rewrite the
-        ``${CLAUDE_PLUGIN_ROOT}`` resource anchors (see CodexAdapter for the
-        rewrite; the same treatment applies here as a follow-up).
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
+        """Full plugin SKILL.md content with ``managed_by:`` injected; marker
+        rendering happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 
@@ -511,7 +502,7 @@ class CopilotAdapter(AdapterBase):
         # 3. Copy plugin-level single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         # 4. Write the copilot-native reflect.json drop-in (whole file).
@@ -551,8 +542,7 @@ class CopilotAdapter(AdapterBase):
 
     # --- helpers ---------------------------------------------------------
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst``, overwriting same-named files.
 
         Does NOT delete files under ``dst`` that aren't in ``src`` so any
@@ -566,10 +556,10 @@ class CopilotAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                CopilotAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target)
+                self.install_file(entry, target)
 
     def _write_hooks(
         self, hooks_path: Path, *, with_bg_drain: bool,
@@ -614,8 +604,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
     with_hooks: bool = True,
     with_bg_drain: bool = True,
 ) -> InstallPlan:
@@ -638,7 +628,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
 
 
 def uninstall(
-    *, home: Optional[Path] = None, with_hooks: bool = True,
+    *, home: Path | None = None, with_hooks: bool = True,
 ) -> list[str]:
     return _DEFAULT_ADAPTER.uninstall(home=home, with_hooks=with_hooks)
 

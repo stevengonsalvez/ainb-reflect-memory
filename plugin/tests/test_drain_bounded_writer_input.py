@@ -35,11 +35,11 @@ import json, os, re, sys
 
 seen_log = os.environ["STUB_SEEN_LOG"]
 args = " ".join(sys.argv[1:])
-size = 0
-target = ""
-for path in re.findall(r"(/[^\\s]+)", args):
-    if os.path.isfile(path) and os.path.getsize(path) > size:
-        size, target = os.path.getsize(path), path
+# The file the prompt tells the writer to read (the addendum names the skill's
+# scripts too, so "largest path in argv" would pick one of those).
+m = re.search(r"Process the transcript at: (\\S+)", args)
+target = m.group(1) if m else ""
+size = os.path.getsize(target) if target and os.path.isfile(target) else 0
 with open(seen_log, "a") as fh:
     fh.write(json.dumps({"target": target, "chars": size}) + "\\n")
 
@@ -219,8 +219,10 @@ def test_bounded_view_keeps_the_end_of_the_session(tmp_path):
     assert handed.name.startswith("reflect-bounded-") or handed == big
 
 
-def test_small_transcript_is_handed_over_untouched(tmp_path):
-    """No needless indirection for input that already fits."""
+def test_small_transcript_is_handed_over_as_the_bounded_view(tmp_path):
+    """Input that already fits is still never the raw file: the writer reads
+    the bounded view (dialogue rendered, private spans stripped, secrets
+    redacted), which is the same shape for every raw transcript."""
     state = tmp_path / "state"
     state.mkdir()
     small = _small_transcript(tmp_path / "small-session.jsonl")
@@ -230,9 +232,10 @@ def test_small_transcript_is_handed_over_untouched(tmp_path):
     _run(state, stub, seen_log, REFLECT_DRAIN_MAX="1")
 
     seen = _seen(seen_log)
-    assert seen and seen[-1]["target"] == str(small), \
-        f"a small transcript was rewritten before the writer saw it: {seen}"
-    assert "bounded input" not in (state / "drain.log").read_text()
+    assert seen and seen[-1]["target"] != str(small), f"the writer read the raw transcript: {seen}"
+    assert 0 < seen[-1]["chars"] <= small.stat().st_size, f"the view is not a rendering of the transcript: {seen}"
+    log = (state / "drain.log").read_text()
+    assert "bounded input: raw transcript (" in log and "redacted copy" not in log
     assert "ok" in _outcomes(state)
 
 

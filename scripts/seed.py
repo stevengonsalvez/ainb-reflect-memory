@@ -34,6 +34,16 @@ from reflect_kb.postgres import (
 DEMO_WORKSPACE = "00000000-0000-0000-0000-0000000000aa"
 
 
+def _self_pin() -> str:
+    """A pin into this very checkout: the evidence-pack code at HEAD."""
+    import subprocess
+
+    head = subprocess.run(
+        ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=False
+    ).stdout.strip()
+    return f"stevengonsalvez/ainb-reflect-memory@{head}:src/reflect_kb/postgres/store.py#L159-L208"
+
+
 def main() -> int:
     dsn = os.environ.get("DATABASE_URL")
     if not dsn:
@@ -60,8 +70,11 @@ def main() -> int:
                 tenant=tenant,
                 content="The auth middleware token expiry uses a strict less-than check.",
                 source_type="codebase_note",
-                source_uri="src/auth/middleware.rs",
-                metadata={"file": "src/auth/middleware.rs", "line": 42},
+                # Pinned repo@sha:path so the Context Broker can verify it.
+                # Point REFLECT_BROKER_REPOS at this checkout and the pin
+                # resolves; pass a pin as argv[2] to seed a different one.
+                source_uri=sys.argv[2] if len(sys.argv) > 2 else _self_pin(),
+                metadata={"file": "src/reflect_kb/postgres/store.py", "line": 159},
                 confidence=0.9,
             )
         )

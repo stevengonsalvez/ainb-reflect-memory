@@ -45,24 +45,23 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
-import shutil
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Make the shared base importable whether the script is invoked directly
 # or through pytest. See claude_adapter.py for the same pattern.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from base import (  # noqa: E402
+from base import (
+    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
     AdapterBase,
     InstallPlan,
-    PLUGIN_SKILLS,  # re-exported for backwards-compat with tests
-    find_plugin_root as _shared_find_plugin_root,
-    inject_managed_by as _inject_managed_by,
     merge_hook_commands,
     remove_hook_commands,
     run_cli,
+)
+from base import (
+    find_plugin_root as _shared_find_plugin_root,
 )
 
 POINTER_MANAGED_BY = "reflect-kb/adapters/codex"
@@ -250,51 +249,12 @@ class CodexAdapter(AdapterBase):
 
     # ${CLAUDE_PLUGIN_ROOT}/plugin/<assets|references|scripts>/ — the anchor a
     # SKILL.md uses to point at plugin-root resources on a Claude cache install.
-    # Codex has no such runtime variable, and augment_plan copies those three
-    # dirs under the reflect umbrella skill, so the anchor must be rewritten to
-    # the resolved umbrella path or the model is left reading unresolvable paths
-    # (the exact turn-wasting hunt this convention is meant to prevent).
-    # Per-skill resources: augment_plan copies plugin/skills/<name>/<sub>/ to
-    # <home>/skills/<name>/<sub>/ (the "plugin/" segment is dropped).
-    # ``(?::-[^}]*)?`` tolerates every parameter-default form the shell accepts:
-    # bare ${VAR}, empty ${VAR:-}, and valued ${VAR:-/fallback}.
-    _PER_SKILL_ANCHOR = re.compile(
-        r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/skills/([A-Za-z0-9_-]+)/"
-        r"(assets|references|scripts|hooks)/"
-    )
-    # Plugin-root shared resources: copied under the reflect umbrella skill.
-    # Covers the same four subdirs as PLUGIN_ROOT_RESOURCES / the per-skill
-    # regex so a plugin-root hooks anchor is not left behind.
-    _PLUGIN_ROOT_ANCHOR = re.compile(
-        r"\$\{CLAUDE_PLUGIN_ROOT(?::-[^}]*)?\}/plugin/(assets|references|scripts|hooks)/"
-    )
-
-    def _pointer_body(self, source_skill: Path, dst: Optional[Path] = None) -> str:
-        """Return the full plugin SKILL.md content with ``managed_by:`` injected.
-
-        Codex's skill loader reads file content directly (no ``source:``
-        dereference). Mirrors :meth:`ClaudeAdapter._pointer_body`, then rewrites
-        the ``${CLAUDE_PLUGIN_ROOT}`` resource anchors into the installed Codex
-        layout since that variable is unset under Codex.
+    def _pointer_body(self, source_skill: Path, dst: Path | None = None) -> str:
+        """Full plugin SKILL.md content with ``managed_by:`` injected. Codex reads
+        file content directly (no ``source:`` dereference); marker rendering for
+        the installed layout happens once, in AdapterBase._write_pointer.
         """
-        try:
-            text = source_skill.read_text(encoding="utf-8")
-        except OSError:
-            return super()._pointer_body(source_skill, dst)
-        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
-        if dst is not None:
-            # dst == <home>/skills/<name>/SKILL.md, so dst.parents[1] is the
-            # skills/ dir. Per-skill resources keep their skill name; shared
-            # plugin-root resources live under skills/reflect/. Rewrite the
-            # more specific per-skill anchor first.
-            skills_dir = dst.parents[1]
-            text = self._PER_SKILL_ANCHOR.sub(
-                lambda m: f"{skills_dir}/{m.group(1)}/{m.group(2)}/", text
-            )
-            text = self._PLUGIN_ROOT_ANCHOR.sub(
-                lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text
-            )
-        return text
+        return self._full_skill_body(source_skill, dst)
 
     # --- CLI flags -------------------------------------------------------
 
@@ -448,7 +408,7 @@ class CodexAdapter(AdapterBase):
         # 3. Copy plugin-level single files.
         for src, dst in plan.extras.get("root_file_copies", []):
             dst.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src, dst)
+            self.install_file(src, dst)
             actions.append(f"copied {dst}")
 
         # 4. Merge hook entries into hooks.json.
@@ -539,8 +499,7 @@ class CodexAdapter(AdapterBase):
 
     # --- helpers ---------------------------------------------------------
 
-    @staticmethod
-    def _sync_dir(src: Path, dst: Path) -> None:
+    def _sync_dir(self, src: Path, dst: Path) -> None:
         """Mirror ``src`` into ``dst``, overwriting same-named files.
 
         Does NOT delete files under ``dst`` that aren't in ``src`` so any
@@ -554,10 +513,10 @@ class CodexAdapter(AdapterBase):
                 continue
             target = dst / entry.name
             if entry.is_dir():
-                CodexAdapter._sync_dir(entry, target)
+                self._sync_dir(entry, target)
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(entry, target)
+                self.install_file(entry, target)
 
     def _merge_hooks(
         self, hooks_path: Path, *, with_bg_drain: bool,
@@ -745,8 +704,8 @@ def find_plugin_root(script_path: Path | None = None) -> Path:
 
 def build_plan(
     *,
-    home: Optional[Path] = None,
-    plugin_root: Optional[Path] = None,
+    home: Path | None = None,
+    plugin_root: Path | None = None,
     with_hooks: bool = True,
     with_bg_drain: bool = True,
 ) -> InstallPlan:
@@ -769,7 +728,7 @@ def execute(plan: InstallPlan, *, force: bool = False) -> list[str]:
 
 
 def uninstall(
-    *, home: Optional[Path] = None, with_hooks: bool = True,
+    *, home: Path | None = None, with_hooks: bool = True,
 ) -> list[str]:
     return _DEFAULT_ADAPTER.uninstall(home=home, with_hooks=with_hooks)
 

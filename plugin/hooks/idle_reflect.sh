@@ -34,6 +34,11 @@
 
 set -uo pipefail
 
+# A claude that reflect spawned (REFLECT_NESTED): no hooks, no recursion.
+if [[ -n "${REFLECT_NESTED:-}" ]]; then
+    exit 0
+fi
+
 # ── Hard kill switches ───────────────────────────────────────────────────────
 # Honoured before any work so an operator can stop all sweeps instantly.
 if [[ "${REFLECT_DISABLED:-0}" == "1" || "${REFLECT_IDLE_DISABLED:-0}" == "1" ]]; then

@@ -47,6 +47,28 @@ Invoke directly (no central CLI dispatcher in the reflect plugin):
 
 from __future__ import annotations
 
+from secret_redact import redact_secrets_text  # noqa: E402, same directory, load-time
+
+# The columns a secret can sit in, per table. Everything else (ids, paths,
+# hashes, timestamps, enums) is copied as is.
+FREE_TEXT_COLUMNS: dict[str, frozenset[str]] = {
+    "learnings": frozenset({"title", "source_quote", "revert_reason"}),
+    "proposals": frozenset({"diff", "rationale_json", "materialization_error"}),
+    "events": frozenset({"details_json"}),
+    "index_jobs": frozenset({"last_error"}),
+    "recall_events": frozenset({"query", "source_context", "feedback"}),
+    "artifacts": frozenset({"metadata_json"}),
+    "learning_history": frozenset({"changed_fields", "snapshot_json", "reason"}),
+    "skills": frozenset({"summary", "tags"}),
+    "slots": frozenset({"content", "description"}),
+    "observations": frozenset({"content", "retired_reason"}),
+    "observation_history": frozenset({"snapshot_json", "reason"}),
+    "conventions_docs": frozenset({"query", "content"}),
+    "commit_links": frozenset({"message"}),
+    "project_persona": frozenset({"value"}),
+    "transcript_chunks": frozenset({"slice"}),
+}
+
 import argparse
 import io
 import json
@@ -54,7 +76,6 @@ import sqlite3
 import sys
 import tarfile
 from pathlib import Path
-from typing import Optional
 
 # Bump only on a breaking change to the tarball layout / manifest shape.
 EXPORT_FORMAT_VERSION = 1
@@ -140,7 +161,17 @@ def _ordered_rows(conn: sqlite3.Connection, table: str, columns: list[str]) -> l
     col_list = ", ".join(f'"{c}"' for c in columns)
     order_by = ", ".join(f'"{c}"' for c in columns)
     sql = f'SELECT {col_list} FROM "{table}" ORDER BY {order_by}'
-    return [tuple(r) for r in conn.execute(sql).fetchall()]
+    rows = [tuple(r) for r in conn.execute(sql).fetchall()]
+    # Defence in depth behind the add_learning boundary: the export leaves the
+    # machine, so every free-text cell passes the secrets-only redactor once
+    # more. Ids, paths, hashes and timestamps are not text a secret sits in.
+    text_at = [i for i, c in enumerate(columns) if c in FREE_TEXT_COLUMNS.get(table, ())]
+    if not text_at:
+        return rows
+    return [
+        tuple(redact_secrets_text(c) if i in text_at and isinstance(c, str) else c for i, c in enumerate(r))
+        for r in rows
+    ]
 
 
 def build_db_snapshot(src_db: Path) -> bytes:
@@ -150,9 +181,14 @@ def build_db_snapshot(src_db: Path) -> bytes:
     data are copied verbatim; the snapshot is rebuilt from scratch so its page
     layout is reproducible and free of stale/free pages."""
     if not src_db.exists():
-        # No DB yet — emit a valid empty SQLite file so import has a target.
+        # No DB yet: emit a valid empty SQLite file so import has a target. A
+        # database with no pages cannot be serialized on every SQLite build
+        # ("unable to serialize 'main'"), so allocate page 1 first.
         mem = sqlite3.connect(":memory:")
         try:
+            mem.execute("create table _snapshot_seed (x)")
+            mem.execute("drop table _snapshot_seed")
+            mem.commit()
             return mem.serialize()  # type: ignore[attr-defined]
         finally:
             mem.close()
@@ -193,6 +229,18 @@ def build_db_snapshot(src_db: Path) -> bytes:
         dst.close()
 
 
+def _redacted_document(path: Path) -> bytes:
+    """A note or sidecar as it leaves the machine: a document written before
+    the capture gate existed can still carry a credential, so every bundled
+    text file passes the secrets-only redactor."""
+    raw = path.read_bytes()
+    try:
+        text = raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw
+    return redact_secrets_text(text).encode("utf-8")
+
+
 def _add_bytes(tar: tarfile.TarFile, arcname: str, payload: bytes) -> None:
     """Append *payload* under *arcname* with fully-normalized metadata."""
     info = tarfile.TarInfo(name=arcname)
@@ -210,8 +258,8 @@ def _add_bytes(tar: tarfile.TarFile, arcname: str, payload: bytes) -> None:
 def export_kb(
     tarball: Path,
     *,
-    db_path: Optional[Path] = None,
-    learnings_home: Optional[Path] = None,
+    db_path: Path | None = None,
+    learnings_home: Path | None = None,
 ) -> dict:
     """Export the KB at (*db_path*, *learnings_home*) to *tarball*.
 
@@ -260,7 +308,7 @@ def export_kb(
     ]
     for d in docs:
         arc = "documents/" + d.relative_to(docs_dir).as_posix()
-        members.append((arc, d.read_bytes()))
+        members.append((arc, _redacted_document(d)))
     members.sort(key=lambda m: m[0])
 
     # gzip carries its own mtime; use an uncompressed tar so the bytes are fully
@@ -273,7 +321,7 @@ def export_kb(
     return manifest
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="kb_export.py",
         description="Snapshot a reflect-kb (learnings + reflect.db) to a "
