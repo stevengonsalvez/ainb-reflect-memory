@@ -295,9 +295,12 @@ def route_document(
         A :class:`RouteResult` summarising what happened. ``notes`` always
         explains degraded paths (push failures, missing tooling, etc.).
     """
-    content = doc.read_text(encoding="utf-8")
+    # Redacted before parsing: the title becomes the commit message, the
+    # branch name, the PR title and body and the review-queue record, none of
+    # which pass through the file copy's gate.
+    content = redact_secrets(doc.read_text(encoding="utf-8")).text
     fm, _ = parse_frontmatter(content)
-    title = fm.get("title") or doc.stem
+    title = fm.get("title") or redact_secrets(doc.stem).text
     slug = slugify(title)
     route = classify_confidence(fm)
 

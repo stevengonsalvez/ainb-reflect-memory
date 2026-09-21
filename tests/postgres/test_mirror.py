@@ -104,3 +104,21 @@ def test_a_plain_remote_connection_is_a_mirror_error_not_a_crash() -> None:
         mirror_note("postgresql://u@db.example.com/x", "0cccccc0-0000-4000-8000-00000000cccc",
                     content="---\ntitle: t\n---\nbody", frontmatter={"title": "t"},
                     connect=lambda d: _RemoteConn())
+
+
+def test_mirror_redacts_a_legacy_note_before_any_row_is_written() -> None:
+    """Review round four, item 1: reindex hands mirror_note the raw content
+    and sidecar of a note written before the capture gate. No credential may
+    reach a memory_items, entities or edges payload, whichever caller it is."""
+    token = "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+    log: list = []
+    note = NOTE.replace("The auth middleware", f"export GH={token}; the auth middleware")
+    ents = DocumentEntities(document_id="d", entities=[Entity(f"token {token}", "credential", f"was {token}"),
+                                                        Entity("JWT", "concept", "token")],
+                            relationships=[Relationship(f"token {token}", "JWT", f"rotates {token}", "", 8)])
+    res = mirror_note("postgresql://w@localhost/db", WS, content=note, frontmatter={**FM, "title": f"rotate {token}"},
+                      doc_entities=ents, connect=lambda dsn: _Conn(log))
+    assert res.entities == 2 and res.edges == 1, res
+    payload = repr(log)
+    assert token not in payload
+    assert "<REDACTED:github_token>" in payload

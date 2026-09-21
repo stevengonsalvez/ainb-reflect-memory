@@ -13,7 +13,10 @@ scripts/seed.py. ``mirror_note`` is called by ``reflect add`` and
 * every sidecar entity becomes an entities row and every relationship an
   edges row whose evidence is the memory item, both carrying the note's
   classification so the floor applies to them too;
-* every statement runs bound to the workspace (MemoryStore binds per call).
+* every statement runs bound to the workspace (MemoryStore binds per call);
+* every free-text field is redacted here (content, title, entity names and
+  descriptions, relationship types), so a caller that hands over a legacy
+  note written before the capture gate cannot put a credential in a row.
 
 The mirror never fails ``reflect add``: the caller reports a MirrorError and
 the local note stays the source of truth.
@@ -25,6 +28,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from reflect_kb.issues.sanitize import redact_secrets
 from reflect_kb.postgres.dsn import connect_secure
 from reflect_kb.postgres.errors import ValidationError
 from reflect_kb.postgres.models import (
@@ -51,6 +55,10 @@ class MirrorResult:
     notes: list[str] = field(default_factory=list)
 
 
+def _clean(value: Any) -> str:
+    return redact_secrets(str(value or "")).text
+
+
 def mirror_note(
     dsn: str,
     workspace_id: str,
@@ -65,6 +73,9 @@ def mirror_note(
     shared store bound to ``workspace_id``. ``connect`` is psycopg.connect
     unless a test injects one."""
     tenant = Tenant(workspace_id=workspace_id)
+    content = _clean(content)
+    if isinstance(frontmatter.get("title"), str):
+        frontmatter = {**frontmatter, "title": _clean(frontmatter["title"])}
     try:
         inp = InsertMemoryInput.from_note(tenant, frontmatter, content, source_type=source_type)
     except ValidationError as exc:
@@ -91,14 +102,14 @@ def mirror_note(
         label = inp.metadata.get("classification")
         ids: dict[str, str] = {}
         for ent in getattr(doc_entities, "entities", None) or []:
-            name = str(getattr(ent, "name", "") or "").strip()
+            name = _clean(getattr(ent, "name", "")).strip()
             etype = str(getattr(ent, "type", "") or "concept").strip() or "concept"
             if not name:
                 continue
             try:
                 row = store.upsert_entity(UpsertEntityInput(
                     tenant=tenant, canonical_name=name, entity_type=etype,
-                    metadata={"classification": label, "description": str(getattr(ent, "description", "") or "")},
+                    metadata={"classification": label, "description": _clean(getattr(ent, "description", ""))},
                 ))
             except ValidationError as exc:
                 result.notes.append(f"entity {name!r} skipped: {exc}")
@@ -106,8 +117,10 @@ def mirror_note(
             ids[name] = row.id
             result.entities += 1
         for rel in getattr(doc_entities, "relationships", None) or []:
-            src, dst = ids.get(str(getattr(rel, "source", ""))), ids.get(str(getattr(rel, "target", "")))
-            rtype = str(getattr(rel, "type", "") or "related_to")
+            # Entity names were redacted before they became keys, so the
+            # endpoints are looked up the same way.
+            src, dst = ids.get(_clean(getattr(rel, "source", "")).strip()), ids.get(_clean(getattr(rel, "target", "")).strip())
+            rtype = _clean(getattr(rel, "type", "")) or "related_to"
             if not (src and dst):
                 continue
             strength = getattr(rel, "strength", 5)
