@@ -276,18 +276,27 @@ written by hand without the keys produce unpinned notes, which the broker
 never serves; run `reflect reindex` after adding the keys to pin them.
 
 **What is refused, and why.** This table is the one home for the refusal
-rules; the egress page links here rather than repeating them.
+rules; the egress page links here rather than repeating them. The response
+carries one total of refused items, never a count per reason; the split is in
+the broker's log. This narrows, but does not close, a file-existence probe:
+the pin resolver's repo map is shared by every workspace, so a tenant who can
+write a note pinned into another repo still learns from `returned` whether
+that pin resolves. Graph context with no link to a returned hit is omitted
+and not counted.
 
 | Request or item | Response | Why |
 |---|---|---|
 | no `Authorization` header, or not `Bearer` | 401 | nothing is served anonymously |
-| bad signature, wrong `iss` or `aud`, expired, unknown `kid`, `alg=none` or HMAC | 401 | the token is not from the configured issuer |
+| bad signature, wrong `iss` or `aud`, expired, unknown `kid` (or one over 256 characters), `alg=none` or HMAC | 401 | the token is not from the configured issuer |
+| issuer discovery or JWKS unreachable | 503, generic detail | the issuer URLs and the transport error go to the server log only |
 | valid token, no tenant claim | 403 | the tenant comes from the token only; there is no fallback |
 | `workspace_id` in body or query | ignored | the body cannot choose a tenant; extra fields are dropped |
-| hit with free-text or missing `source_uri` | dropped, `meta.dropped.unpinned` | cannot be traced to a commit |
-| hit whose pin does not resolve | dropped, `meta.dropped.unresolvable` | the commit or path does not exist where we can see it |
-| hit classified `restricted` or `pii`, or an unknown label | dropped, `meta.dropped.classified` | above the floor (unknown fails closed); restricted and pii also cannot exist in the shared store (migration 0003) |
-| graph edge whose `evidence_memory_id` was not returned | dropped, `meta.dropped.unverified_edges` | an edge must not cite a memory the caller could not see |
+| hit with free-text or missing `source_uri` | dropped, counted in `meta.dropped.total` | cannot be traced to a commit |
+| hit whose pin does not resolve | dropped, counted in `meta.dropped.total` | the commit or path does not exist where we can see it |
+| hit classified `restricted` or `pii`, or an unknown label | dropped, counted in `meta.dropped.total` | above the floor (unknown fails closed); restricted and pii also cannot exist in the shared store (migration 0003) |
+| graph edge citing a refused hit, or classified above the floor | dropped, counted in `meta.dropped.total` | an edge must not cite a memory the caller could not see |
+| graph edge whose `evidence_memory_id` is empty or not a returned hit | omitted, not counted | an edge must cite a pinned hit the caller received |
+| entity (`entities` or `graph.entities`) no returned edge touches | omitted, not counted (a classified one is counted) | edges are the only link from an entity to a pinned hit |
 | `REFLECT_BROKER_PG_DSN` without TLS, or with a superuser, BYPASSRLS or owner role | broker refuses to start | notes and vectors cross the network on that DSN; RLS would not apply to that role |
 | `GET /healthz` | 200, unauthenticated, body `{"status": "ok"}` | liveness for the process supervisor; it reads no store and names no tenant |
 | `lexical_limit` above `REFLECT_BROKER_MAX_LIMIT` | capped | bounded reads |
