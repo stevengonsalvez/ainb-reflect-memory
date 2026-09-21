@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from reflect_kb.broker.auth import AuthError
@@ -185,3 +187,65 @@ def test_known_kid_is_served_without_the_lock_or_a_fetch(issuer) -> None:
     with v._lock:  # held for the whole check: a locked lookup would deadlock
         v.verify(f"Bearer {issuer.mint()}")
     assert issuer.jwks_hits == 1
+
+
+def test_overlong_kid_is_401_before_any_lookup(issuer) -> None:
+    """A kid comes from an unsigned header; an oversized one never reaches the
+    key lookup, the JWKS fetch or the negative cache."""
+    from reflect_kb.broker.auth import MAX_KID_LENGTH
+
+    v = issuer.verifier(jwks_refresh_floor=0.0)
+    with pytest.raises(AuthError) as exc:
+        v.verify(f"Bearer {issuer.mint(kid='k' * (MAX_KID_LENGTH + 1))}")
+    assert exc.value.status == 401
+    assert issuer.jwks_hits == 0
+    assert len(v._unknown) == 0
+
+
+def test_unknown_kid_negative_cache_is_bounded(issuer) -> None:
+    """Forged kids need no valid signature; the negative cache must not grow
+    with them. The oldest entries are evicted first."""
+    from reflect_kb.broker.auth import UNKNOWN_KID_CACHE_SIZE
+
+    v = issuer.verifier(jwks_refresh_floor=0.0)
+    v.warm()
+    fetches = issuer.jwks_hits
+    total = UNKNOWN_KID_CACHE_SIZE + 500
+    # Refresh on every attempt would be a fetch per kid; stub the refresh so
+    # the test exercises the cache, not the transport.
+    v._refresh_keys = lambda: setattr(v, "_attempted_at", time.monotonic())
+    for i in range(total):
+        with pytest.raises(AuthError):
+            v._key_for(f"forged-{i}")
+    assert len(v._unknown) == UNKNOWN_KID_CACHE_SIZE
+    assert "forged-0" not in v._unknown
+    assert f"forged-{total - 1}" in v._unknown
+    assert issuer.jwks_hits == fetches
+
+
+def test_issuer_outage_503_does_not_leak_the_issuer_urls(issuer, caplog) -> None:
+    import httpx
+
+    from reflect_kb.broker.auth import OIDCConfig, OIDCVerifier
+
+    internal = "https://idp.internal.example:8443/tenant-x"
+
+    def down(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError(f"connection refused to {request.url}", request=request)
+
+    def unavailable(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(502, text="bad gateway")
+
+    for handler in (down, unavailable):
+        v = OIDCVerifier(
+            OIDCConfig(issuer=internal, audience="reflect-broker"),
+            http=httpx.Client(transport=httpx.MockTransport(handler)),
+        )
+        caplog.clear()
+        with caplog.at_level("WARNING", logger="reflect_kb.broker.auth"):
+            with pytest.raises(AuthError) as exc:
+                v.verify(f"Bearer {issuer.mint()}")
+        assert exc.value.status == 503
+        assert exc.value.detail == "issuer keys unavailable"
+        assert "internal" not in exc.value.detail
+        assert "idp.internal.example" in caplog.text  # detail kept for the operator

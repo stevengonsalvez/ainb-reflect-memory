@@ -17,9 +17,11 @@ Verification order for every request:
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -32,6 +34,14 @@ __all__ = ["ASYMMETRIC_ALGORITHMS", "AuthError", "OIDCConfig", "OIDCVerifier", "
 ASYMMETRIC_ALGORITHMS = frozenset(
     {"RS256", "RS384", "RS512", "PS256", "PS384", "PS512", "ES256", "ES384", "ES512", "EdDSA"}
 )
+
+# A kid is read from an unsigned header, so an unauthenticated caller chooses
+# it. Real issuers use short ids; anything longer is refused before lookup,
+# and the negative cache holds at most this many distinct kids.
+MAX_KID_LENGTH = 256
+UNKNOWN_KID_CACHE_SIZE = 1024
+
+_log = logging.getLogger(__name__)
 
 
 class AuthError(Exception):
@@ -90,8 +100,9 @@ class OIDCVerifier:
         self._attempted_at = 0.0  # the last fetch attempt, failed ones included: the floor counts those
         self._jwks_uri: str | None = None
         self._lock = threading.Lock()
-        # kid -> monotonic time it was last confirmed absent after a fresh fetch
-        self._unknown: dict[str, float] = {}
+        # kid -> monotonic time it was last confirmed absent after a fresh fetch;
+        # least recently confirmed first, evicted past UNKNOWN_KID_CACHE_SIZE.
+        self._unknown: OrderedDict[str, float] = OrderedDict()
 
     # -- JWKS -----------------------------------------------------------------
 
@@ -185,6 +196,9 @@ class OIDCVerifier:
                 if key is not None:
                     return key
             self._unknown[kid] = time.monotonic()
+            self._unknown.move_to_end(kid)
+            while len(self._unknown) > UNKNOWN_KID_CACHE_SIZE:
+                self._unknown.popitem(last=False)
             raise AuthError(401, "token signed by an unknown key")
 
     # -- verification -----------------------------------------------------------
@@ -198,10 +212,15 @@ class OIDCVerifier:
         kid = header.get("kid")
         if not isinstance(kid, str) or not kid:
             raise AuthError(401, "token header has no kid")
+        if len(kid) > MAX_KID_LENGTH:
+            raise AuthError(401, "token signed by an unknown key")
         try:
             key = self._key_for(kid)
-        except httpx.HTTPError as exc:
-            raise AuthError(503, f"issuer keys unavailable: {exc}") from exc
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            # The exception names the discovery or JWKS URL; that stays in the
+            # server log, the unauthenticated caller gets a generic 503.
+            _log.warning("issuer keys unavailable: %s", exc)
+            raise AuthError(503, "issuer keys unavailable") from exc
         try:
             claims = jwt.decode(
                 token,
