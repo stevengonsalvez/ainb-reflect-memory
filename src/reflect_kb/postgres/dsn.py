@@ -78,6 +78,10 @@ def connect_secure(
         and "sslmode" not in kwargs
         and not requires_tls(dsn, env)
         and not is_local_dsn(dsn, env)
+        # A service= entry names no host here: pg_service.conf may point at a
+        # loopback server with no SSL support, which require would refuse, so
+        # that one is left to the post-connect judgement.
+        and not _names_service(dsn, env)
     ):
         # libpq's default sslmode=prefer falls back to plaintext, which a
         # network attacker can force, and the password handshake would run
@@ -136,6 +140,10 @@ def _conninfo(dsn: str) -> dict[str, str]:
         for key, values in urllib.parse.parse_qs(parts.query).items():
             info[key] = values[-1]
         return info
+
+
+def _names_service(dsn: str, env: Mapping[str, str]) -> bool:
+    return bool(_conninfo(dsn).get("service") or env.get("PGSERVICE"))
 
 
 def is_local_dsn(dsn: str, env: Mapping[str, str] | None = None) -> bool:

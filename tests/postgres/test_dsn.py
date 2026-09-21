@@ -90,6 +90,18 @@ def test_a_remote_dsn_without_a_pinned_mode_is_upgraded_to_require_before_connec
         assert "sslmode" not in connect.calls[0][1], dsn
 
 
+def test_a_service_dsn_is_left_to_the_post_connect_judgement() -> None:
+    """pg_service.conf may name a loopback server built without SSL, which
+    require would refuse; the open connection still decides."""
+    local = _Conn(host="/tmp")
+    connect = _connect_to(local)
+    connect_secure("service=local", env={}, connect=connect)
+    assert "sslmode" not in connect.calls[0][1]
+    remote = _Conn(host="prod.example.com")
+    with pytest.raises(InsecureDSNError):
+        connect_secure("service=prod", env={}, connect=_connect_to(remote))
+
+
 def test_is_local_connection() -> None:
     assert is_local_connection(SimpleNamespace(host="::1", hostaddr=""))
     assert is_local_connection(SimpleNamespace(host="", hostaddr=""))
@@ -103,3 +115,20 @@ def test_string_prefilters_are_still_honest() -> None:
     assert is_local_dsn("dbname=reflect", env={})
     assert requires_tls("postgresql://u@db.example.com/reflect", env={"PGSSLMODE": "require"})
     assert not requires_tls("postgresql://u@db.example.com/reflect", env={"PGSSLMODE": "prefer"})
+
+
+def test_the_mirror_forwards_the_pinned_sslmode_to_the_driver() -> None:
+    """reflect add's own write path is the one a user hits daily: a lambda
+    that swallowed kwargs would leave it on libpq's plaintext default."""
+    from reflect_kb.postgres.mirror import MirrorError, mirror_note
+
+    seen: dict = {}
+
+    def connect(dsn, **kwargs):
+        seen.update({"dsn": dsn, **kwargs})
+        raise RuntimeError("stop here: the kwargs are what this asserts")
+
+    with pytest.raises(MirrorError):
+        mirror_note("postgresql://u:p@db.example.com/reflect", "11111111-1111-1111-1111-111111111111",
+                    content="note", frontmatter={"title": "t"}, connect=connect)
+    assert seen.get("sslmode") == "require", seen

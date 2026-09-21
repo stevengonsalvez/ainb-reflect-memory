@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from reflect_kb.classification import may_leave_machine
 from reflect_kb.postgres import EvidencePack, EvidencePackQuery, MemoryStore, Tenant
+from reflect_kb.postgres.dsn import connect_secure
 
 from .auth import AuthError, OIDCVerifier, Principal
 from .pinning import SourcePinError, SourceResolver, parse_source_uri, resolve_all
@@ -50,7 +51,10 @@ def psycopg_store_factory(dsn: str) -> StoreFactory:
 
         # Not autocommit: the request runs inside one transaction so the
         # SET LOCAL workspace binding covers every read and dies with it.
-        conn = psycopg.connect(dsn, row_factory=dict_row, autocommit=False)
+        # Through connect_secure, so every request honours the same transport
+        # rule the startup check and the writer path do.
+        conn = connect_secure(dsn, what="REFLECT_BROKER_PG_DSN",
+                              connect=psycopg.connect, row_factory=dict_row, autocommit=False)
         try:
             with conn.transaction():
                 yield MemoryStore(conn)

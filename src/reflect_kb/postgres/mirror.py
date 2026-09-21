@@ -84,15 +84,18 @@ def mirror_note(
         import psycopg
         from psycopg.rows import dict_row
 
-        def connect(d):
-            return psycopg.connect(d, row_factory=dict_row, autocommit=False)
+        def connect(d, **kw):
+            return psycopg.connect(d, row_factory=dict_row, autocommit=False, **kw)
 
     result = MirrorResult()
     try:
         # The TLS judgement is made on the open connection; a plain remote
         # DSN is a MirrorError here like every other failure, never an
         # exception that escapes to reflect add.
-        conn = connect_secure(dsn, what="REFLECT_PG_DSN", connect=lambda d, **_: connect(d))
+        # kwargs are forwarded, not swallowed: connect_secure pins
+        # sslmode=require on a remote DSN that names no encrypting mode, and
+        # dropping them here would leave this path on libpq's plaintext default.
+        conn = connect_secure(dsn, what="REFLECT_PG_DSN", connect=connect)
     except Exception as exc:
         raise MirrorError(f"could not connect to the shared store: {exc}") from exc
     try:
