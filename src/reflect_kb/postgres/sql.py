@@ -196,8 +196,8 @@ def search_pinned_memory(inp: SearchMemoryInput) -> SqlAndParams:
     broker serves pinned evidence only, and dropping unpinned rows afterwards
     would hand back an empty page whenever the top matches are unpinned.
     """
-    sql, params = search_memory(inp)
-    return sql.replace(f"{SCHEMA}.search_memory(", f"{SCHEMA}.search_pinned_memory("), params
+    _, params = search_memory(inp)  # the same arguments, in the same order
+    return f"SELECT * FROM {SCHEMA}.search_pinned_memory(%s, %s, %s, %s, %s)", params
 
 
 def search_entities(tenant: Tenant, query: str, limit: int) -> SqlAndParams:
