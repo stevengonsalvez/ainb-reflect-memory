@@ -91,6 +91,24 @@ def test_index_validates_then_adds_and_writes_the_receipt(env, monkeypatch) -> N
     assert (env / "kb" / "documents" / f"{rows[0]['doc_id']}.md").is_file()
 
 
+def test_index_receipts_the_id_a_redacted_note_was_stored_under(env, monkeypatch) -> None:
+    """add derives the id from the redacted body and leaves the source alone,
+    so a receipt computed from the source names a document the KB never had."""
+    note = env / "n.md"
+    note.write_text(NOTE.replace("Tokens expired one second early.",
+                                 "Rotating ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789" + " fixed it."))
+    sidecar = env / "n.entities.yaml"
+    sidecar.write_text(VALID_SIDECAR)
+    receipt = env / "receipt.jsonl"
+    monkeypatch.setenv("REFLECT_DRAIN_RECEIPT", str(receipt))
+    result = CliRunner().invoke(learnings_cli.cli, ["skill-step", "index", str(note), str(sidecar)])
+    assert result.exit_code == 0, result.output
+    rows = [json.loads(line) for line in receipt.read_text().splitlines()]
+    assert (env / "kb" / "documents" / f"{rows[0]['doc_id']}.md").is_file()
+    stored = sorted(p.stem for p in (env / "kb" / "documents").glob("*.md"))
+    assert stored == [rows[0]["doc_id"]]
+
+
 def test_index_refuses_a_malformed_sidecar_without_indexing(env, monkeypatch) -> None:
     note = env / "n.md"
     note.write_text(NOTE)

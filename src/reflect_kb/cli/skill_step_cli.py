@@ -131,14 +131,34 @@ def index(ctx: click.Context, note: str, sidecar: str) -> None:
     per indexed note is appended for the drain's ledger.
     """
     from reflect_kb.cli.learnings_cli import add as add_command
-    from reflect_kb.cli.learnings_cli import generate_document_id, parse_frontmatter
 
     directory = _require_scripts_dir()
     rc = subprocess.run([sys.executable, str(directory / _PROBE), "--strict", sidecar], check=False).returncode
     if rc != 0:
         raise click.ClickException(f"sidecar validation failed for {sidecar}; not indexed")
     ctx.invoke(add_command, file_path=note, entities=sidecar, force=True)
-    # add rewrote the note in place if it held a secret; the id is the one it stored.
-    frontmatter, body = parse_frontmatter(Path(note).read_text(encoding="utf-8"))
+    write_receipt(Path(note), Path(sidecar), stored_document_id(Path(note)))
+
+
+def stored_document_id(note: Path) -> str:
+    """The id ``add`` stored the note under.
+
+    add redacts the note before it derives the id and never rewrites the
+    source, so an id taken from the source file names a document that is not
+    in the knowledge base whenever the note carried a secret. Deriving it from
+    the redacted text reproduces add's id; the written document is then
+    confirmed present, so a receipt can never point at nothing.
+    """
+    from reflect_kb.cli.learnings_cli import (
+        DOCUMENTS_DIR,
+        generate_document_id,
+        get_repo_path,
+        parse_frontmatter,
+    )
+    from reflect_kb.issues.sanitize import redact_secrets
+
+    frontmatter, body = parse_frontmatter(redact_secrets(note.read_text(encoding="utf-8")).text)
     doc_id = generate_document_id(str(frontmatter.get("title", "")), body)
-    write_receipt(Path(note), Path(sidecar), doc_id)
+    if not (get_repo_path() / DOCUMENTS_DIR / f"{doc_id}.md").exists():
+        raise click.ClickException(f"{note} was indexed but no document {doc_id} is in the knowledge base")
+    return doc_id
