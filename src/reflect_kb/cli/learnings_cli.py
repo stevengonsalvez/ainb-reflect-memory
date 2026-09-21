@@ -172,6 +172,41 @@ def _mirror_to_shared_store(content: str, frontmatter: dict, doc_entities=None, 
                       f"({result.entities} entities, {result.edges} edges)[/dim]")
 
 
+# What a purge costs the notes that stay: it also takes the graph nodes and
+# the mirrored entities they shared with the purged note, and reopens the
+# chunks that fed them. Only a reindex extracts a reopened chunk again.
+_REBUILD_HINT = (
+    "[yellow]Run 'learnings reindex' to rebuild the graph nodes, entities and edges "
+    "the notes that stay had shared with it[/yellow]"
+)
+
+
+def _purge_unredacted_copy(raw_note: str) -> None:
+    """The copy stored under the pre-redaction id is gone from the KB; the
+    rows it produced are not. In Mode 2 the purge takes every one of them
+    (the ng_* namespaces, the graph, and the broker's tables), so the secret
+    stops being searchable. A Mode 1 index lives in per-machine files that no
+    purge reaches, so there the rebuild is named instead of done."""
+    try:
+        engine = _get_graph_engine()
+        if engine.shared_store_target is None:
+            console.print(
+                "[yellow]The local index still holds that copy; run 'learnings reindex --force' "
+                "to rebuild it without the secret[/yellow]"
+            )
+            return
+        purged = engine.purge_local_only([raw_note])
+    except Exception as exc:  # noqa: BLE001 - the note is written either way
+        console.print(
+            f"[yellow]Warning: could not purge the unredacted copy from the shared store ({exc}); "
+            f"run 'learnings reindex --force'[/yellow]"
+        )
+        return
+    if purged:
+        console.print("[yellow]Purged the unredacted copy from the shared store[/yellow]")
+        console.print(_REBUILD_HINT)
+
+
 def _get_graph_engine():
     """Create a LearningsGraphEngine instance."""
     from reflect_kb.cli.graph_engine import LearningsGraphEngine
@@ -517,6 +552,9 @@ def add(file_path: str, entities: str | None, force: bool):
                 if old.exists():
                     old.unlink()
                     console.print(f"[yellow]Removed {old.name}: the same note under its unredacted id[/yellow]")
+            # The index outlives the file: a copy indexed on this machine and
+            # unlinked on another leaves rows behind with no file to spot.
+            _purge_unredacted_copy(raw_note)
 
     if dest.exists():
         # If --force is set, overwrite silently. Else require a TTY for the
@@ -602,6 +640,7 @@ def add(file_path: str, entities: str | None, force: bool):
                 console.print(
                     f"[yellow]Purged {purged} earlier copy of this note from the shared store[/yellow]"
                 )
+                console.print(_REBUILD_HINT)
     except Exception as e:
         console.print(f"[yellow]Warning: Graph indexing failed: {e}[/yellow]")
         console.print("[dim]Document saved. Run 'learnings reindex' to retry.[/dim]")
@@ -704,6 +743,7 @@ def reindex(force: bool):
     rel_total = 0
     skipped_local_only = 0
     skipped_notes: list[str] = []
+    to_mirror: list[tuple] = []
 
     for doc in documents:
         doc_path = Path(doc["_path"])
@@ -741,16 +781,14 @@ def reindex(force: bool):
             console.print(f"  [dim]{title} - no sidecar (placeholder entities)[/dim]")
 
         batch.append((doc["_full_content"], entities_formatted, label))
-        # Mode 2: keep the broker's tables in step with the corpus on reindex.
-        # mirror_note redacts every field, so a legacy note is safe here.
-        _mirror_to_shared_store(doc["_full_content"], {k: v for k, v in doc.items() if not k.startswith("_")},
-                                doc_entities, title=title)
+        to_mirror.append((doc["_full_content"], {k: v for k, v in doc.items() if not k.startswith("_")},
+                          doc_entities, title))
 
     # A note that was indexed under an earlier label and is restricted or
     # pii now: the floor stops new writes, and this removes the rows the old
-    # label left in every ng_* namespace and the graph. It runs before the
-    # batch and on its own, so a batch that fails cannot leave those rows in
-    # the shared store.
+    # label left in every ng_* namespace, the graph and the broker's tables.
+    # It runs before the batch and on its own, so a batch that fails cannot
+    # leave those rows in the shared store.
     if skipped_notes:
         try:
             purged = engine.purge_local_only(skipped_notes)
@@ -761,6 +799,14 @@ def reindex(force: bool):
                 console.print(
                     f"[yellow]Purged {purged} relabelled notes from the shared store (restricted or pii now)[/yellow]"
                 )
+
+    # Mode 2: keep the broker's tables in step with the corpus on reindex.
+    # mirror_note redacts every field, so a legacy note is safe here. This
+    # runs after the purge, which also removes rows a surviving note shared
+    # with a purged one (an entity it described, a graph node it fed); this
+    # loop and the batch insert that follows put the surviving half back.
+    for content, doc_frontmatter, doc_entities, title in to_mirror:
+        _mirror_to_shared_store(content, doc_frontmatter, doc_entities, title=title)
 
     try:
         with console.status("[bold green]Indexing batch..."):
