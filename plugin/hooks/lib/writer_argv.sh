@@ -122,14 +122,52 @@ _drain_sh_quote() {
     printf '%q' "$1"
 }
 
+# Credential stores no drain step reads or writes, denied by rule as well as
+# by the guard (a deny rule wins over every allow, and covers the tools the
+# guard leaves to the rules). The guard resolves symlinks and `..`; these
+# spellings stop the plain path.
+_WRITER_DENY_RULES='Read(~/.ssh/**)
+Read(~/.aws/**)
+Read(~/.gnupg/**)
+Read(~/.config/gcloud/**)
+Read(~/.config/gh/**)
+Read(~/.kube/**)
+Read(~/.docker/**)
+Read(~/.azure/**)
+Read(~/.password-store/**)
+Read(~/.claude/projects/**)
+Read(~/.claude/.credentials.json)
+Read(//**/.env)
+Read(//**/.env.*)
+Read(//**/.netrc)
+Read(//**/.npmrc)
+Read(//**/.git-credentials)
+Read(//**/id_rsa)
+Read(//**/id_ed25519)
+Read(//**/*.pem)
+Read(//**/*.key)'
+
+# drain_writer_deny_rules: fills WRITER_DENY with the deny rules, one per element.
+drain_writer_deny_rules() {
+    WRITER_DENY=()
+    local line
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && WRITER_DENY+=("$line")
+    done <<< "$_WRITER_DENY_RULES"
+}
+
+# The tools the guard decides: Bash by command, the path tools by path (a
+# credential store, or the frontmatter of a skill or agent file).
+_WRITER_GUARD_MATCHER="Bash|Read|Edit|Write|MultiEdit|NotebookEdit|Glob|Grep"
+
 # drain_writer_settings_json: the inline --settings document: WRITER_RULES as
-# permissions.allow, and the guard as a PreToolUse hook on Bash. A hook allow
-# skips the rules, so the guard is told exactly the prefixes the Bash(...)
-# rules grant (an override that drops one drops it from the guard too), and
-# is not installed at all when no Bash(...) rule exists: then the rules alone
-# decide, and headless default mode denies Bash.
+# permissions.allow, the credential deny rules, and the guard as a PreToolUse
+# hook. A hook allow skips the rules, so the guard is told exactly the
+# prefixes the Bash(...) rules grant (an override that drops one drops it from
+# the guard too); with no Bash(...) rule it allows no command at all, and the
+# rules plus headless default mode deny Bash.
 drain_writer_settings_json() {
-    local out="" rule guard="" prefix
+    local out="" deny="" rule guard="" prefix
     for rule in "${WRITER_RULES[@]}"; do
         out="${out:+$out,}\"$(_drain_json_escape "$rule")\""
         case "$rule" in
@@ -139,13 +177,13 @@ drain_writer_settings_json() {
                 ;;
         esac
     done
-    if [[ -z "$guard" ]]; then
-        printf '{"permissions":{"defaultMode":"default","allow":[%s]}}' "$out"
-        return 0
-    fi
-    guard="$(_drain_json_escape "python3 $(_drain_sh_quote "$(drain_writer_guard)")$guard")"
-    printf '{"permissions":{"defaultMode":"default","allow":[%s]},"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"%s","timeout":15}]}]}}' \
-        "$out" "$guard"
+    drain_writer_deny_rules
+    for rule in "${WRITER_DENY[@]}"; do
+        deny="${deny:+$deny,}\"$(_drain_json_escape "$rule")\""
+    done
+    guard="$(_drain_json_escape "python3 $(_drain_sh_quote "$(drain_writer_guard)")${guard:- --no-bash}")"
+    printf '{"permissions":{"defaultMode":"default","allow":[%s],"deny":[%s]},"hooks":{"PreToolUse":[{"matcher":"%s","hooks":[{"type":"command","command":"%s","timeout":15}]}]}}' \
+        "$out" "$deny" "$_WRITER_GUARD_MATCHER" "$guard"
 }
 
 # drain_writer_prompt_addendum: appended to every agentic prompt. It states

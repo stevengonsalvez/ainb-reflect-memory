@@ -70,6 +70,13 @@ granted the headless model every tool with no prompt. Now:
   files, the skill-index loop, a new skill, the global CLAUDE.md): logged,
   counted in the ledger, never a failure. What landed is read from a receipt
   `reflect skill-step index` writes, not from file mtimes.
+- Credential stores are denied outright, by a deny rule in the same document
+  and by the guard on every path tool: `~/.ssh`, cloud and forge credentials,
+  `~/.claude/projects` (the raw transcripts), `.env` files, private keys.
+  An Edit or Write that would change the frontmatter of a skill or agent file
+  is denied too, so an injected transcript cannot plant a hook that a later
+  interactive session runs; their bodies stay editable, which is what the
+  skill's own steps need.
 - The writer is never handed the raw transcript: the cascade slice is cut and
   redacted, and an entry with no slice (cascade off, missing or crashed) is
   handed the bounded view; if that view cannot be produced the entry stays
@@ -151,8 +158,9 @@ Egress from the broker host:
 - Outbound to the OIDC issuer: discovery once at startup, then the JWKS
   document again whenever the cached copy is older than the TTL (300 s by
   default) at the time of a request, or on an unknown `kid` (a negative cache
-  and a 30 s refresh floor bound the rate). No token or query content
-  travels; only the issuer URL is fetched.
+  of at most 1024 kids, kids over 256 characters refused before lookup, and a
+  30 s refresh floor bound the rate). No token or query content travels; only
+  the issuer URL is fetched.
 - With `REFLECT_BROKER_RESOLVER=http`, the repo name, commit sha and file path
   of each distinct pin among the candidate hits are sent to the forge named
   by `REFLECT_BROKER_FORGE_URL_TEMPLATE` to confirm the pin (path

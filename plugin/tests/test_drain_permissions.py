@@ -79,7 +79,7 @@ def test_agentic_writer_pins_mode_rules_and_guard_but_keeps_setting_sources() ->
     assert not any("/" in r for r in rules if r.startswith("Bash(")), "a Bash rule carries a path"
     # The guard decides every Bash call before it runs, from the same document.
     hooks = settings["hooks"]["PreToolUse"]
-    assert len(hooks) == 1 and hooks[0]["matcher"] == "Bash"
+    assert len(hooks) == 1 and "Bash" in hooks[0]["matcher"].split("|")
     command = shlex.split(hooks[0]["hooks"][0]["command"])
     assert command[:2] == ["python3", _lib("guard")[0]] and Path(_lib("guard")[0]).is_file()
     # The guard is told exactly the prefixes the Bash rules grant.
@@ -103,7 +103,7 @@ def test_allow_rules_override_replaces_the_list_and_narrows_the_guard() -> None:
     argv = _lib("argv", "p", REFLECT_DRAIN_ALLOWED_TOOLS="Read,Bash(reflect add:*)")
     settings = json.loads(_flag(argv, "--settings"))
     assert settings["permissions"]["allow"] == ["Read", "Bash(reflect add:*)"]
-    assert settings["hooks"]["PreToolUse"][0]["matcher"] == "Bash"
+    assert "Bash" in settings["hooks"]["PreToolUse"][0]["matcher"].split("|")
     command = shlex.split(settings["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
     assert command[2:] == ["--allow", "reflect add"]
     assert _flag(argv, "--permission-mode") == "default"  # the mode is never overridable
@@ -111,9 +111,70 @@ def test_allow_rules_override_replaces_the_list_and_narrows_the_guard() -> None:
     proc = subprocess.run([sys.executable, *command[1:]], capture_output=True, text=True, timeout=30,
                           input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "reflect search x"}}))
     assert json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
-    # No Bash rule at all: no guard, so nothing can allow Bash past the rules.
+    # No Bash rule at all: the guard stays (it also denies credential paths)
+    # but allows no command, so nothing gets past the rules.
     no_bash = json.loads(_flag(_lib("argv", "p", REFLECT_DRAIN_ALLOWED_TOOLS="Read,Grep"), "--settings"))
-    assert "hooks" not in no_bash and no_bash["permissions"]["allow"] == ["Read", "Grep"]
+    assert no_bash["permissions"]["allow"] == ["Read", "Grep"]
+    bare = shlex.split(no_bash["hooks"]["PreToolUse"][0]["hooks"][0]["command"])
+    assert bare[2:] == ["--no-bash"]
+    proc = subprocess.run([sys.executable, *bare[1:]], capture_output=True, text=True, timeout=30,
+                          input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "reflect add docs/solutions/x.md"}}))
+    assert json.loads(proc.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+# --------------------------------------------------------------------------- #
+# the guard: credential paths and skill/agent frontmatter, for every path tool
+# --------------------------------------------------------------------------- #
+
+_HOME = str(Path.home())
+
+
+@pytest.mark.parametrize("tool,tool_input,decision", [
+    # credential stores, whatever the spelling
+    ("Read", {"file_path": f"{_HOME}/.ssh/id_rsa"}, "deny"),
+    ("Read", {"file_path": "docs/solutions/../.ssh/config"}, "deny"),  # a walk out
+    ("Read", {"file_path": f"{_HOME}/.aws/credentials"}, "deny"),
+    ("Read", {"file_path": f"{_HOME}/.config/gh/hosts.yml"}, "deny"),
+    ("Read", {"file_path": f"{_HOME}/.claude/.credentials.json"}, "deny"),
+    ("Read", {"file_path": f"{_HOME}/.claude/projects/p/session.jsonl"}, "deny"),  # raw transcripts
+    ("Read", {"file_path": ".env.local"}, "deny"),
+    ("Read", {"file_path": f"{_HOME}/certs/server.pem"}, "deny"),
+    ("Grep", {"path": f"{_HOME}/.aws"}, "deny"),
+    ("Glob", {"path": f"{_HOME}/.gnupg"}, "deny"),
+    # a skill or agent file's frontmatter, where a planted hook would persist
+    ("Edit", {"file_path": f"{_HOME}/.claude/agents/backend-developer.md",
+              "old_string": "x", "new_string": "hooks:\n  PreToolUse: evil"}, "deny"),
+    ("Edit", {"file_path": f"{_HOME}/.claude/skills/publish/SKILL.md",
+              "old_string": "---\nname: publish", "new_string": "---\nname: publish"}, "deny"),
+    ("Edit", {"file_path": f"{_HOME}/.claude/skills/publish/SKILL.md",
+              "old_string": "a", "new_string": "permissionMode: bypassPermissions"}, "deny"),
+    ("Write", {"file_path": f"{_HOME}/.claude/skills/publish/SKILL.md", "content": "x"}, "deny"),
+    ("MultiEdit", {"file_path": f"{_HOME}/.claude/skills/publish/SKILL.md",
+                   "edits": [{"old_string": "b", "new_string": "c"},
+                             {"old_string": "d", "new_string": "allowed-tools: Bash"}]}, "deny"),
+    # the steps the drain does grant are left to the rules
+    ("Edit", {"file_path": f"{_HOME}/.claude/skills/publish/SKILL.md",
+              "old_string": "body text", "new_string": "better body text"}, None),
+    ("Edit", {"file_path": f"{_HOME}/.claude/agents/backend-developer.md",
+              "old_string": "always run tests", "new_string": "always run tests first"}, None),
+    ("Write", {"file_path": "docs/solutions/tooling/x.md", "content": "note"}, None),
+    ("Read", {"file_path": "docs/solutions/tooling/x.md"}, None),
+    ("Read", {"file_path": f"{_HOME}/.reflect/episodes/ep.md"}, None),
+])
+def test_guard_denies_credential_paths_and_skill_frontmatter(tool: str, tool_input: dict, decision) -> None:
+    out = drain_guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": _HOME})
+    assert (out or {}).get("permissionDecision") == decision, (tool, tool_input)
+    if decision == "deny":
+        assert out["permissionDecisionReason"].startswith("drain writer: ")
+
+
+def test_the_deny_rules_and_the_guard_matcher_cover_the_same_ground() -> None:
+    settings = json.loads(_flag(_lib("argv", "p"), "--settings"))
+    deny = settings["permissions"]["deny"]
+    assert {"Read(~/.ssh/**)", "Read(~/.aws/**)", "Read(~/.claude/projects/**)"} <= set(deny)
+    assert all(r.startswith("Read(") for r in deny)
+    matcher = settings["hooks"]["PreToolUse"][0]["matcher"]
+    assert set(matcher.split("|")) >= {"Bash", "Read", "Edit", "Write", "MultiEdit", "Glob", "Grep"}
 
 
 def test_extract_writer_is_structurally_tool_free() -> None:

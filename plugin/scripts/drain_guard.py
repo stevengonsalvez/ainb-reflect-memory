@@ -21,8 +21,12 @@ may write), pipes, redirects and second commands. ``reflect add`` and
 ``reflect skill-step index`` must name files under ``docs/solutions/`` of
 the writer's cwd, so the shared store only ever receives the writer's notes.
 
-Other tools produce no decision here; the rules in the same document decide
-them. Reads the PreToolUse JSON on stdin, prints one decision, exits 0 (a
+Other tools are denied when they touch a credential path (``~/.ssh``, cloud
+and forge credentials, ``.env``, keys) or when an Edit or Write would change
+the frontmatter of a skill or agent file: an injected transcript must not
+read the operator's secrets, nor plant ``hooks:`` or ``permissionMode:`` in a
+skill an interactive session later loads. Every other tool call produces no
+decision here; the rules in the same document decide it. Reads the PreToolUse JSON on stdin, prints one decision, exits 0 (a
 crash prints nothing, and the rules then apply). Stdlib only.
 """
 
@@ -30,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import sys
 
@@ -39,7 +44,26 @@ SURFACE = ("only `reflect skill-step <step> ...`, `reflect add ...` and `reflect
            "no env prefixes, and notes only under docs/solutions/. "
            "Every step of the skill is a `reflect skill-step` command.")
 _OPERATORS = set("&|;<>()")
+_FRONTMATTER_KEY_RE = re.compile(r"^(name|description|hooks|allowed-tools|tools|model|"
+                                 r"permission-?mode|disable-model-invocation|argument-hint):", re.I)
 _NOTE_ROOT = os.path.join("docs", "solutions")
+_PATH_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep")
+# Credential stores the writer has no business in. Matched on the resolved
+# path, so a symlink or a ../ walk into one is caught too.
+_DENIED_DIRS = ("/.ssh", "/.aws", "/.gnupg", "/.config/gcloud", "/.config/gh",
+                "/.kube", "/.docker", "/.gem", "/.azure", "/.password-store",
+                "/.claude/projects")
+_DENIED_NAMES = (".env", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
+                 ".credentials.json", "credentials", "id_rsa", "id_ed25519",
+                 "id_ecdsa", "id_dsa", ".pgpass", "secrets.yaml", "secrets.yml")
+_DENIED_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".kdbx", ".keychain")
+_FRONTMATTER_SCOPES = (("/.claude/skills/",), ("/.claude/agents/",),
+                       ("/.codex/skills/",), ("/.copilot/skills/",))
+_CREDENTIAL_SURFACE = ("credential paths are out of scope for the drain writer: no ~/.ssh, cloud or "
+                       "forge credentials, .env files, keys or raw transcripts")
+_FRONTMATTER_SURFACE = ("a skill or agent file's frontmatter is out of scope for the drain writer: "
+                        "edit the body only, never the `---` block (hooks, allowed-tools, "
+                        "permissionMode)")
 
 
 def unsafe_shell(command: str) -> bool:
@@ -134,11 +158,65 @@ def _note_paths_ok(argv: list[str], cwd: str) -> bool:
     return bool(paths) and all(p and _under_notes(p, cwd) for p in paths)
 
 
+def _resolve(path: str, cwd: str) -> str:
+    return os.path.realpath(os.path.join(cwd or os.getcwd(), os.path.expanduser(path)))
+
+
+def is_credential_path(path: str, cwd: str) -> bool:
+    """True when the path names a credential store, by directory, file name or
+    extension, after symlinks and ``..`` are resolved."""
+    if not path:
+        return False
+    real = _resolve(path, cwd)
+    name = os.path.basename(real)
+    return (any(d + "/" in real + "/" for d in _DENIED_DIRS)
+            or name in _DENIED_NAMES
+            or name.startswith(".env")
+            or name.endswith(_DENIED_SUFFIXES))
+
+
+def touches_frontmatter(tool: str, tool_input: dict, cwd: str) -> bool:
+    """True when the call would change the `---` block of a skill or agent
+    file: an edit whose old or new text carries a delimiter line or a
+    frontmatter key, or a whole-file Write."""
+    path = str(tool_input.get("file_path") or tool_input.get("notebook_path") or "")
+    if not path:
+        return False
+    real = _resolve(path, cwd)
+    if not any(scope in real for scopes in _FRONTMATTER_SCOPES for scope in scopes):
+        return False
+    if tool in ("Write", "NotebookEdit"):
+        return True  # a whole-file write replaces the frontmatter with it
+    edits = tool_input.get("edits") or [tool_input]
+    for edit in edits:
+        if not isinstance(edit, dict):
+            continue
+        for text in (edit.get("old_string"), edit.get("new_string")):
+            for line in str(text or "").splitlines():
+                stripped = line.strip()
+                if stripped == "---" or _FRONTMATTER_KEY_RE.match(stripped):
+                    return True
+    return False
+
+
 def decide(data: dict, allowed: tuple[tuple[str, ...], ...] = DEFAULT_ALLOWED) -> dict | None:
-    if data.get("tool_name") != "Bash":
-        return None
-    command = str((data.get("tool_input") or {}).get("command") or "")
+    tool = str(data.get("tool_name") or "")
+    tool_input = data.get("tool_input") or {}
     cwd = str(data.get("cwd") or "")
+    if tool in _PATH_TOOLS:
+        if not isinstance(tool_input, dict):
+            return None
+        for key in ("file_path", "notebook_path", "path", "pattern"):
+            if is_credential_path(str(tool_input.get(key) or ""), cwd):
+                return {"permissionDecision": "deny",
+                        "permissionDecisionReason": "drain writer: " + _CREDENTIAL_SURFACE}
+        if touches_frontmatter(tool, tool_input, cwd):
+            return {"permissionDecision": "deny",
+                    "permissionDecisionReason": "drain writer: " + _FRONTMATTER_SURFACE}
+        return None  # the rules decide every other path
+    if tool != "Bash":
+        return None
+    command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
     argv = normalise(command, cwd)
     if (argv and any(tuple(argv[: len(prefix)]) == prefix for prefix in allowed)
             and _note_paths_ok(argv, cwd)):
@@ -148,7 +226,10 @@ def decide(data: dict, allowed: tuple[tuple[str, ...], ...] = DEFAULT_ALLOWED) -
 
 
 def parse_allowed(args: list[str]) -> tuple[tuple[str, ...], ...]:
-    """``--allow "reflect add"`` repeated; none given means the defaults."""
+    """``--allow "reflect add"`` repeated; ``--no-bash`` allows no command at
+    all (the rules granted none); neither given means the defaults."""
+    if "--no-bash" in args:
+        return ()
     given = [tuple(args[i + 1].split()) for i, a in enumerate(args[:-1]) if a == "--allow"]
     return tuple(p for p in given if p) or DEFAULT_ALLOWED
 
