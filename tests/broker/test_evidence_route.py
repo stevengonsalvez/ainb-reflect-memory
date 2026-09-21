@@ -25,20 +25,18 @@ def test_every_returned_hit_is_pinned_and_resolved(client, issuer, git_repo) -> 
     assert body["lexical"][0]["source"]["line_end"] == 9
     # Citations only for hits that survived.
     assert sorted(c["memory_id"] for c in body["citations"]) == sorted(ids)
-    # Every refusal is counted.
-    assert body["meta"] == {
-        "returned": 3,
-        # classified counts the restricted graph entity too; the edge that
-        # touched it is dropped with the edges whose evidence was refused.
-        "dropped": {"unpinned": 2, "unresolvable": 3, "classified": 3, "unverified_edges": 3},
-        "evidence_only": True,
-    }
-    # Graph edges survive only when their evidence memory did (or they cite none).
-    assert [e["id"] for e in body["graph"]["edges"]] == ["edge-kept", "edge-no-evidence"]
+    # Every refusal is counted, as one total: 7 hits (2 unpinned, 3
+    # unresolvable, 2 classified), 1 edge citing a refused hit, 1 restricted
+    # graph entity. Edges and entities merely unlinked to a kept hit are
+    # omitted without counting.
+    assert body["meta"] == {"returned": 3, "dropped": {"total": 9}, "evidence_only": True}
+    # Graph edges survive only when their evidence memory is a kept hit; an
+    # edge citing no memory has no pin and goes too.
+    assert [e["id"] for e in body["graph"]["edges"]] == ["edge-kept"]
     assert "bad-sha" not in r.text and "never-a-hit" not in r.text
     assert [e["canonical_name"] for e in body["graph"]["entities"]] == ["auth", "token"]
     # Restricted and pii never appear anywhere in the payload.
-    assert "restricted" not in r.text.replace('"classified"', "")
+    assert "restricted" not in r.text
     assert "content of pii" not in r.text
 
 
@@ -109,3 +107,109 @@ def test_response_is_evidence_only(client, issuer) -> None:
 
 def test_health_needs_no_token(client) -> None:
     assert client.get("/healthz").json() == {"status": "ok"}
+
+
+def _graph_pack(hits, *, edges, entity_hits):
+    from datetime import UTC, datetime
+
+    from reflect_kb.postgres import Edge, Entity, EntityHit, EvidencePack, GraphNeighborhood, Tenant
+
+    now = datetime.now(UTC)
+    tenant = Tenant(workspace_id=WS_A)
+    names = {"e-auth": ("auth", ("authn",)), "e-token": ("token", ()), "e-db": ("db", ("postgres",))}
+    return EvidencePack(
+        query="auth",
+        tenant=tenant,
+        lexical=hits,
+        entities=[EntityHit(eid, name, "component", aliases[0] if aliases else None) for eid, (name, aliases) in names.items()
+                  if eid in entity_hits],
+        graph=GraphNeighborhood(
+            entities=[Entity(eid, WS_A, name, "component", aliases, {}, now, now) for eid, (name, aliases) in names.items()],
+            edges=[Edge(eid, WS_A, src, dst, rel, ev, 1.0, {}, now, now) for eid, src, dst, rel, ev in edges],
+        ),
+        citations=[],
+    )
+
+
+def test_unpinned_hit_carries_out_no_entity_alias_or_edge(resolver) -> None:
+    """With zero pinned hits, nothing from the graph or entity search may
+    leave: no names, no aliases, no edge citing no memory, no edge citing the
+    refused hit."""
+    from reflect_kb.broker.app import filter_pack
+
+    from .conftest import hit
+
+    pack = _graph_pack(
+        [hit("unpinned", "src/auth.rs")],
+        edges=[
+            ("edge-null", "e-auth", "e-db", "migrates_to", None),
+            ("edge-unpinned", "e-auth", "e-token", "validates", "unpinned"),
+        ],
+        entity_hits={"e-auth", "e-db"},
+    )
+    out = filter_pack(pack, resolver)
+    text = out.model_dump_json()
+    assert out.lexical == [] and out.entities == []
+    assert out.graph.entities == [] and out.graph.edges == []
+    for leaked in ("auth", "authn", "postgres", "migrates_to", "validates"):
+        assert leaked not in text.replace('"query":"auth"', ""), leaked
+    # The refused hit and the edge citing it; the unlinked rest is omitted uncounted.
+    assert out.meta.dropped.total == 2
+
+
+def test_entities_survive_only_through_an_edge_citing_a_kept_hit(resolver, git_repo) -> None:
+    from reflect_kb.broker.app import filter_pack
+
+    from .conftest import hit
+
+    _, sha = git_repo
+    pack = _graph_pack(
+        [hit("pinned", f"{REPO}@{sha}:src/auth.rs")],
+        edges=[
+            ("edge-kept", "e-auth", "e-token", "validates", "pinned"),
+            ("edge-null", "e-auth", "e-db", "migrates_to", None),
+        ],
+        entity_hits={"e-auth", "e-db"},
+    )
+    out = filter_pack(pack, resolver)
+    assert [h.memory_id for h in out.lexical] == ["pinned"]
+    assert [e.id for e in out.graph.edges] == ["edge-kept"]
+    assert sorted(e.id for e in out.graph.entities) == ["e-auth", "e-token"]
+    assert [e.entity_id for e in out.entities] == ["e-auth"]  # e-db only rode on the null edge
+    assert "postgres" not in out.model_dump_json()
+    assert out.meta.dropped.total == 0  # nothing was refused, only unlinked context omitted
+
+
+def test_drop_reasons_are_logged_not_returned(client, issuer, caplog) -> None:
+    """Per-reason counts would tell a tenant whether a pin to some other repo
+    resolves; the response carries one total, the log keeps the split."""
+    with caplog.at_level("INFO", logger="reflect_kb.broker.app"):
+        r = client.post("/v1/evidence", json={"query": "auth"}, headers=_auth(issuer))
+    dropped = r.json()["meta"]["dropped"]
+    assert dropped == {"total": 9}
+    for reason in ("unpinned", "unresolvable", "classified", "unverified"):
+        assert reason not in r.text, reason
+    assert "unpinned=2 unresolvable=3" in caplog.text
+
+
+def test_classified_edge_is_refused_even_with_kept_evidence(resolver, git_repo) -> None:
+    """An edge labelled above the floor that predates the constraint must not
+    ride out on a kept hit; SQL filters it too, this is the broker's own check."""
+    import dataclasses
+
+    from reflect_kb.broker.app import filter_pack
+
+    from .conftest import hit
+
+    _, sha = git_repo
+    pack = _graph_pack(
+        [hit("pinned", f"{REPO}@{sha}:src/auth.rs")],
+        edges=[("edge-secret", "e-auth", "e-token", "reads_secret", "pinned")],
+        entity_hits=set(),
+    )
+    secret = dataclasses.replace(pack.graph.edges[0], metadata={"classification": "restricted"})
+    pack = dataclasses.replace(pack, graph=dataclasses.replace(pack.graph, edges=[secret]))
+    out = filter_pack(pack, resolver)
+    assert out.graph.edges == [] and out.graph.entities == []
+    assert "reads_secret" not in out.model_dump_json()
+    assert out.meta.dropped.total == 1

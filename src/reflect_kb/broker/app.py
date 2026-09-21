@@ -2,12 +2,18 @@
 
 Evidence only. The handler authenticates, scopes the store call to the tenant
 claim, then filters every lexical hit through the classification floor and the
-source pin resolver before it is returned. Dropped hits are counted in
-``meta`` so a caller can tell "nothing matched" from "matches were refused".
+source pin resolver before it is returned. Graph edges and entities ride out
+only on a hit that survived. ``meta.dropped.total`` tells a caller "nothing
+matched" from "matches were refused"; the per-reason split stays in the server
+log. The resolver sees repos beyond the caller's workspace, so a per-reason
+count said which files exist there; the total only narrows that, since
+``returned`` still shows whether a planted pin resolved (scoping the resolver
+per workspace closes it).
 """
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import Any
@@ -26,6 +32,8 @@ __all__ = ["StoreFactory", "create_app", "filter_pack", "psycopg_store_factory"]
 
 # Yields a MemoryStore for one request and releases it afterwards.
 StoreFactory = Callable[[], AbstractContextManager[MemoryStore]]
+
+_log = logging.getLogger(__name__)
 
 
 def psycopg_store_factory(dsn: str) -> StoreFactory:
@@ -63,13 +71,8 @@ class EvidenceRequest(BaseModel):
 
 
 class DroppedCounts(BaseModel):
-    unpinned: int = 0
-    unresolvable: int = 0
-    classified: int = 0
-    # Graph edges whose evidence_memory_id points at a memory that was not
-    # itself returned (dropped above, or never a lexical hit): unverified
-    # provenance, so the edge goes too.
-    unverified_edges: int = 0
+    # One number on purpose: see the module docstring. The reasons are logged.
+    total: int = 0
 
 
 class EvidenceMeta(BaseModel):
@@ -143,31 +146,44 @@ class EvidenceResponse(BaseModel):
 def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceResponse:
     """Apply the classification floor and source pinning to a pack.
 
-    Pure: no I/O beyond the resolver. Order matters: a restricted item is
-    counted as classified even if it would also fail to pin, so the counts
-    tell the operator which guard fired first. Graph entities pass the floor
-    too (a restricted entity's name, type and aliases must not ride out on an
-    edge that touches it), and graph edges are kept only when both endpoints
-    survived and their evidence memory survived (or they cite none).
+    Pure: no I/O beyond the resolver. The contract is that everything returned
+    traces to a pinned, resolved hit:
+
+    * a lexical hit is kept when it passes the floor and its pin resolves;
+    * a graph edge is kept when its evidence memory is a kept hit and both
+      endpoints pass the floor (an edge citing no memory has no provenance);
+    * an entity, in ``entities`` or ``graph.entities``, is kept only when a
+      kept edge touches it. The schema links entities to memories through
+      edges alone, so a kept edge is the only way a kept hit references one.
+
+    Refusals are counted per reason for the server log (a restricted item is
+    counted as classified even if it would also fail to pin); the response
+    carries only their total. Graph context trimmed for lack of a link to a
+    kept hit is not a refusal and is not counted: most neighbourhoods carry
+    some, and counting it would make "total > 0" mean nothing.
     """
-    dropped = DroppedCounts()
+    reasons = {"classified": 0, "unpinned": 0, "unresolvable": 0, "refused_edges": 0}
     hits: list[LexicalHit] = []
     kept_ids: set[str] = set()
     # Parse first, then resolve every pin in one batch (one git batch-check
     # per repo per request), then assemble.
     parsed: list[tuple[Any, Any]] = []
+    refused_ids: set[str] = set()
     for hit in pack.lexical:
         if not may_leave_machine(getattr(hit, "metadata", None)):
-            dropped.classified += 1
+            reasons["classified"] += 1
+            refused_ids.add(hit.memory_id)
             continue
         try:
             parsed.append((hit, parse_source_uri(hit.source_uri)))
         except SourcePinError:
-            dropped.unpinned += 1
+            reasons["unpinned"] += 1
+            refused_ids.add(hit.memory_id)
     resolved = resolve_all(resolver, [pin for _, pin in parsed])
     for hit, pin in parsed:
         if not resolved.get(pin, False):
-            dropped.unresolvable += 1
+            reasons["unresolvable"] += 1
+            refused_ids.add(hit.memory_id)
             continue
         kept_ids.add(hit.memory_id)
         hits.append(
@@ -186,17 +202,25 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
         for c in pack.citations
         if c.memory_id in kept_ids
     ]
-    graph_entities = [e for e in pack.graph.entities if may_leave_machine(getattr(e, "metadata", None))]
-    dropped.classified += len(pack.graph.entities) - len(graph_entities)
-    visible = {e.id for e in graph_entities}
+    classified_entities = sum(1 for e in pack.graph.entities if not may_leave_machine(getattr(e, "metadata", None)))
+    reasons["classified"] += classified_entities
+    visible = {e.id for e in pack.graph.entities if may_leave_machine(getattr(e, "metadata", None))}
     edges: list[GraphEdgeOut] = []
+    referenced: set[str] = set()
+    trimmed = 0
     for e in pack.graph.edges:
-        if e.evidence_memory_id is not None and e.evidence_memory_id not in kept_ids:
-            dropped.unverified_edges += 1
+        if not may_leave_machine(getattr(e, "metadata", None)):
+            reasons["classified"] += 1
             continue
-        if e.source_entity_id not in visible or e.target_entity_id not in visible:
-            dropped.unverified_edges += 1  # an endpoint was not hydrated or is above the floor
+        if e.evidence_memory_id in refused_ids:
+            reasons["refused_edges"] += 1
             continue
+        # A null evidence id is not in kept_ids: an edge citing no memory has
+        # no pin and is withheld on purpose.
+        if e.evidence_memory_id not in kept_ids or not {e.source_entity_id, e.target_entity_id} <= visible:
+            trimmed += 1
+            continue
+        referenced.update((e.source_entity_id, e.target_entity_id))
         edges.append(
             GraphEdgeOut(
                 id=e.id,
@@ -207,6 +231,15 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
                 weight=e.weight,
             )
         )
+    graph_entities = [e for e in pack.graph.entities if e.id in referenced]
+    entities = [e for e in pack.entities if e.entity_id in referenced]
+    trimmed += len(pack.graph.entities) - classified_entities - len(graph_entities) + len(pack.entities) - len(entities)
+    total = sum(reasons.values())
+    if total:
+        _log.info("evidence refused workspace=%s returned=%d %s", pack.tenant.workspace_id, len(hits),
+                  " ".join(f"{k}={v}" for k, v in reasons.items()))
+    if trimmed:
+        _log.debug("graph context trimmed workspace=%s unlinked=%d", pack.tenant.workspace_id, trimmed)
     return EvidenceResponse(
         query=pack.query,
         workspace_id=pack.tenant.workspace_id,
@@ -218,7 +251,7 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
                 entity_type=e.entity_type,
                 matched_alias=e.matched_alias,
             )
-            for e in pack.entities
+            for e in entities
         ],
         graph=GraphOut(
             entities=[
@@ -233,7 +266,7 @@ def filter_pack(pack: EvidencePack, resolver: SourceResolver) -> EvidenceRespons
             edges=edges,
         ),
         citations=citations,
-        meta=EvidenceMeta(returned=len(hits), dropped=dropped),
+        meta=EvidenceMeta(returned=len(hits), dropped=DroppedCounts(total=total)),
     )
 
 
