@@ -160,12 +160,13 @@ _SECRET_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     # a ``Bearer eyJ...`` JWT is already redacted by the time we get here; this
     # catches opaque bearer tokens with no recognizable prefix. Only the token
     # is replaced (group 1, the ``Bearer `` scheme, is preserved). Any case;
-    # the token carries a digit or is 24 characters long, so prose such as
-    # "bearer authentication" is not a token.
+    # the token carries a digit or is 15 characters long, so prose such as
+    # "bearer authentication" (14) is not a token but a purely alphabetic
+    # opaque token is.
     (
         re.compile(
             r"(\b(?i:bearer)\s+)"
-            r"(?=[A-Za-z0-9_\-.=+/]{0,256}\d|[A-Za-z0-9_\-.=+/]{24})[A-Za-z0-9_\-.=+/]{12,}"
+            r"(?=[A-Za-z0-9_\-.=+/]{0,256}\d|[A-Za-z0-9_\-.=+/]{15})[A-Za-z0-9_\-.=+/]{12,}"
         ),
         r"\1<REDACTED:bearer_token>",
         "bearer_token",
@@ -407,8 +408,16 @@ _DOTTED_IDENT_RE = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
 # from 8 characters, words and passphrases included. ``password_hint`` or
 # ``secret_name`` describe one and keep the ordinary rule.
 _STRICT_KEY_RE = re.compile(r"(?:^|[_\-.])(?i:password|passwd|secret)$|(?<=[a-z])(?:Password|Passwd|Secret)$")
-# Some providers issue API keys shaped as UUIDs; the UUID exemption skips them.
-_API_KEY_NAME_RE = re.compile(r"(?i:api[_-]?key)")
+# A key that names a credential rather than an identifier. Many services issue
+# UUID-shaped tokens, so under one of these names a UUID is key material and
+# the UUID exemption must not rescue it; under ``idempotencyKey``,
+# ``cache_key`` or ``request_id`` the same value names something and stays.
+# The keyword sits at a sub-token boundary, as in _GENERIC_SECRET_RE, so
+# ``author`` is not an ``auth`` and ``monkey_id`` is not a key.
+_CREDENTIAL_KEY_RE = re.compile(
+    r"(?i:(?<![A-Za-z])(?:token|secret|password|passwd|api[_-]?key|auth(?:orization)?)(?![A-Za-z]))"
+    r"|(?<=[a-z])(?:Token|Secret|Password|Passwd|ApiKey|Auth|Authorization)(?![a-z])"
+)
 
 
 def _shannon_bits(value: str) -> float:
@@ -490,7 +499,9 @@ def _capture_keeps(key: str, value: str) -> bool:
             len(v) < 8 or _names_a_reference(v) or "(" in v or v.startswith("$")
             or bool(_ALL_CAPS_IDENT_RE.match(v) and "_" in v)
         )
-    if _UUID_VALUE_RE.match(v) and _API_KEY_NAME_RE.search(key):
+    # looks_like_credential exempts every UUID by shape, so the key decides:
+    # a UUID under a token, auth or api-key name is a credential.
+    if _UUID_VALUE_RE.match(v) and _CREDENTIAL_KEY_RE.search(key):
         return False
     return not looks_like_credential(v)
 

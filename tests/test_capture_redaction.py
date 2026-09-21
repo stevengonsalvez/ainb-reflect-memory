@@ -520,6 +520,55 @@ NOT_SECRETS = [
 CREDENTIALS += [text for text, _ in PATTERN_GAPS]
 LEGITIMATE += NOT_SECRETS
 
+# --------------------------------------------------------------------------- #
+# Review round five: the UUID exemption and the bearer floor
+# --------------------------------------------------------------------------- #
+
+# Round four exempted every UUID-shaped value, and rescued only api-key names.
+# Plenty of services issue UUID tokens, so these were stored and mirrored in
+# the clear. (text, the credential that must not survive.)
+UUID_CREDENTIALS = [
+    (f"token: {_UUID}", _UUID),
+    (f"session_token: {_UUID}", _UUID),
+    (f"X-Auth-Token: {_UUID}", _UUID),
+    (f"authorization: {_UUID}", _UUID),
+    (f"auth: {_UUID}", _UUID),
+    (f"refreshToken={_UUID}", _UUID),
+    (f"client_secret: {_UUID}", _UUID),
+    # The bearer floor: 15 to 23 purely alphabetic characters passed.
+    ("Bearer " + "abcdefghijklmno", "abcdefghijklmno"),
+    ("Authorization: Bearer " + "abcdefghijklmnop", "abcdefghijklmnop"),
+    ("bearer " + "qwertyuiopasdfghjklzxcv", "qwertyuiopasdfghjklzxcv"),
+]
+# The other direction: a key that names an identifier keeps its UUID, and a
+# key that names a credential keeps a value that is plainly not one.
+UUID_IDENTIFIERS = [
+    f"request_id: {_UUID}",
+    f"uuid: {_UUID}",
+    f"idempotency_key: {_UUID}",
+    f"cache_key: {_UUID}",
+    f"correlation_id={_UUID}",
+    "auth: oauth2-client-credentials-v3",
+    "token=https://example.com/oauth2/callback",
+    "Use bearer authentication for the API",
+]
+CREDENTIALS += [text for text, _ in UUID_CREDENTIALS]
+LEGITIMATE += UUID_IDENTIFIERS
+
+
+@pytest.mark.parametrize(("text", "secret"), UUID_CREDENTIALS, ids=lambda v: str(v)[:40])
+def test_round_five_uuid_and_bearer_credentials_are_redacted(text: str, secret: str) -> None:
+    from reflect_kb.issues.sanitize import sanitize
+
+    out = redact_secrets(text).text
+    assert secret not in out and "<REDACTED:" in out, out
+    assert secret not in sanitize(text).text
+
+
+@pytest.mark.parametrize("text", UUID_IDENTIFIERS)
+def test_round_five_identifier_keys_keep_their_uuid(text: str) -> None:
+    assert redact_secrets(text).text == text
+
 
 @pytest.mark.parametrize(("text", "secret"), PATTERN_GAPS, ids=lambda v: str(v)[:40])
 def test_round_four_pattern_gaps_are_redacted_in_both_postures(text: str, secret: str) -> None:

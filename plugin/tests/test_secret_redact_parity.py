@@ -46,7 +46,7 @@ def test_tables_and_rules_are_identical() -> None:
     for name in ("looks_like_credential", "_capture_keeps", "_random_segment", "_names_a_reference"):
         assert inspect.getsource(getattr(secret_redact, name)) == inspect.getsource(getattr(engine, name)), name
     for name in ("_UUID_VALUE_RE", "_DIGEST_RE", "_PLAIN_URL_RE", "_DOTTED_IDENT_RE", "_STRICT_KEY_RE",
-                 "_API_KEY_NAME_RE", "_SLUG_RE", "_ALL_CAPS_IDENT_RE", "_PATH_RE", "_NUMERAL_WORD_RE"):
+                 "_CREDENTIAL_KEY_RE", "_SLUG_RE", "_ALL_CAPS_IDENT_RE", "_PATH_RE", "_NUMERAL_WORD_RE"):
         assert getattr(secret_redact, name).pattern == getattr(engine, name).pattern, name
 
 
