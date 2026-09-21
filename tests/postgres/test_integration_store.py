@@ -201,7 +201,10 @@ def test_a_read_inside_a_caller_transaction_leaves_no_binding(conn, store) -> No
     import psycopg
 
     a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
-    store.insert_memory(InsertMemoryInput(tenant=a, content="caller transaction read note", source_type="note"))
+    # The evidence pack serves pinned rows only, so the fixture carries a pin.
+    store.insert_memory(InsertMemoryInput(tenant=a, content="caller transaction read note",
+                                          source_type="note",
+                                          source_uri=f"acme/widgets@{'a' * 40}:src/auth.rs"))
     with conn.transaction():
         hits = store.search_memory(SearchMemoryInput(tenant=a, query="caller transaction"))
         assert [h.item.content for h in hits] == ["caller transaction read note"]
@@ -250,6 +253,22 @@ def test_search_is_tenant_scoped(store) -> None:
 # --------------------------------------------------------------------------- #
 
 
+def test_the_evidence_pack_never_serves_an_unpinned_row(store) -> None:
+    """0007 filters unpinned rows inside the search function, before its limit,
+    so a page of unpinned matches cannot crowd out the pinned ones."""
+    a = Tenant(workspace_id=WS_A)
+    for i in range(3):
+        store.insert_memory(InsertMemoryInput(tenant=a, content=f"quokka unpinned {i}",
+                                              source_type="note", source_uri="notes/quokka.md"))
+    pinned = store.insert_memory(InsertMemoryInput(
+        tenant=a, content="quokka pinned", source_type="note",
+        source_uri=f"acme/widgets@{'c' * 40}:src/quokka.rs"))
+    pack = store.get_evidence_pack(EvidencePackQuery(tenant=a, query="quokka"))
+    assert [h.memory_id for h in pack.lexical] == [pinned.id]
+    # The plain search is unchanged: it still returns every row.
+    assert len(store.search_memory(SearchMemoryInput(tenant=a, query="quokka"))) == 4
+
+
 def test_evidence_pack_assembles_lexical_entities_graph_citations(store) -> None:
     a = Tenant(workspace_id=WS_A)
     item = store.insert_memory(
@@ -257,7 +276,8 @@ def test_evidence_pack_assembles_lexical_entities_graph_citations(store) -> None
             tenant=a,
             content="The auth middleware validates the token on every request",
             source_type="codebase_note",
-            source_uri="src/auth.rs",
+            # The pack serves pinned rows only: unpinned ones are filtered in SQL.
+            source_uri=f"acme/widgets@{'b' * 40}:src/auth.rs",
         )
     )
     auth = store.upsert_entity(

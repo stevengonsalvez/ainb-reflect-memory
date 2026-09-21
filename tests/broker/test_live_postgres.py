@@ -128,7 +128,9 @@ def test_broker_serves_pinned_evidence_for_the_token_tenant_only(
             "line_start": 2,
             "line_end": 5,
         }
-        assert body["meta"]["dropped"] == {"total": 2}  # one unpinned, one unresolvable
+        # The unpinned row never leaves SQL (0007 filters before the limit),
+        # so only the unresolvable pin is a drop the broker can count.
+        assert body["meta"]["dropped"] == {"total": 1}
         assert "Tenant B secret" not in r.text
 
         # Tenant B, same query: only B's row, and only because it is pinned.
