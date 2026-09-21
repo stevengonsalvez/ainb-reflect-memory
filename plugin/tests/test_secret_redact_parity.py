@@ -39,6 +39,15 @@ def test_tables_and_rules_are_identical() -> None:
     assert mine == theirs
     assert secret_redact._GENERIC_SECRET_RE.pattern == engine._GENERIC_SECRET_RE.pattern
     assert secret_redact._CAPTURE_EXEMPT_KEYS == engine._CAPTURE_EXEMPT_KEYS
+    # The capture decision is code, not a table: the vendored functions must
+    # be the engine's, line for line.
+    import inspect
+
+    for name in ("looks_like_credential", "_capture_keeps", "_random_segment", "_names_a_reference"):
+        assert inspect.getsource(getattr(secret_redact, name)) == inspect.getsource(getattr(engine, name)), name
+    for name in ("_UUID_VALUE_RE", "_DIGEST_RE", "_PLAIN_URL_RE", "_DOTTED_IDENT_RE", "_STRICT_KEY_RE",
+                 "_API_KEY_NAME_RE", "_SLUG_RE", "_ALL_CAPS_IDENT_RE", "_PATH_RE", "_NUMERAL_WORD_RE"):
+        assert getattr(secret_redact, name).pattern == getattr(engine, name).pattern, name
 
 
 @pytest.mark.parametrize("case", CASES.LEGITIMATE + CASES.CREDENTIALS + [JSON_LINE], ids=lambda c: c[:40])
@@ -59,3 +68,15 @@ def test_the_vendored_path_runs_when_the_engine_is_absent(monkeypatch) -> None:
     assert out == secret_redact._redact_local(sample)
     assert FAKE_TOKEN not in out and "AbCd1234" not in out
     assert json.loads(out.splitlines()[1])["api_key"] == "<REDACTED:generic_secret>"
+
+
+def test_vendored_patterns_compile_on_older_pythons() -> None:
+    """The drain hook can run the plugin under a system python older than
+    3.11 (a bare PATH on macOS resolves 3.9), where possessive quantifiers
+    and atomic groups are a re.error at import and the drain fails closed."""
+    import re
+
+    patterns = [p.pattern for p, _, _ in secret_redact._SECRET_PATTERNS] + [secret_redact._GENERIC_SECRET_RE.pattern]
+    patterns += [v.pattern for v in vars(secret_redact).values() if isinstance(v, re.Pattern)]
+    for pattern in patterns:
+        assert not re.search(r"(?<!\\)[+*?}]\+|\(\?>", pattern), pattern

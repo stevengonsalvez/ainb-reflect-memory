@@ -288,10 +288,24 @@ def _corpus() -> list[Path]:
     return [p for p in out if "secret" not in p.name and "transcript" not in p.name]
 
 
+# Real passwords in the corpus: the local test container's password sits in a
+# password slot, so the password-key and URL rules redact it by design.
+_CORPUS_CREDENTIALS = {
+    "docs/setup.md": [
+        ("POSTGRES_PASSWORD=reflect_test", "POSTGRES_PASSWORD=<REDACTED:generic_secret>"),
+        ("postgresql://postgres:reflect_test@", "postgresql://postgres:<REDACTED:url_password>@"),
+    ],
+}
+
+
 @pytest.mark.parametrize("path", _corpus(), ids=lambda p: str(p.relative_to(Path(__file__).resolve().parents[1])))
 def test_real_notes_pass_through_capture_redaction_unchanged(path: Path) -> None:
     text = path.read_text(encoding="utf-8")
-    assert redact_secrets(text).text == text, path
+    expected = text
+    for raw, clean in _CORPUS_CREDENTIALS.get(str(path.relative_to(Path(__file__).resolve().parents[1])), []):
+        assert raw in text, raw
+        expected = expected.replace(raw, clean)
+    assert redact_secrets(text).text == expected, path
 
 
 def test_corpus_is_large_enough_to_mean_something() -> None:
@@ -339,9 +353,9 @@ def test_explicit_sidecar_is_redacted_before_it_is_parsed_and_indexed(tmp_path: 
     assert GITHUB_TOKEN not in text and entities and GITHUB_TOKEN not in entities
     written = list((kb / learnings_cli.DOCUMENTS_DIR).glob("*.entities.yaml"))
     assert len(written) == 1 and GITHUB_TOKEN not in written[0].read_text(encoding="utf-8")
-    # The project-tree copies the skill wrote are rewritten clean in place.
-    assert GITHUB_TOKEN not in src.read_text(encoding="utf-8")
-    assert GITHUB_TOKEN not in sidecar.read_text(encoding="utf-8")
+    # The user's own files are never rewritten (item 5): only the KB copies are clean.
+    assert GITHUB_TOKEN in src.read_text(encoding="utf-8")
+    assert GITHUB_TOKEN in sidecar.read_text(encoding="utf-8")
 
 
 def test_force_replaces_the_note_stored_under_its_unredacted_id(tmp_path: Path, monkeypatch) -> None:
@@ -452,3 +466,218 @@ def test_fleet_dedupe_re_redacts_a_leaky_existing_note(tmp_path: Path, monkeypat
     assert second.deduped == 1 and second.imported == 0, second
     assert GITHUB_TOKEN not in note.read_text(encoding="utf-8")
 
+
+
+# --------------------------------------------------------------------------- #
+# Review round four: pattern gaps, over-redaction and bounded cost
+# --------------------------------------------------------------------------- #
+
+_UUID = "3b241101-e2bb-4255-8caf-4136c566a962"
+# (text, the credential that must not survive). Assembled at runtime.
+PATTERN_GAPS = [
+    ("DATABASE_URL=postgresql://app:" + "hunter2pass" + "@db.internal:5432/app", "hunter2pass"),
+    ("redis://:" + "s3cretpw" + "@cache:6379", "s3cretpw"),
+    ("https://deploy:" + "Tr0ub4dor" + "@git.example.com/org/repo.git", "Tr0ub4dor"),
+    ("-----BEGIN ENCRYPTED PRIVATE KEY-----\nMIIFHDBOBgkqhkiG9w0BBQ0w\n-----END ENCRYPTED PRIVATE KEY-----",
+     "MIIFHDBOBgkqhkiG9w0BBQ0w"),
+    ("-----BEGIN PGP PRIVATE KEY BLOCK-----\nlQOYBFzZ2x0BCADq\n-----END PGP PRIVATE KEY BLOCK-----", "lQOYBFzZ2x0BCADq"),
+    ("pasted: -----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmU\nand the paste stopped",
+     "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU"),
+    ('{\\"api_key\\": \\"' + "AbCd1234efgh5678ijklMNOP" + '\\"}', "AbCd1234efgh5678ijklMNOP"),
+    ("curl -H 'Authorization: Basic " + "dXNlcjpwYXNzd29yZA==" + "'", "dXNlcjpwYXNzd29yZA=="),
+    ("authorization: bearer " + "abcdef123456ghijkl", "abcdef123456ghijkl"),
+    ("password: " + "correcthorsebattery", "correcthorsebattery"),
+    ("DB_PASSWORD=" + "correct-horse-battery-staple", "correct-horse-battery-staple"),
+    ("passwd: " + "hunter2x", "hunter2x"),
+    ("client_secret: " + "abcdefghij", "abcdefghij"),
+    ("API_KEY=" + "ABCD_EFGH_IJKL_MNOP", "ABCD_EFGH_IJKL_MNOP"),
+    ("http://hooks.slack.com/services/" + "T000/B000/XXXXsecret", "XXXXsecret"),
+    ("https://discord.com/api/webhooks/" + "123456/abcDEF-ghi", "abcDEF-ghi"),
+    ("creds: " + "ASIA" + "IOSFODNN7EXAMPLE", "ASIA" + "IOSFODNN7EXAMPLE"),
+    ("whsec_" + "abcdefghijklmnopqrstuvwxyz012345", "abcdefghijklmnopqrstuvwxyz012345"),
+    ("hf_" + "abcdefghijklmnopqrstuvwxyzABCDEFGH", "abcdefghijklmnopqrstuvwxyzABCDEFGH"),
+    ("sk-" + "abc_def_ghi_jkl_mno_pqr_stu", "abc_def_ghi_jkl_mno_pqr_stu"),
+    ("HEROKU_API_KEY=" + _UUID, _UUID),
+    ("token=https://example.com/cb?access_token=" + "abc123def456ghi", "abc123def456ghi"),
+]
+NOT_SECRETS = [
+    "cache_key=user42:session",
+    "the idempotency key: req-2026-09-13-abc1",
+    "auth: oauth2-client-credentials-v3",
+    "foreign_key=users.id2fk_constraint",
+    "token=https://example.com/oauth2/callback",
+    "i18n key: settings.page.title2",
+    f"idempotencyKey: {_UUID}",
+    "key: sha256:" + "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "Use bearer authentication for the API",
+    "password = settings.db_password",
+    "password: ${DB_PASSWORD}",
+    "db_password = os.environ.get('DB_PASSWORD')",
+    "export REFLECT_PG_DSN=\"postgresql://USER:PASS@HOST:5432/DBNAME\"",
+    "postgresql://app:…@host/db",
+    "ssh://git@github.com/org/repo",
+]
+CREDENTIALS += [text for text, _ in PATTERN_GAPS]
+LEGITIMATE += NOT_SECRETS
+
+
+@pytest.mark.parametrize(("text", "secret"), PATTERN_GAPS, ids=lambda v: str(v)[:40])
+def test_round_four_pattern_gaps_are_redacted_in_both_postures(text: str, secret: str) -> None:
+    from reflect_kb.issues.sanitize import sanitize
+
+    out = redact_secrets(text).text
+    assert secret not in out and "<REDACTED:" in out, out
+    assert secret not in sanitize(text).text
+
+
+@pytest.mark.parametrize("text", NOT_SECRETS)
+def test_round_four_identifiers_are_not_redacted(text: str) -> None:
+    assert redact_secrets(text).text == text
+
+
+def test_url_password_keeps_the_scheme_user_and_host() -> None:
+    out = redact_secrets("postgresql://app:" + "hunter2pass" + "@db.internal:5432/app").text
+    assert out == "postgresql://app:<REDACTED:url_password>@db.internal:5432/app"
+
+
+def test_escaped_json_redaction_keeps_the_escaped_quotes() -> None:
+    import json
+
+    inner = json.dumps({"api_key": "AbCd1234efgh5678ijklMNOP", "tool": "reflect"})
+    outer = json.dumps({"message": inner})
+    parsed = json.loads(json.loads(redact_secrets(outer).text)["message"])
+    assert parsed == {"api_key": "<REDACTED:generic_secret>", "tool": "reflect"}
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "key_" * 20000,
+        "-----BEGIN RSA PRIVATE KEY-----\n" * 8000,
+        ("key_" * 64 + " ") * 2000,
+        "eyJ-" * 50000,
+        "local-part." * 20000,
+    ],
+    ids=["repeated-keyword-identifier", "unterminated-pem", "many-long-identifiers", "jwt-run", "email-run"],
+)
+def test_adversarial_inputs_redact_in_bounded_time(text: str) -> None:
+    """Item 8: each of these took 8 to 27 seconds before the patterns were
+    bounded. The limit is generous so a slow CI box does not flake."""
+    import time
+
+    from reflect_kb.issues.sanitize import sanitize
+
+    start = time.monotonic()
+    redact_secrets(text)
+    sanitize(text)
+    assert time.monotonic() - start < 2.0
+
+
+@pytest.mark.parametrize("confidence", ["high", "medium", "low"])
+def test_route_document_never_puts_a_title_secret_in_git_gh_or_the_queue(tmp_path: Path, confidence: str) -> None:
+    """Item 2: the file copy was redacted, but the title came from the raw
+    frontmatter and reached the commit message, branch, PR title and body
+    and the review-queue record."""
+    import subprocess
+
+    calls: list[list[str]] = []
+
+    def runner(cmd, cwd=None, check=True):
+        calls.append(list(cmd))
+        return subprocess.CompletedProcess(cmd, 0, stdout="https://example.com/pr/1\n" if cmd[0] == "gh" else "abc\n",
+                                           stderr="")
+
+    doc = tmp_path / "leak.md"
+    doc.write_text(f"---\ntitle: rotate {GITHUB_TOKEN} nightly\nconfidence: {confidence}\n---\n\nbody\n",
+                   encoding="utf-8")
+    queue = tmp_path / "queue"
+    result = write_flow.route_document(doc, team_root=tmp_path / "team", queue_dir=queue, git=runner, gh=runner,
+                                       gh_available=lambda: True)
+    assert GITHUB_TOKEN not in repr(calls), calls
+    assert GITHUB_TOKEN not in result.title and GITHUB_TOKEN not in (result.branch or "")
+    assert "<REDACTED:github_token>" in result.title
+    for path in queue.glob("*.yaml") if queue.exists() else []:
+        assert GITHUB_TOKEN not in path.read_text(encoding="utf-8")
+    if confidence == "medium":
+        assert any(c[:3] == ["gh", "pr", "create"] for c in calls)
+
+
+def test_reflect_add_leaves_the_source_file_byte_for_byte(tmp_path: Path, monkeypatch) -> None:
+    """Item 5: add used to overwrite the user's source with the redacted text
+    and keep no copy. The source stays as it was; the KB copy is clean and
+    the output says the source still carries the secret."""
+    kb = _kb(tmp_path, monkeypatch)
+    engine = _Engine()
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: engine)
+    src = tmp_path / "note.md"
+    src.write_text(_note_with_secrets(), encoding="utf-8")
+    before = src.read_bytes()
+    result = CliRunner().invoke(learnings_cli.cli, ["add", str(src)])
+    assert result.exit_code == 0, result.output
+    assert src.read_bytes() == before
+    assert "still contains the secret" in " ".join(result.output.split())
+    note = next((kb / learnings_cli.DOCUMENTS_DIR).glob("*.md")).read_text(encoding="utf-8")
+    assert all(secret not in note for secret in SECRETS)
+    assert GITHUB_TOKEN not in engine.calls[0][0]
+    # Nothing beside the source was created (no backup inside the project tree).
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["kb", "note.md"]
+
+
+def test_add_without_force_removes_the_copy_under_the_unredacted_id(tmp_path: Path, monkeypatch) -> None:
+    """Item 6: the leaked copy used to be removed only with --force."""
+    kb = _kb(tmp_path, monkeypatch)
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: _Engine())
+    raw = _note_with_secrets()
+    frontmatter, raw_body = learnings_cli.parse_frontmatter(raw)
+    old_id = learnings_cli.generate_document_id(frontmatter["title"], raw_body)
+    docs = kb / learnings_cli.DOCUMENTS_DIR
+    (docs / f"{old_id}.md").write_text(raw, encoding="utf-8")
+    (docs / f"{old_id}.entities.yaml").write_text("document_id: x\nentities: []\nrelationships: []\n", encoding="utf-8")
+    src = tmp_path / "note.md"
+    src.write_text(raw, encoding="utf-8")
+    result = CliRunner().invoke(learnings_cli.cli, ["add", str(src)])
+    assert result.exit_code == 0, result.output
+    assert not (docs / f"{old_id}.md").exists() and not (docs / f"{old_id}.entities.yaml").exists()
+    assert f"Removed {old_id}.md" in " ".join(result.output.split())
+    for path in docs.iterdir():
+        assert GITHUB_TOKEN not in path.read_text(encoding="utf-8"), path
+
+
+class _FailingBatchEngine:
+    def __init__(self) -> None:
+        self.events: list[str] = []
+        self.purged: list[list[str]] = []
+
+    shared_store_target = None
+
+    def local_only(self, text, label):
+        return label == "restricted"
+
+    def purge_local_only(self, notes):
+        self.events.append("purge")
+        self.purged.append(list(notes))
+        return len(notes)
+
+    def insert_documents_batch(self, batch):
+        self.events.append("batch")
+        raise RuntimeError("embedding service unavailable")
+
+
+def test_reindex_purges_relabelled_notes_even_when_the_batch_fails(tmp_path: Path, monkeypatch) -> None:
+    """Item 7: the purge ran only after a successful batch, so a batch error
+    left a note relabelled restricted in the shared store."""
+    kb = _kb(tmp_path, monkeypatch)
+    docs = kb / learnings_cli.DOCUMENTS_DIR
+    (docs / "secret-plan-aaaaaa.md").write_text(
+        "---\ntitle: secret plan\ncategory: ops\nkey_insight: k\nclassification: restricted\n---\n\nbody\n",
+        encoding="utf-8")
+    (docs / "open-note-bbbbbb.md").write_text(
+        "---\ntitle: open note\ncategory: ops\nkey_insight: k\nclassification: internal\n---\n\nbody\n",
+        encoding="utf-8")
+    engine = _FailingBatchEngine()
+    monkeypatch.setattr(learnings_cli, "_get_graph_engine", lambda: engine)
+    result = CliRunner().invoke(learnings_cli.cli, ["reindex"])
+    assert result.exit_code == 0, result.output
+    assert engine.events == ["purge", "batch"], engine.events
+    assert len(engine.purged[0]) == 1 and "secret plan" in engine.purged[0][0]
+    assert "Batch indexing error" in result.output
