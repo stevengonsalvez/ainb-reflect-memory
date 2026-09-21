@@ -207,9 +207,13 @@ def _scenario(home: Path, settings: dict | None) -> None:
     leaked = "example domain" in text or "<!doctype" in text
     curl_denied = any("curl" in (d.get("tool_input") or {}).get("command", "") for d in _bash_denials(denied))
     if EXPECTATION["curl_denied"]:
-        # A model that never tries curl proves nothing about the rules.
-        assert any("curl" in c for c in commands), f"the model never attempted curl: {commands} {text[:300]}"
-        assert curl_denied or not leaked, f"curl output reached the writer: {text[:300]}"
+        # A model that never tries curl proves nothing about the rules, but it
+        # is not a regression either: skip rather than redden the build, and
+        # never let a leak through on that path.
+        assert not leaked, f"curl output reached the writer: {text[:300]}"
+        if not any("curl" in c for c in commands):
+            pytest.skip(f"the model never attempted curl, so the denial was not exercised: {commands}")
+        assert curl_denied, f"curl ran and was not denied: {text[:300]}"
     else:
         # Baseline: no restriction is applied, so nothing is recorded as denied.
         assert not curl_denied, f"baseline expects no denial, got {_bash_denials(denied)}"
