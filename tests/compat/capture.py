@@ -232,8 +232,10 @@ class Capture:
     def _reindex_and_search(self) -> tuple[dict[str, Any], dict[str, Any]]:
         try:
             __import__("nano_graphrag")
-        except ImportError:
-            return {"skipped": "graph extra not installed"}, {"skipped": "graph extra not installed"}
+        except ImportError as exc:
+            # Recorded, not raised: the test fails on it in CI and skips locally.
+            reason = f"graph extra not installed ({exc})"
+            return {"skipped": reason}, {"skipped": reason}
         proc = self.run([str(self.reflect_bin), "reindex", "--force"])
         m = re.search(r"Indexed (\d+) documents", proc.stdout + proc.stderr)
         reindex = {"exit": proc.returncode, "indexed": int(m.group(1)) if m else None}

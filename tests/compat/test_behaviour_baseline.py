@@ -6,18 +6,19 @@ search in Mode 1, the SessionStart recall hook, the cascade slice and bounded
 input on a recorded transcript, and the extract writer with a canned model
 reply. The only whitelisted differences are (a) a text that equals the
 baseline text after redact_secrets, and (b) a text that equals the baseline
-after removing exactly one ``classification: internal`` line. Anything else
-is a diff.
+after removing exactly one ``classification: internal`` line from a
+frontmatter block that had no classification key. Anything else is a diff.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import pytest
 
-from .conftest import assert_same_as_baseline, refused_diffs
+from .conftest import FIXTURES, _in_ci, assert_same_as_baseline, refused_diffs
 
 try:  # the capture-side redactor lands in #38; main has no such function
     from reflect_kb.issues.sanitize import redact_secrets
@@ -26,21 +27,43 @@ except ImportError:  # pragma: no cover - main baseline
 
 FAKE_TOKEN = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
 _CLASSIFICATION_LINE = "classification: internal\n"
+_DELIMITER = re.compile(r"^---[ \t]*$", re.MULTILINE)
+_ANY_CLASSIFICATION = re.compile(r"^classification[ \t]*:", re.MULTILINE)
 
 
-def _strip_one_classification(text: str) -> str:
-    """Remove exactly one classification: internal line (frontmatter default)."""
-    idx = text.find(_CLASSIFICATION_LINE)
-    return text if idx < 0 else text[:idx] + text[idx + len(_CLASSIFICATION_LINE):]
+def _unlabelled_block_around(text: str, idx: int) -> bool:
+    """True when ``idx`` sits inside a ``---`` delimited block of ``text``
+    that names no classification key. Outside any block, fail closed."""
+    opening = [m for m in _DELIMITER.finditer(text, 0, idx)]
+    closing = _DELIMITER.search(text, idx)
+    if not opening or closing is None or len(opening) % 2 == 0:
+        return False
+    return _ANY_CLASSIFICATION.search(text, opening[-1].end(), closing.start()) is None
+
+
+def _label_added_to_unlabelled_note(old: str, new: str) -> bool:
+    """``new`` is ``old`` plus exactly one ``classification: internal`` line,
+    inserted into a frontmatter block that had no classification key. A line
+    added next to an existing label (restricted, say) is a relabel, not the
+    default being written out."""
+    start = new.find(_CLASSIFICATION_LINE)
+    while start >= 0:
+        stripped = new[:start] + new[start + len(_CLASSIFICATION_LINE):]
+        if stripped == old and _unlabelled_block_around(old, start):
+            return True
+        start = new.find(_CLASSIFICATION_LINE, start + 1)
+    return False
 
 
 def redaction_or_classification(key: str, old, new) -> bool:
     if not isinstance(old, str) or not isinstance(new, str):
         return False
-    candidate = _strip_one_classification(new) if new.count(_CLASSIFICATION_LINE) == old.count(_CLASSIFICATION_LINE) + 1 else new
-    if candidate == old:
+    if new == old or _label_added_to_unlabelled_note(old, new):
         return True
-    return redact_secrets is not None and candidate == redact_secrets(old).text
+    if redact_secrets is None:
+        return False
+    redacted = redact_secrets(old).text
+    return new == redacted or _label_added_to_unlabelled_note(redacted, new)
 
 
 ALLOWED_BEHAVIOUR_DIFF = redaction_or_classification
@@ -124,6 +147,10 @@ def test_reflect_add_legacy_and_secret_notes(behaviour, baseline_tree) -> None:
 def test_reindex_and_search_mode1(behaviour) -> None:
     baseline, branch = behaviour
     if "skipped" in branch["reindex"]:
+        # CI installs the graph extra; a capture that could not import it
+        # would compare two identical skip markers and pass having run nothing.
+        if _in_ci():
+            pytest.fail(f"reindex capture did not run in CI: {branch['reindex']['skipped']}")
         pytest.skip(branch["reindex"]["skipped"])
     assert branch["reindex"]["exit"] == 0 and branch["reindex"]["indexed"], branch["reindex"]
     assert branch["search"]["ranked"], "search returned no ranked notes for the fixture query"
@@ -246,3 +273,20 @@ def test_whitelist_refuses_any_other_edit(behaviour) -> None:
     assert any(k == f"added.{name}" for k, _, _ in refused), refused
     assert not redaction_or_classification("x", "a: 1\nb: 2\n", "a: 1\n")
     assert not redaction_or_classification("x", "a\n", "a\nclassification: internal\nclassification: internal\n")
+
+
+def test_whitelist_accepts_a_label_only_where_the_note_had_none() -> None:
+    """A default label written into an unlabelled note is whitelisted; the
+    same line added to a note that already carries a label (the restricted
+    fixture) is a relabel and must be a diff, wherever it lands."""
+    restricted = (FIXTURES / "restricted-note.md").read_text(encoding="utf-8")
+    legacy = (FIXTURES / "legacy-note-with-secret.md").read_text(encoding="utf-8")
+    assert "classification: restricted\n" in restricted and "classification" not in legacy
+    line = "classification: internal\n"
+    assert redaction_or_classification("added.legacy.md", legacy, legacy.replace("category:", line + "category:", 1))
+    for anchor in ("classification: restricted\n", "title:", "confidence:"):
+        downgraded = restricted.replace(anchor, line + anchor, 1)
+        assert downgraded != restricted
+        assert not redaction_or_classification("added.restricted.md", restricted, downgraded), anchor
+    # Outside the frontmatter block the line is body text, never a label default.
+    assert not redaction_or_classification("added.legacy.md", legacy, legacy.replace("## Solution", line + "## Solution", 1))

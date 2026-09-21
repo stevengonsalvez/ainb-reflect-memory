@@ -260,6 +260,7 @@ def test_installed_rules_carry_no_path_and_the_guard_exists(harness: str, home: 
     assert len(flag_values(argv, "--model")) == 1
     assert len(flag_values(argv, "--max-turns")) == 1
     rules, guard, _ = _guard_and_rules(lib, clean_env(home))
+    assert rules, f"the {harness} writer argv grants no permission rules; the path checks below would pass vacuously"
     # One command surface: the rules name no path, so no layout can make the
     # rule and the command the skill spells differ.
     assert absolute_paths_in_rules(rules) == set(), rules
@@ -286,7 +287,7 @@ def test_symlinked_home_renders_and_rules_the_same(tmp_path: Path) -> None:
     lib = _installed_lib("claude", harness_dir)
     rules_link, guard_link, settings_link = _guard_and_rules(lib, clean_env(link))
     rules_real, guard_real, settings_real = _guard_and_rules(real / ".claude" / "skills" / "reflect" / "hooks" / "lib" / "writer_argv.sh", clean_env(real))
-    assert rules_link == rules_real and absolute_paths_in_rules(rules_link) == set()
+    assert rules_real and rules_link == rules_real and absolute_paths_in_rules(rules_link) == set()
     assert settings_link["permissions"] == settings_real["permissions"]
     assert guard_link.is_file() and guard_real.is_file()
     assert guard_link.resolve() == guard_real.resolve()
@@ -306,7 +307,7 @@ def test_plugin_runtime_addendum_and_guard_match_the_checkout(home: Path) -> Non
     addendum = _lib_value(WRITER_ARGV_LIB, 'drain_writer_prompt ""', env)
     assert "reflect skill-step index <note> <sidecar>" in addendum
     rules, guard, _ = _guard_and_rules(WRITER_ARGV_LIB, env)
-    assert absolute_paths_in_rules(rules) == set() and guard == (PLUGIN / "scripts" / "drain_guard.py").resolve()
+    assert rules and absolute_paths_in_rules(rules) == set() and guard == (PLUGIN / "scripts" / "drain_guard.py").resolve()
     raw = (PLUGIN / "skills" / "reflect" / "SKILL.md").read_text(encoding="utf-8")
     assert "{{HOME_TOOL_DIR}}/skills/reflect/scripts" not in raw
     assert "reflect skill-step index docs/solutions/" in raw

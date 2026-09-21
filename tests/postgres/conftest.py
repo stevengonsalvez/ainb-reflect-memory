@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import pathlib
 
 import pytest
-from _support.pg import WS_A, WS_B, connect_or_skip, disposable_database  # noqa: F401
+from _support.pg import WS_A, WS_B, _in_ci, connect_or_skip, disposable_database  # noqa: F401
 
 _MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
 _ALL_MIGRATIONS = sorted(_MIGRATIONS.glob("*.sql"))  # every file, name order
@@ -31,11 +32,14 @@ def _migrated_dsn():
                     for path in _ALL_MIGRATIONS:
                         cur.execute(path.read_text())
                 except Exception as exc:  # noqa: BLE001, e.g. pgvector missing
+                    # CI provisions pgvector: a migration that fails there must
+                    # fail the tier, never skip every integration test green.
+                    if _in_ci(os.environ):
+                        pytest.fail(f"migrations did not apply ({exc})")
                     pytest.skip(f"migrations did not apply ({exc})")
         finally:
             conn.close()
         yield dsn
-
 
 
 # Alias used by the nano-graphrag tests.

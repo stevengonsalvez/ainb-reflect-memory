@@ -119,6 +119,9 @@ def _env_for(mode: str, home: Path, settings: dict | None) -> dict[str, str]:
         # the e2e scenario records what a run stages under the real ~/.reflect
         # and ~/.learnings and removes it afterwards.
         env = dict(os.environ)
+        # Never point a live run at the operator's shared store.
+        env.pop("REFLECT_PG_DSN", None)
+        env.pop("REFLECT_WORKSPACE_ID", None)
         env["REFLECT_STATE_DIR"] = str(home / ".reflect")
         env["GLOBAL_LEARNINGS_PATH"] = str(home / ".learnings")
         env["REFLECT_DRAIN_NO_DELEGATE"] = "1"
@@ -169,6 +172,28 @@ def _bash_denials(envelope: dict) -> list[dict]:
     return [d for d in envelope.get("permission_denials", []) if d.get("tool_name") == "Bash"]
 
 
+def _bash_commands(argv: list[str], env: dict[str, str], cwd: Path) -> tuple[dict, list[str]]:
+    """The result envelope and every Bash command the model asked to run,
+    read from the event stream (denied calls included)."""
+    argv = replace_flag_value(argv, "--output-format", "stream-json") + ["--verbose"]
+    proc = run(argv, env=env, cwd=cwd, timeout=240)
+    commands, result = [], {}
+    for line in proc.stdout.splitlines():
+        try:
+            event = json.loads(line)
+        except ValueError:
+            continue
+        if event.get("type") == "assistant":
+            commands += [str((b.get("input") or {}).get("command", "")) for b in event.get("message", {}).get("content", [])
+                         if b.get("type") == "tool_use" and b.get("name") == "Bash"]
+        if event.get("type") == "result":
+            result = event
+    assert result, f"no result event from claude -p: exit={proc.returncode} {proc.stderr[-400:]}"
+    assert result.get("terminal_reason") != "api_error", result.get("result")
+    assert float(result.get("total_cost_usd") or 0) < MAX_COST_USD, result.get("total_cost_usd")
+    return result, commands
+
+
 def _scenario(home: Path, settings: dict | None) -> None:
     mode = require_live()
     env = _env_for(mode, home, settings)
@@ -177,11 +202,13 @@ def _scenario(home: Path, settings: dict | None) -> None:
     result = str(granted.get("result") or "")
     assert "DONE" in result, result[:300]
 
-    denied = _envelope(_argv(env, DENY_PROMPT), env, home)
+    denied, commands = _bash_commands(_argv(env, DENY_PROMPT), env, home)
     text = str(denied.get("result") or "").lower()
     leaked = "example domain" in text or "<!doctype" in text
     curl_denied = any("curl" in (d.get("tool_input") or {}).get("command", "") for d in _bash_denials(denied))
     if EXPECTATION["curl_denied"]:
+        # A model that never tries curl proves nothing about the rules.
+        assert any("curl" in c for c in commands), f"the model never attempted curl: {commands} {text[:300]}"
         assert curl_denied or not leaked, f"curl output reached the writer: {text[:300]}"
     else:
         # Baseline: no restriction is applied, so nothing is recorded as denied.

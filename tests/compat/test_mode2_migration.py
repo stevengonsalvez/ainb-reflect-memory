@@ -25,7 +25,7 @@ from contextlib import contextmanager
 import pytest
 from _support.pg import WS_A, WS_B, connect_or_skip
 
-from .conftest import REPO
+from .conftest import REPO, _in_ci
 
 pytestmark = pytest.mark.integration
 
@@ -62,6 +62,9 @@ def pg(disposable_pg):
         try:
             cur.execute(M[2].read_text())
         except Exception as exc:  # noqa: BLE001
+            # CI provisions pgvector, so a failure there is a broken gate, not a skip.
+            if _in_ci():
+                pytest.fail(f"0002 did not apply (pgvector?): {exc}")
             pytest.skip(f"0002 did not apply (pgvector?): {exc}")
     yield conn, dsn
     conn.close()
@@ -303,6 +306,7 @@ def test_owner_login_dsn_writes_and_reads_back_through_memory_store(pg) -> None:
         try:
             with owner.cursor() as oc:
                 _assert_not_superuser(oc)
+            owner.commit()  # the store writes on an idle connection, never inside a caller's transaction
             store = MemoryStore(owner)
             for ws, text in ((WS_A, "tenant a jwt expiry note"), (WS_B, "tenant b jwt expiry note")):
                 tenant = Tenant(workspace_id=ws, agent_id=None)
@@ -427,6 +431,7 @@ def test_0004_creates_the_broker_and_writer_roles(pg) -> None:
         try:
             with writer.cursor() as wc:
                 _assert_not_superuser(wc)
+            writer.commit()
             item = MemoryStore(writer).insert_memory(InsertMemoryInput(
                 tenant=Tenant(workspace_id=WS_A, agent_id=None), content="written by the writer role", source_type="note"))
             assert item.workspace_id == WS_A
@@ -525,3 +530,34 @@ def _no_seeder_scenario(conn, dsn, tmp_path, reflect_bin, writer_role, CHECKOUT,
     assert body["lexical"][0]["source_uri"] == f"acme/widgets@{sha}:src/auth.rs"
     assert body["meta"]["dropped"] == {} or not any(body["meta"]["dropped"].values()), body["meta"]
 
+
+
+def test_restricted_fixture_is_excluded_from_the_mode2_index_count(pg, tmp_path) -> None:
+    """The floor applies only on the shared store (Mode 1 indexes every note by
+    design, so the Mode 1 capture cannot show it): of the legacy note and the
+    restricted fixture, the Mode 2 engine indexes one, and nothing of the
+    restricted note reaches any ng_* table."""
+    pytest.importorskip("nano_graphrag")
+    pytest.importorskip("networkx")
+    import sys
+
+    from .conftest import FIXTURES
+
+    conn, dsn = pg
+    with conn.cursor() as cur:
+        _apply_all(cur)
+    sys.path.insert(0, str(REPO / "tests" / "postgres" / "nanographrag"))
+    from test_floor_before_chunking import _engine
+
+    legacy = (FIXTURES / "legacy-note-with-secret.md").read_text(encoding="utf-8")
+    restricted = (FIXTURES / "restricted-note.md").read_text(encoding="utf-8")
+    engine = _engine(tmp_path, dsn)
+    assert engine.local_only(restricted) and not engine.local_only(legacy)
+    assert engine.insert_documents_batch([(legacy, None), (restricted, None)]) == 1
+    with conn.cursor() as cur:
+        for table in ("ng_kv", "ng_graph_nodes", "ng_graph_edges", "ng_vectors"):
+            cur.execute(f"select count(*) as n from reflect_memory.{table} t where t::text ilike %s",
+                        ("%restricted-bridge-4417%",))
+            assert cur.fetchone()["n"] == 0, table
+        cur.execute("select count(*) as n from reflect_memory.ng_kv where namespace = 'full_docs'")
+        assert cur.fetchone()["n"] == 1
