@@ -2308,6 +2308,7 @@ def add_observation(
     :func:`add_observation_evidence`.
     """
     conn = conn or get_conn()
+    content = _redact_text(content)
     oid = _new_id()
     ids = _dedupe_source_ids(source_correction_ids)
     now = _now_iso()
@@ -2486,7 +2487,7 @@ def add_observation_evidence(
     incoming = _dedupe_source_ids(source_correction_ids)
     fresh = [cid for cid in incoming if cid not in existing]
 
-    new_content = (content or "").strip()
+    new_content = _redact_text((content or "").strip())
     content_changed = bool(new_content) and new_content != row["content"]
 
     if incoming and not fresh and not content_changed:
@@ -2735,6 +2736,7 @@ def upsert_persona_field(
     Returns the resulting row as a dict (``created`` True on insert).
     """
     conn = conn or get_conn()
+    value = _redact_text(value)
     now = _now_iso()
     existing = get_persona_field(project_id, field_name, conn=conn)
     incoming = _dedupe_source_ids(source_observation_ids)
@@ -2882,6 +2884,7 @@ def add_proposal(
 ) -> str:
     """Insert a new proposal. Returns the generated id."""
     conn = conn or get_conn()
+    diff = _redact_text(diff)
     pid = _new_id()
     serialized_rationale = (
         rationale_json
@@ -3462,6 +3465,8 @@ def add_recall_event(
     rid = _new_id()
     now = _now_iso()
     effective_query_hash = query_hash or _stable_text_hash(query)
+    # Hashed first so the hash still groups the same query; only the text is stored redacted.
+    query = _redact_text(query)
     feedback = feedback.strip().lower()
 
     update_parts = [
@@ -3644,7 +3649,7 @@ def record_recall_search(
                 age = (datetime.now(UTC) - prior_at).total_seconds()
                 followup = (
                     0 <= age <= window
-                    and prior["query"] != query
+                    and prior["query"] != _redact_text(query)  # stored redacted
                     and prior["learning_ids"].isdisjoint(ordered)
                 )
 
@@ -4621,6 +4626,7 @@ def _write_slot_content(
     action: str,
 ) -> dict[str, Any]:
     """Persist *content* into *slot* and audit the edit (shared UPDATE path)."""
+    content = _redact_text(content)
     now = _now_iso()
     with conn:
         conn.execute(
@@ -4749,7 +4755,9 @@ def slot_auto_append(
     if slot is None or slot["read_only"]:
         return False
     existing = set(slot["content"].split("\n"))
-    fresh = [ln for ln in lines if ln and ln not in existing]
+    # Redacted before the tail cut, so truncation cannot leave half a secret
+    # the rules no longer recognise.
+    fresh = [ln for ln in (_redact_text(ln) for ln in lines) if ln and ln not in existing]
     if not fresh:
         return False
     sep = "\n" if slot["content"] and not slot["content"].endswith("\n") else ""
@@ -4776,7 +4784,8 @@ def slot_auto_replace(
     slot = get_slot(label, project_id=project_id, conn=conn)
     if slot is None or slot["read_only"]:
         return False
-    capped = content[: slot["size_limit"]]
+    # Redacted before the cut, for the same reason as slot_auto_append.
+    capped = _redact_text(content)[: slot["size_limit"]]
     if capped == slot["content"]:
         return False
     _write_slot_content(conn, slot, capped, "auto_replace")

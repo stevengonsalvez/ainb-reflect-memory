@@ -96,3 +96,47 @@ def test_skill_summary_is_redacted() -> None:
     import skill_index
 
     assert FAKE_TOKEN not in skill_index._summarize(f"uses {FAKE_TOKEN} for the registry")
+
+
+def test_every_free_text_writer_redacts_at_the_database_boundary(tmp_path, monkeypatch) -> None:
+    """Review round four, item 9: only add_learning redacted. Observations,
+    persona values, proposal diffs, slot content and recall queries were
+    stored raw. Nothing in any table (events included) may carry the token."""
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("REFLECT_DB_PATH", str(tmp_path / "reflect.db"))
+    import importlib
+
+    import reflect_config
+    import reflect_db
+
+    importlib.reload(reflect_config)
+    importlib.reload(reflect_db)
+    assert reflect_db.db_path() == tmp_path / "reflect.db", reflect_db.db_path()
+    conn = reflect_db.get_conn()
+    leak = f"export GH={FAKE_TOKEN}"
+
+    lid = reflect_db.add_learning(title="rotate nightly", category="ops", source_quote="q", conn=conn)
+    oid = reflect_db.add_observation(f"team rotates tokens: {leak}", conn=conn)
+    assert reflect_db.add_observation_evidence(oid, ["c1"], content=f"team rotates tokens nightly: {leak}", conn=conn)
+    reflect_db.upsert_persona_field("proj", "deploy", f"uses {leak}", conn=conn)
+    reflect_db.upsert_persona_field("proj", "deploy", f"still uses {leak}", source_observation_ids=[oid], conn=conn)
+    reflect_db.add_proposal(lid, "agents/ops.md", f"+ {leak}\n", conn=conn)
+    reflect_db.ensure_default_slots("proj", conn=conn)
+    assert reflect_db.slot_replace("guidance", f"hazard: {leak}", project_id="proj", conn=conn)["ok"]
+    assert reflect_db.slot_append("guidance", f"again {leak}", project_id="proj", conn=conn)["ok"]
+    assert reflect_db.slot_auto_append("project_context", [f"auto {leak}"], project_id="proj", conn=conn)
+    assert reflect_db.slot_auto_replace("user_preferences", f"prefs {leak}", conn=conn)
+    first = reflect_db.record_recall_search(f"why does {leak} fail", [lid], session_id="s1", conn=conn)
+    assert first["recall_event_ids"]
+    # The same query again is a retry, not a followup, although the stored text is redacted.
+    lid2 = reflect_db.add_learning(title="other", category="ops", source_quote="q2", conn=conn)
+    again = reflect_db.record_recall_search(f"why does {leak} fail", [lid2], session_id="s1", conn=conn)
+    assert again["followup"] is False
+    conn.commit()
+
+    dump = "\n".join(conn.iterdump())
+    assert FAKE_TOKEN not in dump
+    for table, column in (("observations", "content"), ("project_persona", "value"), ("proposals", "diff"),
+                          ("slots", "content"), ("recall_events", "query")):
+        cells = [r[0] for r in conn.execute(f"select {column} from {table}").fetchall()]
+        assert any("<REDACTED:github_token>" in (c or "") for c in cells), table
