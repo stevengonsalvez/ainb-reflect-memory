@@ -22,7 +22,11 @@ WS = "0aaaaaaa-0000-4000-8000-00000000aaaa"
 def _sql(conn, text, params=()):
     with conn.cursor() as cur:
         cur.execute(text, params)
-        return cur.fetchall()
+        rows = cur.fetchall()
+    # A raw read opens a transaction on this non-autocommit connection; end
+    # it, because the store refuses to write inside a caller's transaction.
+    conn.rollback()
+    return rows
 
 
 def test_a_wildcard_query_is_not_an_enumeration_oracle(conn, store) -> None:

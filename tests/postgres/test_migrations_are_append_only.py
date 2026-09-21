@@ -19,6 +19,7 @@ SHIPPED = {
     "0004_broker_and_writer_roles.sql": "752bd7c357bbef93e1714d65e00f3c20e05ea2261ef3795a767d98e6e976208a",
     "0005_rls_policies_initplan.sql": "6cbcd01b1706888fc4547642050c5b3f4c9be9659b25ab48fd0f27f37326275a",
     "0006_read_functions_shareable_floor.sql": "4cea78e5f994f1fa22ff23397f5557f23c102833acacb0af91e0cc6e3708d2f6",
+    "0007_search_pinned_memory.sql": "ece725dc29c88ee85f8e4eb067cfe65d7b1407bc02041f90226eb571923a6dd4",
 }
 
 

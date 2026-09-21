@@ -81,6 +81,7 @@ here instead of repeating it. Each file is plain SQL and re-runnable
 | 4 | `0004_broker_and_writer_roles.sql` | 1 to 3 applied; no session settings, no secrets | the `reflect_broker` and `reflect_writer` roles, NOLOGIN, grants only (see "Roles" below); their passwords come from the provisioning step |
 | 5 | `0005_rls_policies_initplan.sql` | 1 to 3 applied | every policy evaluates the tenant resolver once per statement (an InitPlan) instead of once per row under FORCE RLS |
 | 6 | `0006_read_functions_shareable_floor.sql` | 1 to 5 applied | the read functions: `is_shareable(jsonb)` composed into every entity-returning query, literal substring entity search (`%` and `_` are characters), an index-friendly neighbourhood walk |
+| 7 | `0007_search_pinned_memory.sql` | 1 to 6 applied (4 for the broker grant) | `search_pinned_memory`: lexical search over only rows whose `source_uri` is a `repo@sha:path` pin, filtered before `limit`; granted to `reflect_broker`, not yet called by the broker (`search_memory` is unchanged) |
 
 **Option A, psql (works anywhere).** One invocation, the files in order;
 `ON_ERROR_STOP` makes psql exit non-zero at the first failing statement and
@@ -93,7 +94,8 @@ psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/0003_classification_force_rls.sql \
   -f supabase/migrations/0004_broker_and_writer_roles.sql \
   -f supabase/migrations/0005_rls_policies_initplan.sql \
-  -f supabase/migrations/0006_read_functions_shareable_floor.sql
+  -f supabase/migrations/0006_read_functions_shareable_floor.sql \
+  -f supabase/migrations/0007_search_pinned_memory.sql
 ```
 
 The table and the block above are checked against `ls supabase/migrations`

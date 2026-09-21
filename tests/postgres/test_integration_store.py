@@ -165,6 +165,55 @@ def test_every_call_ends_its_own_transaction_and_unbinds(conn, store) -> None:
     assert store.search_memory(SearchMemoryInput(tenant=a, query="idle")), "the connection is unusable after a failure"
 
 
+def test_a_write_inside_a_caller_transaction_fails_closed(conn, store) -> None:
+    """Inside a transaction the caller opened, conn.transaction() is only a
+    savepoint: a write would not commit with the call and SET LOCAL would
+    stay bound. The store refuses the write before binding anything."""
+    import psycopg
+
+    from reflect_kb.postgres.store import CallerTransactionError
+
+    a = Tenant(workspace_id=WS_A)
+    for opener in ("block", "implicit"):
+        if opener == "block":
+            ctx = conn.transaction()
+            ctx.__enter__()
+        else:
+            conn.execute("select 1")  # non-autocommit: opens a transaction implicitly
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.INTRANS
+        with pytest.raises(CallerTransactionError, match="inside a transaction"):
+            store.insert_memory(InsertMemoryInput(tenant=a, content=f"never persisted {opener}", source_type="note"))
+        bound = conn.execute("select current_setting('app.current_workspace', true) as ws").fetchone()["ws"]
+        assert (bound or "") == "", f"{opener}: tenant bound after a refused write"
+        if opener == "block":
+            ctx.__exit__(None, None, None)
+        else:
+            conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("select count(*) as n from reflect_memory.memory_items where content like 'never persisted%%'")
+        assert cur.fetchone()["n"] == 0
+    conn.commit()
+
+
+def test_a_read_inside_a_caller_transaction_leaves_no_binding(conn, store) -> None:
+    """The broker wraps a request in one transaction and reads through the
+    store: reads still work there, and each one drops its binding."""
+    import psycopg
+
+    a, b = Tenant(workspace_id=WS_A), Tenant(workspace_id=WS_B)
+    store.insert_memory(InsertMemoryInput(tenant=a, content="caller transaction read note", source_type="note"))
+    with conn.transaction():
+        hits = store.search_memory(SearchMemoryInput(tenant=a, query="caller transaction"))
+        assert [h.item.content for h in hits] == ["caller transaction read note"]
+        assert store.search_memory(SearchMemoryInput(tenant=b, query="caller transaction")) == []
+        pack = store.get_evidence_pack(EvidencePackQuery(tenant=a, query="caller transaction"))
+        assert len(pack.lexical) == 1
+        assert conn.info.transaction_status == psycopg.pq.TransactionStatus.INTRANS
+        bound = conn.execute("select current_setting('app.current_workspace', true) as ws").fetchone()["ws"]
+        assert (bound or "") == "", "a read left the tenant bound inside the caller's transaction"
+    assert conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE
+
+
 def test_cross_tenant_edge_is_physically_rejected(store) -> None:
     import psycopg
 

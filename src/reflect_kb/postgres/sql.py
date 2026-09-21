@@ -40,6 +40,7 @@ __all__ = [
     "SCHEMA",
     "insert_memory",
     "search_memory",
+    "search_pinned_memory",
     "upsert_entity",
     "upsert_edge",
     "search_entities",
@@ -187,6 +188,16 @@ def search_memory(inp: SearchMemoryInput) -> SqlAndParams:
         inp.min_rank,
     ]
     return sql, params
+
+
+def search_pinned_memory(inp: SearchMemoryInput) -> SqlAndParams:
+    """As :func:`search_memory`, but only rows whose ``source_uri`` carries a
+    ``repo@sha:path`` pin, filtered inside the function before its LIMIT: the
+    broker serves pinned evidence only, and dropping unpinned rows afterwards
+    would hand back an empty page whenever the top matches are unpinned.
+    """
+    sql, params = search_memory(inp)
+    return sql.replace(f"{SCHEMA}.search_memory(", f"{SCHEMA}.search_pinned_memory("), params
 
 
 def search_entities(tenant: Tenant, query: str, limit: int) -> SqlAndParams:

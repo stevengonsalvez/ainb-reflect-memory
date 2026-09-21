@@ -21,9 +21,15 @@ Connection contract
     conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
     store = MemoryStore(conn)
 
-The store calls ``conn.commit()`` after writes when the connection exposes it
-(no-op under autocommit). It never closes the connection — the caller owns its
-lifecycle.
+On a psycopg connection every write runs in its own transaction, committed
+when the call returns, so the connection must be idle when a write starts: a
+write inside a transaction the caller opened would commit only with that
+transaction and leave the tenant bound until it ends, so it raises
+:class:`CallerTransactionError` instead. A read may run inside the caller's
+transaction (the broker wraps a request in one); it runs in a savepoint that
+is rolled back afterwards, which drops the tenant binding again. On a plain
+DB-API connection the store calls ``conn.commit()`` after each call. It never
+closes the connection; the caller owns its lifecycle.
 """
 
 from __future__ import annotations
@@ -33,6 +39,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from . import sql
+from .errors import ReflectMemoryError
 from .models import (
     Citation,
     Edge,
@@ -50,7 +57,11 @@ from .models import (
     UpsertEntityInput,
 )
 
-__all__ = ["MemoryStore"]
+__all__ = ["CallerTransactionError", "MemoryStore"]
+
+
+class CallerTransactionError(ReflectMemoryError):
+    """A store write was called inside a transaction the caller opened."""
 
 
 class MemoryStore:
@@ -79,7 +90,7 @@ class MemoryStore:
             commit()
 
     @contextmanager
-    def _scoped(self, tenant: Any) -> Iterator[None]:
+    def _scoped(self, tenant: Any, *, read_only: bool = False) -> Iterator[None]:
         """Run the enclosed statements with ``app.current_workspace`` bound to
         ``tenant`` for this transaction only (``SET LOCAL``, is_local=true).
 
@@ -87,30 +98,46 @@ class MemoryStore:
         is subject to the policies, so an unbound write fails; binding per
         call keeps the documented worker DSN working while the explicit
         ``workspace_id`` parameters remain the first layer. The binding is
-        transaction-local on purpose: it is gone after the commit or rollback
-        that ends the call, so nothing is cached that a rollback could
-        invalidate, and a pooled connection never carries a workspace into
-        its next user (an unbound GUC denies every row, the fail-closed
-        default). Every call runs in its own transaction that ends with the
-        call (commit, or rollback on an exception), so the connection is
-        idle between calls and never stays aborted.
+        transaction-local on purpose, so a pooled connection never carries a
+        workspace into its next user (an unbound GUC denies every row, the
+        fail-closed default).
+
+        On an idle connection the call runs in its own transaction, committed
+        (or rolled back on an exception) when it returns. Inside a transaction
+        the caller opened, ``conn.transaction()`` is only a savepoint: nothing
+        would commit and the binding would outlive the call. A write there
+        raises :class:`CallerTransactionError`; a read runs in a savepoint
+        that is rolled back after the rows are fetched, which restores the
+        caller's binding exactly.
         """
         workspace_id = str(tenant.workspace_id)
         transaction = getattr(self._conn, "transaction", None)
-        if callable(transaction):
-            # psycopg3: one transaction per call whatever the autocommit
-            # setting, committed (or rolled back on an exception) when the
-            # block ends, so the connection never sits idle-in-transaction
-            # with the tenant still bound and never stays aborted.
+        if not callable(transaction):
+            self._set_local(workspace_id)
+            try:
+                yield
+            finally:
+                self._commit()
+            return
+        import psycopg
+
+        status = self._conn.info.transaction_status
+        if status == psycopg.pq.TransactionStatus.IDLE:
             with transaction():
                 self._set_local(workspace_id)
                 yield
             return
-        self._set_local(workspace_id)
-        try:
+        if not read_only or status != psycopg.pq.TransactionStatus.INTRANS:
+            what = "read" if read_only else "write"
+            raise CallerTransactionError(
+                f"MemoryStore {what} called on a connection that is {status.name}, inside a transaction "
+                "the caller opened: a write would not commit and the tenant binding would outlive the "
+                "call. Commit or roll back first, or pass an idle connection."
+            )
+        with transaction():
+            self._set_local(workspace_id)
             yield
-        finally:
-            self._commit()
+            raise psycopg.Rollback()
 
     def _set_local(self, workspace_id: str) -> None:
         with self._conn.cursor() as cur:
@@ -149,7 +176,7 @@ class MemoryStore:
     def search_memory(self, inp: SearchMemoryInput) -> list[SearchResult]:
         """Ranked full-text search within the tenant."""
         sql_text, params = sql.search_memory(inp)
-        with self._scoped(inp.tenant):
+        with self._scoped(inp.tenant, read_only=True):
             rows = self._fetchall(sql_text, params)
         return [
             SearchResult(
@@ -163,7 +190,7 @@ class MemoryStore:
     def lookup_entities(self, tenant, query: str, limit: int = 10) -> list[EntityHit]:
         """Fuzzy entity lookup by canonical name / alias within the tenant."""
         sql_text, params = sql.search_entities(tenant, query, limit)
-        with self._scoped(tenant):
+        with self._scoped(tenant, read_only=True):
             rows = self._fetchall(sql_text, params)
         return [
             EntityHit(
@@ -178,7 +205,7 @@ class MemoryStore:
     def neighborhood(self, tenant, entity_id: str, depth: int = 1) -> GraphNeighborhood:
         """Entities + edges within ``depth`` hops of ``entity_id`` (same tenant)."""
         sql_text, params = sql.entity_neighborhood(tenant, entity_id, depth)
-        with self._scoped(tenant):
+        with self._scoped(tenant, read_only=True):
             edge_rows = self._fetchall(sql_text, params)
             edges = [Edge.from_row(r) for r in edge_rows]
 
@@ -207,9 +234,9 @@ class MemoryStore:
         tenant = q.tenant
 
         # 1. lexical hits
-        with self._scoped(tenant):
+        with self._scoped(tenant, read_only=True):
             lexical_rows = self._fetchall(
-                *sql.search_memory(
+                *sql.search_pinned_memory(
                     SearchMemoryInput(tenant=tenant, query=q.query, limit=q.lexical_limit)
                 )
             )
