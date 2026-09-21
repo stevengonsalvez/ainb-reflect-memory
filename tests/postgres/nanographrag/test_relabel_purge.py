@@ -74,7 +74,12 @@ def test_purge_matches_the_stored_note_not_a_note_sharing_its_title(clean, tmp_p
     unlabelled = INTERNAL.replace("classification: internal\n", "")
     assert _engine(tmp_path / "c", dsn).insert_documents_batch([(unlabelled, None, "internal")]) == 1
     assert _engine(tmp_path / "d", dsn).purge_local_only([RESTRICTED_AUTH]) == 1
+    # One note was purged, not two: the unrelated note is only reopened for
+    # the next reindex, because both notes fed the same placeholder node
+    # (see test_a_reopened_note_is_rebuilt_by_the_next_reindex).
+    assert _engine(tmp_path / "e", dsn).insert_documents_batch([(unrelated, None, "internal")]) == 1
     assert _rows(dsn).get("kv:full_docs") == 1
+    assert _engine(tmp_path / "f", dsn).purge_local_only([RESTRICTED_AUTH]) == 0
 
 
 def test_same_note_identity_ignores_only_the_label() -> None:
@@ -232,6 +237,45 @@ def test_relabel_removes_restricted_text_from_shared_nodes_edges_vectors_and_rep
     assert "from a surviving report" in reader.query("redis session", QueryParam(mode="global", only_need_context=True))
     assert "REDIS CACHE" in reader.query("redis cache", QueryParam(mode="local", only_need_context=True)).upper()
     reader.query("auth middleware", QueryParam(mode="local", only_need_context=True))
+
+
+def _stored(dsn, namespace: str) -> set[str]:
+    import psycopg
+
+    with psycopg.connect(dsn, autocommit=True) as c, c.cursor() as cur:
+        cur.execute("select key from reflect_memory.ng_kv where workspace_id=%s and namespace=%s", (WS, namespace))
+        return {r[0] for r in cur.fetchall()}
+
+
+def test_a_reopened_note_is_rebuilt_by_the_next_reindex(clean, tmp_path) -> None:
+    """The purge takes a node the relabelled note shared with a note that
+    stays shareable. nano-graphrag inserts neither a document nor a chunk it
+    already stored, so that node comes back only because the purge reopened
+    the surviving note's chunks. The note that fed no removed node keeps
+    its chunks: reopening is per chunk, not per corpus."""
+    from reflect_kb.postgres.nanographrag.purge import purge_notes
+
+    dsn = clean
+    _echo_graph(tmp_path / "a", dsn).insert([SHARED_NOTE, OTHER_NOTE, CACHE_NOTE])
+    indexed_chunks = _stored(dsn, "text_chunks")  # one per note, they are short
+    assert len(_stored(dsn, "full_docs")) == 3 and len(indexed_chunks) == 3
+
+    assert purge_notes(dsn, WS, [RELABELLED]) == 1
+    # The relabelled note is gone, the note that fed the shared JWT node is
+    # reopened, the cache note is untouched.
+    assert len(_stored(dsn, "full_docs")) == 1, "only the cache note is still stored"
+    kept = _stored(dsn, "text_chunks")
+    assert len(kept) == 1 and kept < indexed_chunks, kept
+    assert '"JWT"' not in _node_ids(dsn)
+
+    # What reindex does next: insert every note that is still shareable.
+    _echo_graph(tmp_path / "b", dsn).insert([OTHER_NOTE, CACHE_NOTE])
+    nodes = _node_ids(dsn)
+    assert {'"JWT"', '"AUTH MIDDLEWARE"'} <= nodes, nodes
+    assert '"VAULT"' not in nodes, nodes  # only the relabelled note described it
+    assert _secret_rows(dsn) == {"kv": [], "nodes": [], "edges": []}
+    rebuilt = _stored(dsn, "text_chunks")
+    assert len(_stored(dsn, "full_docs")) == 2 and kept < rebuilt < indexed_chunks, rebuilt
 
 
 def test_purge_refuses_a_remote_connection_without_tls(monkeypatch) -> None:

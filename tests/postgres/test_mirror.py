@@ -122,3 +122,122 @@ def test_mirror_redacts_a_legacy_note_before_any_row_is_written() -> None:
     payload = repr(log)
     assert token not in payload
     assert "<REDACTED:github_token>" in payload
+
+
+# --------------------------------------------------------------------------- #
+# Relabelled after mirroring (live database)
+# --------------------------------------------------------------------------- #
+
+RESTRICTED_NOTE = NOTE.replace("---\ntitle:", "---\nclassification: restricted\ntitle:")
+
+
+def _pinned_hits(dsn: str, query: str) -> list[str]:
+    """What the broker's pinned search would serve for ``query``."""
+    import psycopg
+
+    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+        cur.execute("select set_config('app.current_workspace', %s, false)", (WS,))
+        cur.execute("select content from reflect_memory.search_pinned_memory(%s, %s, 10)", (WS, query))
+        return [row[0] for row in cur.fetchall()]
+
+
+def _mirror_counts(dsn: str) -> dict[str, int]:
+    import psycopg
+
+    with psycopg.connect(dsn, autocommit=True) as conn, conn.cursor() as cur:
+        out = {}
+        for table in ("memory_items", "entities", "edges"):
+            cur.execute(f"select count(*) from reflect_memory.{table} where workspace_id=%s", (WS,))
+            out[table] = cur.fetchone()[0]
+        return out
+
+
+@pytest.mark.integration
+def test_relabelling_a_mirrored_note_stops_the_pinned_search_serving_it(clean) -> None:
+    """Review round five, merge blocker: the purge covered only the ng_*
+    tables, so a note mirrored while internal and relabelled restricted kept
+    its memory_items row, pinned and shareable, and the broker went on
+    serving its whole content. reindex skips the note before mirroring, so
+    nothing rewrote that row."""
+    from reflect_kb.postgres.nanographrag.purge import purge_notes
+
+    dsn = clean
+    ents = DocumentEntities(
+        document_id="d",
+        entities=[Entity("Auth Middleware", "component", "validates the JWT"), Entity("JWT", "concept", "a token")],
+        relationships=[Relationship("Auth Middleware", "JWT", "validates", "", 8)],
+    )
+    res = mirror_note(dsn, WS, content=NOTE, frontmatter=FM, doc_entities=ents)
+    assert res.memory_id and res.entities == 2 and res.edges == 1, res
+    assert any("auth middleware" in hit.lower() for hit in _pinned_hits(dsn, "auth middleware JWT"))
+    assert _mirror_counts(dsn) == {"memory_items": 1, "entities": 2, "edges": 1}
+
+    assert purge_notes(dsn, WS, [RESTRICTED_NOTE]) == 1
+
+    assert _pinned_hits(dsn, "auth middleware JWT") == []
+    assert _mirror_counts(dsn) == {"memory_items": 0, "entities": 0, "edges": 0}
+    # Mirroring the note again is refused by the floor, and a second purge
+    # has nothing left to take.
+    assert mirror_note(dsn, WS, content=RESTRICTED_NOTE,
+                       frontmatter={**FM, "classification": "restricted"}).skipped
+    assert purge_notes(dsn, WS, [RESTRICTED_NOTE]) == 0
+    assert _mirror_counts(dsn) == {"memory_items": 0, "entities": 0, "edges": 0}
+
+
+@pytest.mark.integration
+def test_the_purge_matches_the_redacted_row_of_a_legacy_note(clean) -> None:
+    """A note written before the capture gate still carries its secret on
+    disk, while the mirror stored the redacted text. The purge is handed the
+    file, so it matches both forms or that row survives the relabel."""
+    from reflect_kb.postgres.nanographrag.purge import purge_notes
+
+    token = "gh" + "p_" + "abcdefghijklmnopqrstuvwxyz0123456789"
+    dsn = clean
+    legacy = NOTE.replace("The auth middleware", f"export GH={token}; the auth middleware")
+    assert mirror_note(dsn, WS, content=legacy, frontmatter=FM).memory_id
+    assert _mirror_counts(dsn)["memory_items"] == 1
+
+    relabelled = legacy.replace("---\ntitle:", "---\nclassification: restricted\ntitle:")
+    assert purge_notes(dsn, WS, [relabelled]) == 1
+    assert _mirror_counts(dsn)["memory_items"] == 0
+
+
+@pytest.mark.integration
+def test_an_entity_the_note_named_is_purged_even_with_no_relationship(clean) -> None:
+    """Round five review: entities carry no provenance, and the sidecar's
+    auto-generated descriptions are boilerplate ("Technology referenced in
+    document"), so an entity the note contributed without a relationship has
+    nothing tying it to the memory item. Its canonical name is the note's own
+    words, and that is what the purge matches; the label on the row still
+    says internal, so the broker would go on serving the name."""
+    from reflect_kb.postgres.nanographrag.purge import purge_notes
+
+    dsn = clean
+    ents = DocumentEntities(
+        document_id="d",
+        entities=[Entity("auth middleware", "component", "Technology referenced in document")],
+        relationships=[],
+    )
+    assert mirror_note(dsn, WS, content=NOTE, frontmatter=FM, doc_entities=ents).entities == 1
+    assert _mirror_counts(dsn) == {"memory_items": 1, "entities": 1, "edges": 0}
+
+    assert purge_notes(dsn, WS, [RESTRICTED_NOTE]) == 1
+    assert _mirror_counts(dsn) == {"memory_items": 0, "entities": 0, "edges": 0}
+
+
+@pytest.mark.integration
+def test_a_note_relabelled_and_rewritten_is_matched_by_its_pin(clean) -> None:
+    """Content identity ignores only the classification key, so a relabel that
+    also edits the body is a different note by that rule and used to keep its
+    row: full pre-edit content, pinned, shareable. The pin is the same source
+    at the same commit, and that is what the broker serves on."""
+    from reflect_kb.postgres.nanographrag.purge import purge_notes
+
+    dsn = clean
+    assert mirror_note(dsn, WS, content=NOTE, frontmatter=FM).memory_id
+    rewritten = RESTRICTED_NOTE.replace("The auth middleware validates the JWT.",
+                                        "The auth middleware validates the JWT on every request.")
+
+    assert purge_notes(dsn, WS, [rewritten]) == 0, "the note itself was not found by content"
+    assert _pinned_hits(dsn, "auth middleware JWT") == []
+    assert _mirror_counts(dsn)["memory_items"] == 0

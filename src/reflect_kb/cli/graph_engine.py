@@ -384,10 +384,12 @@ class LearningsGraphEngine:
         return self._local_only(text, label)
 
     def purge_local_only(self, notes: list[str]) -> int:
-        """Remove every ng_* row and graph node or edge that ``notes`` left in
-        the shared store under an earlier label (Mode 2 only). Returns how
-        many stored documents were purged. The floor stops new writes; this
-        is the retroactive half for a note relabelled restricted or pii."""
+        """Remove everything ``notes`` left in the shared store under an
+        earlier label (Mode 2 only): every ng_* row, the graph nodes and
+        edges, and the memory_items, entities and edges the broker reads.
+        Returns how many of ``notes`` were found there. The floor stops new
+        writes; this is the retroactive half for a note relabelled restricted
+        or pii."""
         notes = [n for n in notes if n and n.strip()]
         if not self.shared_backend or not notes:
             return 0
