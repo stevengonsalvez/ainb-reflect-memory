@@ -140,3 +140,27 @@ def test_every_free_text_writer_redacts_at_the_database_boundary(tmp_path, monke
                           ("slots", "content"), ("recall_events", "query")):
         cells = [r[0] for r in conn.execute(f"select {column} from {table}").fetchall()]
         assert any("<REDACTED:github_token>" in (c or "") for c in cells), table
+
+
+def test_auto_append_redacts_a_pem_block_split_across_lines(tmp_path, monkeypatch) -> None:
+    """Review round five: the hook writer redacted line by line, so a PEM
+    block lost only its BEGIN line and the key body was stored in the clear."""
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setenv("REFLECT_DB_PATH", str(tmp_path / "reflect.db"))
+    import importlib
+
+    import reflect_config
+    import reflect_db
+
+    importlib.reload(reflect_config)
+    importlib.reload(reflect_db)
+    conn = reflect_db.get_conn()
+    reflect_db.ensure_default_slots("proj", conn=conn)
+    body = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmU"
+    pem = ["-----BEGIN OPENSSH PRIVATE KEY-----", body, "-----END OPENSSH PRIVATE KEY-----"]
+    assert reflect_db.slot_auto_append("project_context", pem, project_id="proj", conn=conn)
+    conn.commit()
+    stored = conn.execute("select content from slots where name = 'project_context'").fetchone()[0]
+    assert body not in stored and "END OPENSSH PRIVATE KEY" not in stored, stored
+    assert "<REDACTED:private_key>" in stored
+    assert body not in "\n".join(conn.iterdump())

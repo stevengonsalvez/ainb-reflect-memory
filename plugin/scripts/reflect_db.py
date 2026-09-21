@@ -4756,8 +4756,11 @@ def slot_auto_append(
         return False
     existing = set(slot["content"].split("\n"))
     # Redacted before the tail cut, so truncation cannot leave half a secret
-    # the rules no longer recognise.
-    fresh = [ln for ln in (_redact_text(ln) for ln in lines) if ln and ln not in existing]
+    # the rules no longer recognise. The whole block is redacted at once, then
+    # split: a multi-line secret (a PEM block) is only recognisable as one
+    # when its lines are seen together.
+    redacted = _redact_text("\n".join(lines)).split("\n")
+    fresh = [ln for ln in redacted if ln and ln not in existing]
     if not fresh:
         return False
     sep = "\n" if slot["content"] and not slot["content"].endswith("\n") else ""
