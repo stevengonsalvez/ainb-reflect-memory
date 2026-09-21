@@ -48,6 +48,12 @@ _FRONTMATTER_KEY_RE = re.compile(r"^(name|description|hooks|allowed-tools|tools|
                                  r"permission-?mode|disable-model-invocation|argument-hint):", re.I)
 _NOTE_ROOT = os.path.join("docs", "solutions")
 _PATH_TOOLS = ("Read", "Edit", "Write", "MultiEdit", "NotebookEdit", "Glob", "Grep")
+_SEARCH_TOOLS = ("Glob", "Grep")
+# Where a search may run. A Read names one file and the rules scope it, but a
+# search walks a tree and the harness judges a read-deny rule on the search
+# root alone, so a search outside these roots is denied outright.
+_SEARCH_ROOTS = ("docs/solutions", "~/.reflect", "~/.learnings",
+                 "~/.claude/skills", "~/.claude/agents")
 # Credential stores the writer has no business in. Matched on the resolved
 # path, so a symlink or a ../ walk into one is caught too.
 _DENIED_DIRS = ("/.ssh", "/.aws", "/.gnupg", "/.config/gcloud", "/.config/gh",
@@ -59,6 +65,8 @@ _DENIED_NAMES = (".env", ".netrc", ".npmrc", ".pypirc", ".git-credentials",
 _DENIED_SUFFIXES = (".pem", ".key", ".p12", ".pfx", ".jks", ".kdbx", ".keychain")
 _FRONTMATTER_SCOPES = (("/.claude/skills/",), ("/.claude/agents/",),
                        ("/.codex/skills/",), ("/.copilot/skills/",))
+_SEARCH_SURFACE = ("a search may only run under the drain's own trees: docs/solutions, ~/.reflect, "
+                   "~/.learnings, ~/.claude/skills, ~/.claude/agents. Name the file to read it")
 _CREDENTIAL_SURFACE = ("credential paths are out of scope for the drain writer: no ~/.ssh, cloud or "
                        "forge credentials, .env files, keys or raw transcripts")
 _FRONTMATTER_SURFACE = ("a skill or agent file's frontmatter is out of scope for the drain writer: "
@@ -175,6 +183,39 @@ def is_credential_path(path: str, cwd: str) -> bool:
             or name.endswith(_DENIED_SUFFIXES))
 
 
+def _frontmatter_span(path: str) -> str | None:
+    """The text of the file's leading ``---`` block, or None when the file
+    cannot be read or opens with no block."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read(65536)
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    return text[:end + 4] if end > 0 else None
+
+
+def _search_roots(cwd: str) -> list[str]:
+    roots = [os.environ.get("GLOBAL_LEARNINGS_PATH", ""), *_SEARCH_ROOTS]
+    return [_resolve(r, cwd) for r in roots if r]
+
+
+def search_is_scoped(tool_input: dict, cwd: str) -> bool:
+    """True when a Glob or Grep runs under one of the drain's own trees. The
+    search root is the ``path`` argument, or the directory part of an absolute
+    Glob pattern; a search with neither walks the writer's whole home."""
+    root = str(tool_input.get("path") or "")
+    if not root:
+        pattern = str(tool_input.get("pattern") or "")
+        if not pattern.startswith(("/", "~")):
+            return False
+        root = pattern.split("*", 1)[0]
+    real = _resolve(root, cwd)
+    return any(real == allowed or real.startswith(allowed + os.sep) for allowed in _search_roots(cwd))
+
+
 def touches_frontmatter(tool: str, tool_input: dict, cwd: str) -> bool:
     """True when the call would change the `---` block of a skill or agent
     file: an edit whose old or new text carries a delimiter line or a
@@ -188,11 +229,20 @@ def touches_frontmatter(tool: str, tool_input: dict, cwd: str) -> bool:
     if tool in ("Write", "NotebookEdit"):
         return True  # a whole-file write replaces the frontmatter with it
     edits = tool_input.get("edits") or [tool_input]
+    block = _frontmatter_span(real)
     for edit in edits:
         if not isinstance(edit, dict):
             continue
-        for text in (edit.get("old_string"), edit.get("new_string")):
-            for line in str(text or "").splitlines():
+        old, new = str(edit.get("old_string") or ""), str(edit.get("new_string") or "")
+        if block is not None:
+            # The file's own `---` block decides: an edit anchored inside it
+            # rewrites frontmatter, one below it cannot, whatever it contains.
+            # A horizontal rule in the body is body text, not a delimiter.
+            if old and old in block:
+                return True
+            continue
+        for text in (old, new):  # unreadable file: judge the text alone
+            for line in text.splitlines():
                 stripped = line.strip()
                 if stripped == "---" or _FRONTMATTER_KEY_RE.match(stripped):
                     return True
@@ -206,10 +256,15 @@ def decide(data: dict, allowed: tuple[tuple[str, ...], ...] = DEFAULT_ALLOWED) -
     if tool in _PATH_TOOLS:
         if not isinstance(tool_input, dict):
             return None
-        for key in ("file_path", "notebook_path", "path", "pattern"):
+        keys = ("file_path", "notebook_path", "path", "glob") if tool in _SEARCH_TOOLS \
+            else ("file_path", "notebook_path", "path")
+        for key in keys:
             if is_credential_path(str(tool_input.get(key) or ""), cwd):
                 return {"permissionDecision": "deny",
                         "permissionDecisionReason": "drain writer: " + _CREDENTIAL_SURFACE}
+        if tool in _SEARCH_TOOLS and not search_is_scoped(tool_input, cwd):
+            return {"permissionDecision": "deny",
+                    "permissionDecisionReason": "drain writer: " + _SEARCH_SURFACE}
         if touches_frontmatter(tool, tool_input, cwd):
             return {"permissionDecision": "deny",
                     "permissionDecisionReason": "drain writer: " + _FRONTMATTER_SURFACE}

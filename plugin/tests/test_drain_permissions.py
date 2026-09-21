@@ -168,6 +168,43 @@ def test_guard_denies_credential_paths_and_skill_frontmatter(tool: str, tool_inp
         assert out["permissionDecisionReason"].startswith("drain writer: ")
 
 
+@pytest.mark.parametrize("tool,tool_input,decision", [
+    # A search walks a tree, and the harness judges a read-deny rule on the
+    # search root, not on the files the search reads: anything outside the
+    # drain's own trees is denied here instead.
+    ("Grep", {"path": _HOME, "glob": "**/.env", "pattern": "."}, "deny"),
+    ("Grep", {"path": _HOME, "pattern": "BEGIN RSA PRIVATE KEY"}, "deny"),
+    ("Grep", {"pattern": "jwt"}, "deny"),  # no root at all: the writer's home
+    ("Glob", {"pattern": f"{_HOME}/.ssh/*"}, "deny"),
+    ("Grep", {"path": "docs/solutions", "glob": "**/id_rsa", "pattern": "."}, "deny"),
+    # the trees the skill's own steps search
+    ("Grep", {"path": "docs/solutions", "pattern": "jwt"}, None),
+    ("Grep", {"path": "docs/solutions", "pattern": "credentials"}, None),  # a word, not a path
+    ("Glob", {"pattern": f"{_HOME}/.claude/skills/*/SKILL.md"}, None),
+    ("Glob", {"pattern": "**/*.md", "path": "docs/solutions"}, None),
+    ("Grep", {"path": f"{_HOME}/.learnings/documents", "pattern": "jwt"}, None),
+])
+def test_guard_scopes_where_a_search_may_run(tool: str, tool_input: dict, decision) -> None:
+    out = drain_guard.decide({"tool_name": tool, "tool_input": tool_input, "cwd": _HOME})
+    assert (out or {}).get("permissionDecision") == decision, (tool, tool_input)
+
+
+def test_frontmatter_is_judged_by_the_file_not_by_the_text(tmp_path: Path) -> None:
+    """A `---` in the body is a horizontal rule; only the file's own leading
+    block is frontmatter, and only an edit anchored inside it is denied."""
+    skill = tmp_path / ".claude" / "skills" / "publish" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: publish\nallowed-tools: Read\n---\n\nBody text here.\n\n---\n\nMore body.\n")
+    def decide(old: str, new: str):
+        out = drain_guard.decide({"tool_name": "Edit", "cwd": str(tmp_path),
+                                  "tool_input": {"file_path": str(skill), "old_string": old, "new_string": new}})
+        return (out or {}).get("permissionDecision")
+    assert decide("allowed-tools: Read", "allowed-tools: Bash") == "deny"
+    assert decide("name: publish", "name: publish") == "deny"
+    assert decide("Body text here.", "Body text, revised.") is None
+    assert decide("More body.", "More body, and a rule:\n\n---\n") is None
+
+
 def test_the_deny_rules_and_the_guard_matcher_cover_the_same_ground() -> None:
     settings = json.loads(_flag(_lib("argv", "p"), "--settings"))
     deny = settings["permissions"]["deny"]
