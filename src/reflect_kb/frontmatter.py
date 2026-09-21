@@ -5,7 +5,9 @@ line that is exactly ``---``; a ``---`` inside a value or inside the body is
 never a delimiter. ``str.split("---", 2)`` truncated the block at the first
 ``---`` in a value, which dropped every key after it (a ``classification``
 dropped that way read as ``internal`` and a restricted note reached the
-shared store).
+shared store). A key given twice is malformed too: YAML lets the later value
+win, so ``classification: restricted`` followed by ``classification: internal``
+read as internal.
 """
 
 from __future__ import annotations
@@ -20,6 +22,31 @@ import yaml
 __all__ = ["Frontmatter", "split_frontmatter", "split_frontmatter_text"]
 
 _DELIMITER = re.compile(r"^---[ \t]*\r?$", re.MULTILINE)
+
+
+class _UniqueKeyLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a mapping naming the same key twice."""
+
+
+def _construct_unique_mapping(loader: _UniqueKeyLoader, node: yaml.MappingNode, deep: bool = False) -> Any:
+    seen: set[Any] = set()
+    for key_node, _ in node.value:
+        if key_node.tag == "tag:yaml.org,2002:merge":
+            continue  # ``<<`` merges are overridden by explicit keys by design
+        key = loader.construct_object(key_node, deep=True)
+        try:
+            duplicate = key in seen
+        except TypeError:
+            continue  # unhashable key: the base constructor raises its own error
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping", node.start_mark, f"found duplicate key {key!r}", key_node.start_mark
+            )
+        seen.add(key)
+    return loader.construct_mapping(node, deep=deep)
+
+
+_UniqueKeyLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _construct_unique_mapping)
 
 
 @dataclass(frozen=True)
@@ -67,7 +94,7 @@ def split_frontmatter(text: str) -> Frontmatter:
         return Frontmatter(None, text)
     raw, body = parts
     try:
-        loaded = yaml.safe_load(raw)
+        loaded = yaml.load(raw, Loader=_UniqueKeyLoader)  # a SafeLoader subclass: no arbitrary objects
     except yaml.YAMLError:
         return Frontmatter(None, text, malformed=True)
     if loaded is None:

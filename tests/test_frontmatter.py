@@ -54,3 +54,21 @@ def test_no_block_empty_block_and_malformed_block() -> None:
 def test_crlf_and_trailing_spaces_on_the_delimiter() -> None:
     fm = split_frontmatter("--- \r\ntitle: t\r\nclassification: pii\r\n---\t\r\nbody\r\n")
     assert fm.mapping == {"title": "t", "classification": "pii"} and fm.body == "body\r\n"
+
+
+def test_a_duplicate_key_is_malformed_so_the_floor_fails_closed() -> None:
+    from reflect_kb.classification import (
+        INVALID_CLASSIFICATION,
+        classification_of_note,
+        may_leave_machine,
+    )
+
+    note = "---\ntitle: t\nclassification: restricted\nclassification: internal\n---\nbody\n"
+    fm = split_frontmatter(note)
+    assert fm.malformed and fm.mapping is None
+    assert classification_of_note(note) == INVALID_CLASSIFICATION
+    assert not may_leave_machine({"classification": classification_of_note(note)})
+    # A nested duplicate is refused too; distinct keys, anchors and merges still load.
+    assert split_frontmatter("---\nmeta:\n  a: 1\n  a: 2\n---\n").malformed
+    ok = split_frontmatter("---\nbase: &b {x: 1}\nchild:\n  <<: *b\n  x: 2\ntags: [a, a]\n---\nbody\n")
+    assert not ok.malformed and ok.mapping["child"] == {"x": 2} and ok.mapping["tags"] == ["a", "a"]
