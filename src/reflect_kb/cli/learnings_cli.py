@@ -470,10 +470,10 @@ def add(file_path: str, entities: str | None, force: bool):
     if redacted.total_redactions:
         kinds = ", ".join(f"{k}={n}" for k, n in sorted(redacted.redactions.items()))
         console.print(f"[yellow]Redacted {redacted.total_redactions} secret(s): {kinds}[/yellow]")
-        # The project-tree copy the skill wrote (docs/solutions/...) is the
-        # file that gets committed; it must not keep what the KB copy lost.
-        source.write_text(content, encoding="utf-8", newline="")
-        console.print(f"[yellow]Rewrote {source} in place without the secret(s)[/yellow]")
+        # The source is the user's file: it is never rewritten (that destroyed
+        # the only unredacted copy). Only the KB copy and the index are clean,
+        # so say plainly that the source still carries the secret.
+        console.print(f"[yellow]{source} still contains the secret(s); remove them before committing it[/yellow]")
 
     frontmatter, body = parse_frontmatter(content)
 
@@ -504,9 +504,10 @@ def add(file_path: str, entities: str | None, force: bool):
     doc_id = generate_document_id(frontmatter["title"], body)
     repo = get_repo_path()
     dest = repo / DOCUMENTS_DIR / f"{doc_id}.md"
-    # A note added before redaction existed has the id of its unredacted body;
-    # --force replaces that leaked copy instead of leaving it next to a clean one.
-    if redacted.total_redactions and force:
+    # A note added before redaction existed has the id of its unredacted body.
+    # That copy is removed on every add, --force or not: leaving it beside the
+    # clean one keeps the secret in the KB.
+    if redacted.total_redactions:
         # Both halves of the old id come from the unredacted note: a secret
         # in the title changed the slug as well as the hash.
         raw_frontmatter, raw_body = parse_frontmatter(raw_note)
@@ -557,8 +558,10 @@ def add(file_path: str, entities: str | None, force: bool):
         raw_sidecar = entities_path.read_text(encoding="utf-8")
         clean_sidecar = redact_secrets(raw_sidecar)
         if clean_sidecar.total_redactions:
-            entities_path.write_text(clean_sidecar.text, encoding="utf-8", newline="")
-            console.print(f"[yellow]Rewrote {entities_path} in place without the secret(s)[/yellow]")
+            console.print(
+                f"[yellow]{entities_path} still contains {clean_sidecar.total_redactions} secret(s); "
+                f"the KB sidecar is redacted[/yellow]"
+            )
         doc_entities = DocumentEntities.from_yaml(clean_sidecar.text)
         entities_formatted = doc_entities.to_graphrag_format()
         entity_count = doc_entities.entity_count
@@ -739,8 +742,25 @@ def reindex(force: bool):
 
         batch.append((doc["_full_content"], entities_formatted, label))
         # Mode 2: keep the broker's tables in step with the corpus on reindex.
+        # mirror_note redacts every field, so a legacy note is safe here.
         _mirror_to_shared_store(doc["_full_content"], {k: v for k, v in doc.items() if not k.startswith("_")},
                                 doc_entities, title=title)
+
+    # A note that was indexed under an earlier label and is restricted or
+    # pii now: the floor stops new writes, and this removes the rows the old
+    # label left in every ng_* namespace and the graph. It runs before the
+    # batch and on its own, so a batch that fails cannot leave those rows in
+    # the shared store.
+    if skipped_notes:
+        try:
+            purged = engine.purge_local_only(skipped_notes)
+        except Exception as e:
+            console.print(f"[yellow]Warning: could not purge relabelled notes from the shared store: {e}[/yellow]")
+        else:
+            if purged:
+                console.print(
+                    f"[yellow]Purged {purged} relabelled notes from the shared store (restricted or pii now)[/yellow]"
+                )
 
     try:
         with console.status("[bold green]Indexing batch..."):
@@ -752,20 +772,6 @@ def reindex(force: bool):
         console.print(f"\n[red]Batch indexing error: {e}[/red]")
         console.print("[dim]Try running 'learnings reindex --force' to rebuild from scratch.[/dim]")
         return
-
-    # A note that was indexed under an earlier label and is restricted or
-    # pii now: the floor stops new writes, and this removes the rows the old
-    # label left in every ng_* namespace and the graph.
-    if skipped_notes:
-        try:
-            purged = engine.purge_local_only(skipped_notes)
-        except Exception as e:
-            console.print(f"[yellow]Warning: could not purge relabelled notes from the shared store: {e}[/yellow]")
-        else:
-            if purged:
-                console.print(
-                    f"[yellow]Purged {purged} relabelled notes from the shared store (restricted or pii now)[/yellow]"
-                )
 
     if entity_total:
         console.print(f"[dim]Entities: {entity_total}, Relationships: {rel_total}[/dim]")
