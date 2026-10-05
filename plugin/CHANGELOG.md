@@ -4,6 +4,29 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [Unreleased]
+
+### Fixed
+
+- **Recall per-prompt cap.** `filter_to_new` counted the `## Prior learnings`
+  header against the 3-learning cap, so only 2 learnings reached the model per
+  prompt. The header no longer counts, and an all-already-injected result now
+  injects nothing instead of a lone header.
+- **Recall ignored supersession.** Recall now drops notes retired by frontmatter
+  (`superseded_by`, `status` superseded or archived), by `archived/` or
+  `documents/.forgotten/`, or by a ledger row with `is_latest = 0`, before
+  ranking. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` restores the old behaviour.
+- **Drain dry run lost work.** `REFLECT_DRAIN_DRY_RUN=1` consumed the queue
+  entry, wrote a cost row against the daily cap and recorded cascade chunk
+  hashes. A dry run now leaves all durable state untouched.
+- **Claude adapter wrote a dead hook.** `claude_adapter.py install` now refuses
+  and points at `claude plugin install`; `uninstall` still removes entries it
+  wrote earlier.
+- **LoCoMo `arms_off`.** The harness left the arm env vars unset, which means
+  ON, so `arms_on` and `arms_off` ran identical retrieval. `arms_off` now
+  exports `=0` for every arm. Stored results from the old pair are not a valid
+  ablation and must be re-run.
+
 ## [5.2.5] - 2026-08-11 - Single-shot extract is the default writer
 
 Patch, but it changes which writer the drain runs. `REFLECT_DRAIN_WRITER` now
