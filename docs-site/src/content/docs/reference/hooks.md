@@ -68,7 +68,7 @@ Totals: Claude Code 13 events (14 commands), Codex 10 events (11 commands), Copi
 | Copilot | `plugin/copilot-hooks.json` (adapter writes `~/.copilot/hooks/reflect.json`) | `${PLUGIN_ROOT}` | Flat `[{type, command}]` entries with `version: 1`, camelCase event names, and `REFLECT_HARNESS=copilot` prefixed on every `uv run` command. |
 | Hermes | none | n/a | No hook autowiring. The adapter deploys two shim scripts; the fleet-lambda side decides when to call them. See [Hermes shims](#hermes-shims). |
 
-`plugin/plugin.json` (top level) is a metadata-only manifest with no `hooks` key. The `claude` adapter (`plugin/adapters/claude/claude_adapter.py`) only merges a single `SessionStart` recall entry into `~/.claude/settings.json`, and only when the plugin runtime does not already own reflect (it checks `~/.claude/plugins/installed_plugins.json`), to avoid firing a second copy.
+`plugin/plugin.json` (top level) is a metadata-only manifest with no `hooks` key. There is no Claude `install` adapter: `plugin/adapters/claude/claude_adapter.py install` refuses with a pointer to `claude plugin install`, because the plugin runtime is the only path that deploys the hook scripts. Its `uninstall` remains to remove the `SessionStart` entry and managed skill files that older adapter versions wrote.
 
 ## Per-hook reference
 

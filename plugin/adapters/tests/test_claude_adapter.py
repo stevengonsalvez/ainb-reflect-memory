@@ -1,7 +1,9 @@
-"""Tests for the Claude Code adapter (plugins/reflect/adapters/claude).
+"""Tests for the Claude Code adapter (plugin/adapters/claude).
 
-The test runs the adapter against a temp HOME so it exercises the real
-install path without touching the invoking user's ~/.claude.
+``install`` is refused (``claude plugin install`` is the supported path); the
+old adapter wrote a SessionStart hook pointing at a script it never deployed.
+``uninstall`` stays so older adapter output can be cleaned up. Every test runs
+against a throwaway HOME and never touches the invoking user's ~/.claude.
 """
 
 from __future__ import annotations
@@ -28,6 +30,32 @@ def _sanity():
     assert ADAPTER.exists(), f"missing adapter script at {ADAPTER}"
 
 
+def _run(*args: str):
+    return subprocess.run(
+        [sys.executable, str(ADAPTER), *args], capture_output=True, text=True,
+    )
+
+
+def _session_start_commands(claude_dir: Path) -> list[str]:
+    cfg = json.loads((claude_dir / "settings.json").read_text())
+    return [
+        h["command"]
+        for entry in cfg.get("hooks", {}).get("SessionStart", [])
+        for h in entry["hooks"]
+    ]
+
+
+def _seed_managed_skill(claude_dir: Path, name: str = "recall") -> Path:
+    skill = claude_dir / "skills" / name / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text(
+        f"---\nname: reflect:{name}\n"
+        f"managed_by: {claude_adapter.POINTER_MANAGED_BY}\n---\nbody\n",
+        encoding="utf-8",
+    )
+    return skill
+
+
 def test_find_plugin_root_resolves_to_reflect_dir():
     root = claude_adapter.find_plugin_root()
     assert (root / "skills").is_dir()
@@ -35,420 +63,143 @@ def test_find_plugin_root_resolves_to_reflect_dir():
     assert (root / "hooks").is_dir()
 
 
-def test_dry_run_reports_actions_without_touching_home(tmp_path):
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--dry-run", "--home", str(tmp_path)],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "dry-run" in result.stdout
-    assert "pointer:" in result.stdout
-    assert "recall" in result.stdout
-    # HOME must remain untouched
+@pytest.mark.parametrize(
+    "flags",
+    [[], ["--dry-run"], ["--force"], ["--no-hooks"], ["--force", "--no-hooks"]],
+)
+def test_install_refuses_and_writes_nothing(tmp_path, flags):
+    """No flag combination may create ~/.claude, skills or a hook."""
+    result = _run("install", "--home", str(tmp_path), *flags)
+    assert result.returncode != 0
+    assert "claude plugin marketplace add stevengonsalvez/ainb-reflect-memory" in result.stderr
+    assert "claude plugin install reflect@ainb-reflect-memory" in result.stderr
     assert not (tmp_path / ".claude").exists()
 
 
-def test_install_writes_pointer_files_and_hook(tmp_path):
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-    skills_root = tmp_path / ".claude" / "skills"
-    assert skills_root.is_dir()
-
-    # recall + reflect must both land (they're the headline skills).
-    recall = skills_root / "recall" / "SKILL.md"
-    reflect = skills_root / "reflect" / "SKILL.md"
-    assert recall.exists()
-    assert reflect.exists()
-
-    recall_body = recall.read_text(encoding="utf-8")
-    assert claude_adapter.POINTER_MANAGED_BY in recall_body
-    # Name preserved from upstream frontmatter (recall).
-    assert "name: reflect:recall" in recall_body
-
-    # Hook merged into settings.json
-    settings_text = (tmp_path / ".claude" / "settings.json").read_text()
-    settings = json.loads(settings_text)
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
-    expected = claude_adapter._render_session_start_hook_command(
-        tmp_path / ".claude"
-    )
-    assert expected in commands
-
-    # Critical: the {{HOME_TOOL_DIR}} placeholder MUST be substituted at
-    # adapter-install time. If it survives into settings.json the recall
-    # hook becomes a literal "uv run {{HOME_TOOL_DIR}}/..." command which
-    # silently fails on every session start.
-    assert "{{HOME_TOOL_DIR}}" not in settings_text
-    assert "{{" not in settings_text
-    # Body of the rendered command must reference the resolved Claude home.
-    assert str(tmp_path / ".claude") in expected
-
-
-def test_install_is_idempotent_and_preserves_existing_hooks(tmp_path):
-    # Pre-seed settings with an unrelated existing hook — adapter must not
-    # clobber it.
+def test_install_leaves_existing_settings_untouched(tmp_path):
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    existing = {
-        "hooks": {
-            "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [{"type": "command", "command": "echo existing"}],
-                }
-            ]
-        }
-    }
-    (claude_dir / "settings.json").write_text(json.dumps(existing))
+    original = json.dumps({
+        "hooks": {"SessionStart": [
+            {"matcher": "", "hooks": [{"type": "command", "command": "echo existing"}]}
+        ]}
+    })
+    (claude_dir / "settings.json").write_text(original)
 
-    for _ in range(2):  # Run twice; second run is a no-op
-        subprocess.run(
-            [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-            check=True, capture_output=True,
-        )
+    result = _run("install", "--home", str(tmp_path))
 
-    settings = json.loads((claude_dir / "settings.json").read_text())
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
-    # Existing hook survived, adapter hook was added exactly once
-    assert "echo existing" in commands
-    expected = claude_adapter._render_session_start_hook_command(claude_dir)
-    assert commands.count(expected) == 1
+    assert result.returncode != 0
+    assert (claude_dir / "settings.json").read_text() == original
+    assert not (claude_dir / "skills").exists()
 
 
-def _seed_plugin_runtime_install(tmp_path):
-    """Create a minimal installed_plugins.json that looks like the plugin
-    runtime installed reflect via `/plugin install reflect@agents-in-a-box`."""
+def test_install_refuses_even_when_plugin_runtime_owns_reflect(tmp_path):
     plugins_dir = tmp_path / ".claude" / "plugins"
-    plugins_dir.mkdir(parents=True, exist_ok=True)
-    (plugins_dir / "installed_plugins.json").write_text(json.dumps({
-        "version": 2,
-        "plugins": {
-            "reflect@agents-in-a-box": [
-                {
-                    "scope": "user",
-                    "installPath": str(plugins_dir / "cache" / "agents-in-a-box" / "reflect" / "3.5.1"),
-                    "version": "3.5.1",
-                    "installedAt": "2026-05-20T00:00:00Z",
-                    "lastUpdated": "2026-05-20T00:00:00Z",
-                    "gitCommitSha": "deadbeef",
-                }
-            ]
-        }
-    }))
+    plugins_dir.mkdir(parents=True)
+    (plugins_dir / "installed_plugins.json").write_text(json.dumps(
+        {"version": 2, "plugins": {"reflect@ainb-reflect-memory": [{"scope": "user"}]}}
+    ))
 
+    result = _run("install", "--home", str(tmp_path))
 
-def test_install_skips_skills_and_settings_when_plugin_runtime_owns_it(tmp_path):
-    """When ``/plugin install reflect`` owns reflect, the adapter must copy
-    NOTHING: not the SessionStart hook (plugin.json autowires it — a dupe
-    entry is a stale-code dupe-firing surface) AND not the skills (the plugin
-    already surfaces them namespaced as ``reflect:<name>`` from its cache — a
-    flat ``~/.claude/skills/<name>`` copy registers a bare personal skill that
-    SHADOWS the namespaced one, which is the exact regression the gate fixes)."""
-    _seed_plugin_runtime_install(tmp_path)
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True, text=True,
-    )
-    assert "plugin runtime owns reflect hooks" in result.stdout
-    # Skills must NOT be flat-copied — no bare shadow of the namespaced skill.
-    assert not (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
+    assert result.returncode != 0
     assert not (tmp_path / ".claude" / "skills").exists()
-    # No pre-existing settings.json + plugin runtime → execute_extra skips the
-    # merge and writes nothing, so the file is never created. Assert its
-    # ABSENCE directly (a prior `if exists():` guard made this check vacuous —
-    # the negative-assert body never ran because the file doesn't exist).
     assert not (tmp_path / ".claude" / "settings.json").exists()
 
 
-def test_install_cleans_up_legacy_entry_when_plugin_runtime_takes_over(tmp_path):
-    """Migration scenario: user previously ran the adapter (pre-plugin),
-    then installed via the plugin runtime. Next adapter run must SWEEP
-    OUT the legacy duplicate it wrote, leaving only the plugin runtime
-    wire-up active."""
+@pytest.mark.parametrize("legacy", [False, True])
+def test_uninstall_removes_managed_hook_and_keeps_foreign_hooks(tmp_path, legacy):
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    # Pre-seed settings.json with the legacy adapter-written hook.
-    legacy_cmd = claude_adapter._render_session_start_hook_command(claude_dir)
+    managed = (
+        claude_adapter._LEGACY_SESSION_START_HOOK_COMMAND
+        if legacy
+        else claude_adapter._render_session_start_hook_command(claude_dir)
+    )
     (claude_dir / "settings.json").write_text(json.dumps({
+        "model": "opus",
         "hooks": {
             "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [
-                        {"type": "command", "command": "echo unrelated"},
-                        {"type": "command", "command": legacy_cmd},
-                    ],
-                }
-            ]
-        }
+                {"matcher": "", "hooks": [
+                    {"type": "command", "command": "echo foreign"},
+                    {"type": "command", "command": managed},
+                ]},
+                {"matcher": "", "hooks": [{"type": "command", "command": managed}]},
+            ],
+            "Stop": [{"matcher": "", "hooks": [{"type": "command", "command": "echo stop"}]}],
+        },
     }))
-    _seed_plugin_runtime_install(tmp_path)
 
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True, text=True,
-    )
-    assert "cleaned up legacy duplicate" in result.stdout
+    result = _run("uninstall", "--home", str(tmp_path))
 
+    assert result.returncode == 0, result.stderr
+    assert "removed SessionStart hook" in result.stdout
+    assert _session_start_commands(claude_dir) == ["echo foreign"]
     cfg = json.loads((claude_dir / "settings.json").read_text())
-    commands = [
-        h["command"]
-        for entry in cfg.get("hooks", {}).get("SessionStart", [])
-        for h in entry["hooks"]
-    ]
-    assert legacy_cmd not in commands
-    assert "echo unrelated" in commands  # untouched
+    assert cfg["model"] == "opus"
+    assert cfg["hooks"]["Stop"][0]["hooks"][0]["command"] == "echo stop"
 
 
-def test_install_still_wires_settings_when_plugin_runtime_absent(tmp_path):
-    """If the plugin runtime is NOT used (toolkit-only / dev install),
-    the adapter still needs to write its settings.json hook so recall
-    fires on SessionStart."""
-    # No installed_plugins.json at all
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True, text=True,
-    )
-    assert "plugin runtime owns" not in result.stdout
-
-    # No plugin runtime → skills ARE flat-copied (this is the only path that
-    # surfaces them for a toolkit-only / dev install, so it must still work).
-    assert (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
-
-    cfg = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-    commands = [
-        h["command"]
-        for entry in cfg.get("hooks", {}).get("SessionStart", [])
-        for h in entry["hooks"]
-    ]
-    expected = claude_adapter._render_session_start_hook_command(tmp_path / ".claude")
-    assert expected in commands
-
-
-def test_dry_run_reports_skipped_skill_copy_under_plugin_runtime(tmp_path):
-    """The dry-run output must explain WHY no skills are written when the
-    plugin runtime owns reflect, so a user running --dry-run isn't left
-    wondering why the skill pointers vanished."""
-    _seed_plugin_runtime_install(tmp_path)
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--dry-run", "--home", str(tmp_path)],
-        check=True, capture_output=True, text=True,
-    )
-    assert "skill-copy: skipped" in result.stdout
-    assert "plugin runtime owns reflect" in result.stdout
-    # And it must NOT advertise the SessionStart hook — under the plugin
-    # runtime the real install skips the settings.json merge, so dry-run and
-    # real install must agree that no hook is added.
-    assert "hook: add SessionStart" not in result.stdout
-    # A dry run must never touch the filesystem.
-    assert not (tmp_path / ".claude" / "skills").exists()
-
-
-def test_install_skips_settings_when_unrelated_plugin_runtime_installs_exist(tmp_path):
-    """The detection must specifically check for ``reflect`` — having
-    OTHER plugins installed shouldn't make us think reflect is also
-    plugin-runtime-managed."""
-    plugins_dir = tmp_path / ".claude" / "plugins"
-    plugins_dir.mkdir(parents=True, exist_ok=True)
-    (plugins_dir / "installed_plugins.json").write_text(json.dumps({
-        "version": 2,
-        "plugins": {
-            "some-other-plugin@some-marketplace": [
-                {"scope": "user", "version": "1.0.0"}
-            ]
-        }
-    }))
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True, text=True,
-    )
-    # Should NOT detect plugin runtime — adapter writes its entry normally
-    assert "plugin runtime owns" not in result.stdout
-    cfg = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-    commands = [
-        h["command"]
-        for entry in cfg.get("hooks", {}).get("SessionStart", [])
-        for h in entry["hooks"]
-    ]
-    expected = claude_adapter._render_session_start_hook_command(tmp_path / ".claude")
-    assert expected in commands
-
-
-def test_install_no_hooks_flag_leaves_settings_alone(tmp_path):
-    subprocess.run(
-        [sys.executable, str(ADAPTER), "install",
-         "--home", str(tmp_path), "--no-hooks"],
-        check=True, capture_output=True,
-    )
-    assert (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
-    assert not (tmp_path / ".claude" / "settings.json").exists()
-
-
-def test_uninstall_removes_only_managed_pointers(tmp_path):
-    # First install, then drop an unmanaged user file into the same dir.
-    subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True,
-    )
-    user_file = tmp_path / ".claude" / "skills" / "recall" / "user-note.md"
-    user_file.write_text("hand-written", encoding="utf-8")
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "uninstall", "--home", str(tmp_path)],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-
-    # Our pointer gone, user's file preserved
-    assert not (tmp_path / ".claude" / "skills" / "recall" / "SKILL.md").exists()
-    assert user_file.exists()
-
-    # Hook block cleaned up (no reflect hook remaining)
-    settings = json.loads((tmp_path / ".claude" / "settings.json").read_text())
-    commands = [
-        h["command"]
-        for entry in settings.get("hooks", {}).get("SessionStart", [])
-        for h in entry["hooks"]
-    ]
-    expected = claude_adapter._render_session_start_hook_command(
-        tmp_path / ".claude"
-    )
-    assert expected not in commands
-
-
-def test_install_refuses_to_overwrite_non_pointer_skill_marker(tmp_path):
-    """A hand-written SKILL.md that lacks the managed_by sentinel must be
-    LEFT ALONE. The previous behaviour silently replaced these files,
-    which silently destroyed user state. Default install now refuses; the
-    user needs ``--force`` to opt into clobbering."""
-    claude_dir = tmp_path / ".claude"
-    (claude_dir / "skills" / "recall").mkdir(parents=True)
-    handwritten = "---\nname: user-handwritten\n---\nbody\n"
-    target = claude_dir / "skills" / "recall" / "SKILL.md"
-    target.write_text(handwritten, encoding="utf-8")
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install",
-         "--home", str(tmp_path), "--no-hooks"],
-        capture_output=True, text=True,
-    )
-    # Refusal exits non-zero so CI / scripts can detect it.
-    assert result.returncode != 0, result.stdout
-    assert "refused to overwrite non-pointer file" in result.stdout
-    # Hand-written file untouched.
-    assert target.read_text(encoding="utf-8") == handwritten
-
-
-def test_install_force_replaces_non_pointer_skill_marker(tmp_path):
-    """With ``--force`` the adapter explicitly replaces the foreign file,
-    reports the replacement, and exits cleanly."""
-    claude_dir = tmp_path / ".claude"
-    (claude_dir / "skills" / "recall").mkdir(parents=True)
-    target = claude_dir / "skills" / "recall" / "SKILL.md"
-    target.write_text(
-        "---\nname: user-handwritten\n---\nbody\n", encoding="utf-8"
-    )
-
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install",
-         "--home", str(tmp_path), "--no-hooks", "--force"],
-        capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "replaced non-pointer file" in result.stdout
-    body = target.read_text(encoding="utf-8")
-    assert claude_adapter.POINTER_MANAGED_BY in body
-
-
-def test_install_substitutes_home_tool_dir_placeholder(tmp_path):
-    """Regression: the {{HOME_TOOL_DIR}} marker is a *bootstrap-time* template
-    placeholder, but the adapter runs at install time. It must substitute the
-    resolved Claude home itself rather than persisting the literal token."""
-    subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True,
-    )
-
-    settings_text = (tmp_path / ".claude" / "settings.json").read_text()
-    assert "{{HOME_TOOL_DIR}}" not in settings_text
-    assert "{{" not in settings_text  # No surviving curly templates of any kind
-
-    settings = json.loads(settings_text)
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
-    rendered = claude_adapter._render_session_start_hook_command(
-        tmp_path / ".claude"
-    )
-    assert rendered in commands
-    # The rendered command must point at the *resolved* claude home, not at
-    # the user's actual ~/.claude — otherwise tests would taint real state.
-    assert str(tmp_path / ".claude") in rendered
-
-
-def test_install_cleans_up_legacy_unsubstituted_hook(tmp_path):
-    """If a previous (buggy) install left a literal {{HOME_TOOL_DIR}} entry in
-    settings.json, the adapter should remove it during the next install and
-    replace it with the correctly-rendered command."""
+def test_uninstall_drops_empty_hooks_block(tmp_path):
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
-    legacy = "uv run {{HOME_TOOL_DIR}}/skills/recall/hooks/session_start_recall.py"
+    managed = claude_adapter._render_session_start_hook_command(claude_dir)
     (claude_dir / "settings.json").write_text(json.dumps({
-        "hooks": {
-            "SessionStart": [
-                {
-                    "matcher": "",
-                    "hooks": [{"type": "command", "command": legacy}],
-                }
-            ]
-        }
+        "hooks": {"SessionStart": [
+            {"matcher": "", "hooks": [{"type": "command", "command": managed}]}
+        ]}
     }))
 
-    subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        check=True, capture_output=True,
-    )
+    assert _run("uninstall", "--home", str(tmp_path)).returncode == 0
 
-    settings_text = (claude_dir / "settings.json").read_text()
-    assert "{{HOME_TOOL_DIR}}" not in settings_text
-    settings = json.loads(settings_text)
-    commands = [
-        h["command"]
-        for entry in settings["hooks"]["SessionStart"]
-        for h in entry["hooks"]
-    ]
-    assert legacy not in commands
-    rendered = claude_adapter._render_session_start_hook_command(claude_dir)
-    assert commands.count(rendered) == 1
+    assert json.loads((claude_dir / "settings.json").read_text()) == {}
 
 
-def test_install_errors_on_corrupt_settings_json(tmp_path):
+def test_uninstall_removes_only_managed_skill_files(tmp_path):
+    claude_dir = tmp_path / ".claude"
+    managed = _seed_managed_skill(claude_dir, "recall")
+    note = managed.parent / "user-note.md"
+    note.write_text("hand-written", encoding="utf-8")
+    foreign = claude_dir / "skills" / "reflect" / "SKILL.md"
+    foreign.parent.mkdir(parents=True)
+    foreign.write_text("---\nname: user-handwritten\n---\nbody\n", encoding="utf-8")
+
+    result = _run("uninstall", "--home", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert not managed.exists()
+    assert note.exists()
+    assert foreign.exists()
+
+
+def test_uninstall_no_hooks_leaves_settings_alone(tmp_path):
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    managed = claude_adapter._render_session_start_hook_command(claude_dir)
+    original = json.dumps({"hooks": {"SessionStart": [
+        {"matcher": "", "hooks": [{"type": "command", "command": managed}]}
+    ]}})
+    (claude_dir / "settings.json").write_text(original)
+
+    assert _run("uninstall", "--home", str(tmp_path), "--no-hooks").returncode == 0
+
+    assert (claude_dir / "settings.json").read_text() == original
+
+
+def test_uninstall_is_idempotent_and_safe_on_empty_home(tmp_path):
+    for _ in range(2):
+        result = _run("uninstall", "--home", str(tmp_path))
+        assert result.returncode == 0, result.stderr
+    assert not (tmp_path / ".claude").exists()
+
+
+def test_uninstall_skips_corrupt_settings_json(tmp_path):
     claude_dir = tmp_path / ".claude"
     claude_dir.mkdir()
     (claude_dir / "settings.json").write_text("{this is not json")
 
-    result = subprocess.run(
-        [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
-        capture_output=True, text=True,
-    )
-    assert result.returncode != 0
-    # Error surfaces as an unhandled exception from _merge_session_start_hook;
-    # users shouldn't lose their hand-edited settings.
-    assert "settings.json" in result.stderr.lower()
+    result = _run("uninstall", "--home", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "not valid JSON" in result.stdout
+    assert (claude_dir / "settings.json").read_text() == "{this is not json"
