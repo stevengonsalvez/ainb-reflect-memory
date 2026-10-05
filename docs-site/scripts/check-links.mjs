@@ -95,6 +95,8 @@ function idsOf(file) {
 /** Extract every url-bearing attribute value from an html string. */
 function extractRefs(html) {
   const refs = [];
+  // Attributes inside <script>/<style> bodies are JS/CSS strings, not links.
+  html = html.replace(/(<(script|style)\b[^>]*>)[\s\S]*?<\/\2>/gi, '$1');
   const attr = /\s(href|src|poster|data-src|srcset)\s*=\s*(?:"([^"]*)"|'([^']*)')/gi;
   for (const m of html.matchAll(attr)) {
     const name = m[1].toLowerCase();
