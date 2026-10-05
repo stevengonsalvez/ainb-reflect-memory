@@ -10,7 +10,8 @@
 # UPDATE passes append source_correction_ids there and bump proof_count by
 # the number of NEW corrections cited, snapshotting the prior form into
 # `observation_history` first — the values below mirror the row at write
-# time and are NOT rewritten per query (the S9 immutable-frontmatter rule).
+# time and are NOT rewritten per query (the S9 immutable-frontmatter rule;
+# its only carve-out is the OKF lifecycle keys status/verified/stale_after).
 type: observation
 id: obs-{{SLUG}}-{{HASH6}}
 created: {{ISO_TIMESTAMP}}
