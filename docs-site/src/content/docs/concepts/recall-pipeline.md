@@ -145,7 +145,7 @@ Four callers run `recall.py`. Each builds its own query and passes its own limit
 | Caller | Fires on | Query | Limit and size | Other flags |
 |---|---|---|---|---|
 | `session_start_recall.py` | `SessionStart` | project + branch + commit tags (see below) | `--limit 3`, `--max-chars 1500` | `--min-overlap 0.2`, `--max-tokens 0`, `--no-gap-log`, `--no-followup` |
-| `user_prompt_submit_recall.py` | `UserPromptSubmit` | the prompt text | fetches `--limit 9`, keeps 3 not-yet-injected, `--max-chars 3000` then a hard cut at 1500 chars | passes `--session-id`; no min-overlap, no gap/followup suppression |
+| `user_prompt_submit_recall.py` | `UserPromptSubmit` | the prompt text | fetches `--limit 9`, keeps 3 not-yet-injected, `--max-chars 3000`, then fits up to 3 whole learnings into 1500 chars (a learning that does not fit is dropped, not cut, and is not marked injected) | passes `--session-id`; no min-overlap, no gap/followup suppression |
 | `subagent_start_recall.py` | `SubagentStart` | `subagent <type> \| cwd <cwd> \| agent_id <id> \| <task prompt>` | `--limit 3`, `--max-chars 1500` | `--no-gap-log`, `--no-followup`, 5 s timeout |
 | `/reflect:recall` skill | you type it | your query | `--limit 10`, `--max-chars 2000` | all flags available |
 

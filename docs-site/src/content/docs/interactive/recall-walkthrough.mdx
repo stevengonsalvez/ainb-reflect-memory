@@ -32,7 +32,7 @@ The same pipeline serves three callers with different limits. Switch the caller 
 
 | Caller | `--limit` | `--max-chars` | `--min-overlap` | Notes |
 |---|---|---|---|---|
-| `UserPromptSubmit` hook | 9 (3 x 3, over-fetch) | 3000 | off | Drops ids already injected this session, keeps the header plus the first 3 learnings, then hard-cuts at 1500 chars. |
+| `UserPromptSubmit` hook | 9 (3 x 3, over-fetch) | 3000 | off | Drops ids already injected this session, keeps the header plus up to 3 learnings that fit 1500 chars (a learning that does not fit is dropped whole and stays eligible next prompt). |
 | `SessionStart` hook | 3 | 1500 | 0.2 | `--max-tokens` from `REFLECT_RECALL_MAX_TOKENS`, default 0 (off). |
 | `/reflect:recall` | 10 (`REFLECT_RECALL_LIMIT`) | 2000 | off | Explicit, higher-limit path. |
 
