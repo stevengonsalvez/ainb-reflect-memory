@@ -225,6 +225,33 @@ def test_recall_context_uses_the_config_env(sandbox):
     assert "[g1]" in on and "[g1]" not in off  # graph-arm note only with arms on
 
 
+def test_failing_recall_subprocess_is_reported_not_swallowed(sandbox, monkeypatch):
+    """A recall that exits non-zero must raise with its stderr, not record an empty arm."""
+    monkeypatch.setattr(bench, "RECALL_PY", sandbox["bin"] / "boom.py")
+    (sandbox["bin"] / "boom.py").write_text(
+        "import sys\nprint('engine exploded: no module named yaml', file=sys.stderr)\nsys.exit(3)\n")
+
+    async def run():
+        bench._RECALL_SEM = asyncio.Semaphore(1)
+        return await bench.recall_context(QUERY, sandbox["kb"], sandbox["state"], False)
+
+    with pytest.raises(RuntimeError, match=r"(?s)exited 3.*engine exploded"):
+        asyncio.run(run())
+
+
+def test_empty_recall_context_is_warned_loudly(sandbox, monkeypatch, capsys):
+    monkeypatch.setattr(bench, "RECALL_PY", sandbox["bin"] / "quiet.py")
+    (sandbox["bin"] / "quiet.py").write_text("pass\n")
+
+    async def run():
+        bench._RECALL_SEM = asyncio.Semaphore(1)
+        return await bench.recall_context(QUERY, sandbox["kb"], sandbox["state"], True)
+
+    ctx, _ = asyncio.run(run())
+    assert ctx == ""
+    assert "empty context" in capsys.readouterr().err
+
+
 # ------------------------------------------ each knob changes behaviour alone
 
 ALL_ON = bench.arm_env("arms_on")

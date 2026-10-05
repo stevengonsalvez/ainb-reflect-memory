@@ -44,6 +44,7 @@ import re
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -354,30 +355,46 @@ RECALL_TIMEOUT = 90  # recall normally 20-45s; kill hangs past this
 async def recall_context(question: str, kb: Path, state: Path, arms_on: bool) -> tuple[str, float]:
     """Async recall via recall.py. Runs in its own process group so a hang
     (the engine occasionally wedges at 0% CPU on some queries) is killed with the
-    whole subtree, not just the direct child. Bounded by _RECALL_SEM."""
+    whole subtree, not just the direct child. Bounded by _RECALL_SEM.
+
+    A failed recall (spawn error, non-zero exit, timeout) raises RuntimeError: it
+    must never be recorded as an empty arm, which would score as "no memory" and
+    silently skew the ablation. An exit-0 run with empty output is a genuine
+    zero-hit result, so it is returned but warned about on stderr."""
     env = base_env(kb, state)
     env.update(arm_env("arms_on" if arms_on else "arms_off"))
-    cmd = ["python3", str(RECALL_PY), question, "--limit", str(RECALL_LIMIT),
+    cmd = [sys.executable, str(RECALL_PY), question, "--limit", str(RECALL_LIMIT),
            "--format", "markdown", "--max-chars", str(RECALL_MAX_CHARS),
            "--no-cache", "--confidence", "ANY"]
+    arm = "arms_on" if arms_on else "arms_off"
     assert _RECALL_SEM is not None
     t0 = time.perf_counter()
     async with _RECALL_SEM:
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 env=env, start_new_session=True)
             try:
-                out, _ = await asyncio.wait_for(proc.communicate(), timeout=RECALL_TIMEOUT)
-                ctx = out.decode().strip() if proc.returncode == 0 else ""
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=RECALL_TIMEOUT)
             except asyncio.TimeoutError:
                 _kill_tree(proc)
-                ctx = ""
-        except Exception:  # noqa: BLE001
+                raise RuntimeError(
+                    f"recall ({arm}) timed out after {RECALL_TIMEOUT}s: {question[:80]!r}")
+        except RuntimeError:
+            raise
+        except Exception as e:  # noqa: BLE001
             if proc:
                 _kill_tree(proc)
-            ctx = ""
+            raise RuntimeError(f"recall ({arm}) could not run: {e!r}") from e
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"recall ({arm}) exited {proc.returncode}: {question[:80]!r}\n"
+            f"{err.decode(errors='replace')[-600:]}")
+    ctx = out.decode().strip()
+    if not ctx:
+        print(f"WARNING: recall ({arm}) returned an empty context: {question[:80]!r}",
+              file=sys.stderr, flush=True)
     return ctx, time.perf_counter() - t0
 
 
