@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630">
+  <rect width="1200" height="630" fill="#0F0F18"/>
+  <rect x="24" y="24" width="1152" height="582" rx="16" fill="none" stroke="#6495ED" stroke-opacity=".5" stroke-width="2"/>
+  <g transform="translate(96 96) scale(2.2)">
+    <rect width="64" height="64" rx="12" fill="#191923"/>
+    <path d="M44.5 21.5A17 17 0 1 0 49 33" fill="none" stroke="#6495ED" stroke-width="5" stroke-linecap="round"/>
+    <path d="M38 14.5l8.5 7-9.5 4z" fill="#6495ED"/>
+    <circle cx="32" cy="32" r="6" fill="#FFD700"/>
+  </g>
+  <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
+    <text x="96" y="340" font-size="96" font-weight="700" fill="#FFD700">reflect</text>
+    <text x="96" y="410" font-size="36" fill="#DCDCE6">Self-improving memory for coding agents</text>
+    <text x="96" y="500" font-size="30" fill="#6495ED">capture  &#8594;  drain  &#8594;  index  &#8594;  recall</text>
+    <text x="96" y="566" font-size="24" fill="#78788C">stevengonsalvez.github.io/ainb-reflect-memory</text>
+  </g>
+</svg>
