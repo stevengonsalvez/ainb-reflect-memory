@@ -31,6 +31,8 @@ from typing import Callable, Optional
 
 import yaml
 
+from reflect_kb import okf
+
 ROUTE_HIGH = "high"
 ROUTE_MED = "medium"
 ROUTE_LOW = "low"
@@ -58,19 +60,18 @@ def _default_runner(cmd: list[str], cwd: Optional[Path] = None, check: bool = Tr
 
 
 def parse_frontmatter(text: str) -> tuple[dict, str]:
-    """Split a ``--- yaml --- body`` document. Missing/invalid → ``({}, text)``."""
-    if not text.startswith("---"):
-        return {}, text
-    parts = text.split("---", 2)
-    if len(parts) < 3:
+    """Split a ``--- yaml --- body`` document. Missing/invalid → ``({}, text)``.
+
+    Delimiters are ``---`` LINES only (okf.parse_note), so a ``---`` inside a
+    value cannot truncate the frontmatter.
+    """
+    if not okf.has_frontmatter(text):
         return {}, text
     try:
-        fm = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
+        fm, body = okf.parse_note(text)
+    except ValueError:
         return {}, text
-    if not isinstance(fm, dict):
-        return {}, text
-    return fm, parts[2].strip()
+    return fm, body.strip()
 
 
 def classify_confidence(frontmatter: dict) -> str:
@@ -118,7 +119,17 @@ def _copy_into_team(doc: Path, team_root: Path) -> list[Path]:
     docs_dir = team_root / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
     dest_doc = docs_dir / doc.name
-    dest_doc.write_bytes(doc.read_bytes())
+    # The team copy is an OKF v0.2 concept even when the local source predates
+    # the profile; the source itself is never rewritten. Unsafe-to-edit
+    # frontmatter falls back to a verbatim copy (no data loss).
+    raw = doc.read_bytes()
+    try:
+        raw = okf.normalize_note(
+            raw.decode("utf-8"), actor=okf.writer_actor("reflect-share"),
+            now=okf.file_mtime(doc)).encode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        pass
+    dest_doc.write_bytes(raw)
     staged = [dest_doc]
     sidecar = _find_sidecar(doc)
     if sidecar is not None:

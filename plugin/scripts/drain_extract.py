@@ -31,6 +31,10 @@ _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 
+import okf_profile  # sibling, stdlib-only
+
+_PLUGIN_VERSION = okf_profile.manifest_version(_SCRIPT_DIR.parent)
+
 # Bound the model's output so a pathological slice cannot ask for a giant
 # response (output-side truncation is the single-shot analogue of the agentic
 # loop's runaway; cap it and say so).
@@ -217,11 +221,12 @@ def render_md(learning: dict, *, source_path: str, session_id: str) -> str:
     tags = learning.get("tags") or []
     entities = [e for e in (learning.get("entities") or []) if e]
 
+    created = _now_iso()
     fm = ["---",
           "type: learning",
           f"id: {_learning_id(learning)}",
-          f"created: {_now_iso()}",
-          f"updated: {_now_iso()}",
+          f"created: {created}",
+          f"updated: {created}",
           "scope: global",
           f"confidence: {conf}",
           f"confidence_num: {conf_num}",
@@ -250,13 +255,22 @@ def render_md(learning: dict, *, source_path: str, session_id: str) -> str:
         fm.append(f"source_path: {_yaml_str(source_path)}")
     if session_id:
         fm.append(f"session_id: {_yaml_str(session_id)}")
-    fm.append("---")
 
     body = str(learning.get("body", "") or "").strip()
     if "## " not in body:
         body = (f"## Problem\n{learning.get('problem','')}\n\n"
                 f"## Solution\n{learning.get('fix','')}\n\n"
                 f"## Context\n{body}")
+
+    # OKF v0.2 profile: description/generated/sources ride beside the reflect
+    # keys. `generated.by` names this writer; `reflect add` keeps it as-is.
+    okf_view = {"type": "learning", "title": title, "created": created,
+                "key_insight": learning.get("key_insight", ""),
+                "source_path": source_path, "session_id": session_id}
+    additions = okf_profile.okf_additions(
+        okf_view, body, actor=okf_profile.actor("reflect-drain", _PLUGIN_VERSION))
+    fm.extend(f"{k}: {okf_profile.yaml_value(v)}" for k, v in additions.items())
+    fm.append("---")
     return "\n".join(fm) + "\n\n" + body + "\n"
 
 

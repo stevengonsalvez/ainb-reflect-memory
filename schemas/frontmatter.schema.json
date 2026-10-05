@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/stevengonsalvez/reflect-kb/schemas/frontmatter.schema.json",
   "title": "reflect-kb learning frontmatter (v4)",
-  "description": "YAML frontmatter for a reflect-kb learning document (documents/*.md). The v4 spec pins the ten fields enumerated here; additional fields are tolerated so real-world provenance/ingest metadata survives validation.",
+  "description": "YAML frontmatter for a reflect-kb learning document (documents/*.md). The v4 spec pins the ten fields enumerated here; additional fields are tolerated so real-world provenance/ingest metadata survives validation. OKF v0.2 profile: every note reflect writes is also an Open Knowledge Format v0.2 concept, so the OKF keys (type, description, resource, sources, generated, verified, status, stale_after) are described here too. They are optional in this schema so pre-profile notes keep validating; reflect's writers always emit `type`, `title`, `description` and `generated`.",
   "type": "object",
   "required": ["title", "created", "confidence"],
   "additionalProperties": true,
@@ -57,6 +57,153 @@
       "type": "string",
       "minLength": 1,
       "description": "Primary framework / runtime (e.g. tokio, react, django). Lowercase preferred."
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OKF (SPEC 4.1): the one key every OKF concept must carry. reflect writes `learning` (legacy `LEARNING` is normalized to lowercase on write)."
+    },
+    "description": {
+      "type": "string",
+      "description": "OKF (SPEC 4.1): one-line summary, derived from `key_insight` (else the body's first sentence), at most ~200 characters."
+    },
+    "resource": {
+      "type": "string",
+      "minLength": 1,
+      "description": "OKF (SPEC 4.1): canonical URI of the underlying asset, when the note describes one."
+    },
+    "sources": {
+      "type": "array",
+      "description": "OKF provenance (SPEC 5.1): materials the note derives from. reflect maps `source_path` (or `session_id` as `session:<id>`) here.",
+      "items": {
+        "type": "object",
+        "required": [
+          "resource"
+        ],
+        "additionalProperties": true,
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "resource": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string",
+            "minLength": 1,
+            "description": "OKF actor (SPEC 7): `<producer>/<version>` for tools (e.g. `reflect-drain/5.2.5`), `human:<id>` for people, `process:<id>` for automated processes."
+          },
+          "last_modified": {
+            "type": "string",
+            "format": "date-time",
+            "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$"
+          }
+        }
+      }
+    },
+    "generated": {
+      "type": "object",
+      "required": [
+        "by"
+      ],
+      "additionalProperties": true,
+      "description": "OKF trust (SPEC 5.2): which writer produced the content and when (`at` mirrors `created`).",
+      "properties": {
+        "by": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OKF actor (SPEC 7): `<producer>/<version>` for tools (e.g. `reflect-drain/5.2.5`), `human:<id>` for people, `process:<id>` for automated processes."
+        },
+        "at": {
+          "type": "string",
+          "format": "date-time",
+          "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$"
+        }
+      }
+    },
+    "verified": {
+      "description": "OKF trust (SPEC 5.2): verification events. A bare mapping counts as a one-element list. Mutable after write (Rule S9 carve-out).",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "by",
+            "at"
+          ],
+          "additionalProperties": true,
+          "properties": {
+            "by": {
+              "type": "string",
+              "minLength": 1,
+              "description": "OKF actor (SPEC 7): `<producer>/<version>` for tools (e.g. `reflect-drain/5.2.5`), `human:<id>` for people, `process:<id>` for automated processes."
+            },
+            "at": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$",
+              "description": "When the verification happened (ISO 8601 with explicit offset)."
+            }
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "by",
+              "at"
+            ],
+            "additionalProperties": true,
+            "properties": {
+              "by": {
+                "type": "string",
+                "minLength": 1,
+                "description": "OKF actor (SPEC 7): `<producer>/<version>` for tools (e.g. `reflect-drain/5.2.5`), `human:<id>` for people, `process:<id>` for automated processes."
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$",
+                "description": "When the verification happened (ISO 8601 with explicit offset)."
+              }
+            }
+          },
+          "minItems": 1
+        }
+      ]
+    },
+    "status": {
+      "type": "string",
+      "description": "OKF lifecycle (SPEC 5.4): draft | stable | deprecated; absent means stable. `reflect serve` archive sets `deprecated`. Observation notes (`type: observation`) keep reflect's own `active | retired` (see allOf). Mutable after write (Rule S9 carve-out)."
+    },
+    "stale_after": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "(Z|[+-][0-9]{2}:?[0-9]{2})$",
+      "description": "OKF lifecycle (SPEC 5.5): absolute instant after which the note is stale. Mirrors `forget_after` (which is kept for back-compat). Mutable after write (Rule S9 carve-out)."
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": ["type"],
+        "properties": { "type": { "const": "observation" } }
+      },
+      "then": {
+        "properties": {
+          "status": { "enum": ["active", "retired", "draft", "stable", "deprecated"] }
+        }
+      },
+      "else": {
+        "properties": {
+          "status": { "enum": ["draft", "stable", "deprecated"] }
+        }
+      }
+    }
+  ]
 }

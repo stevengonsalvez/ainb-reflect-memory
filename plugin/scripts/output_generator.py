@@ -37,6 +37,7 @@ _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
 
+import okf_profile  # stdlib-only OKF v0.2 note profile (vendored from reflect_kb)
 from reflect_config import get_config
 
 try:
@@ -297,6 +298,13 @@ def create_knowledge_note(
         session_id=session_id,
         content_hash=content_hash,
     )
+    # OKF v0.2 profile: `type`, description, generated, sources join the
+    # reflect keys (which stay untouched as OKF extension keys).
+    frontmatter = okf_profile.to_okf(
+        frontmatter, problem,
+        actor=okf_profile.actor("reflect-skill",
+                                okf_profile.manifest_version(_SCRIPTS_DIR.parent)),
+    )
 
     def _render_note() -> str:
         """Serialize the current ``frontmatter`` + body to the note text.
@@ -324,7 +332,10 @@ def create_knowledge_note(
                         fm_lines.append(f'  {dk}: "{dv}"' if isinstance(dv, str) else f"  {dk}: {dv}")
                 else:
                     fm_lines.append(f'{k}: "{v}"' if isinstance(v, str) else f"{k}: {v}")
-            fm = '\n'.join(fm_lines)
+            # Trailing newline keeps the closing fence on its own line;
+            # without it the last key glued to `---` and the block was
+            # unparseable (not OKF-conformant).
+            fm = '\n'.join(fm_lines) + '\n'
         out = f"---\n{fm}---\n\n## Problem\n\n{problem}\n\n## Solution\n\n{solution}\n"
         if context:
             out += f"\n## Context\n\n{context}\n"

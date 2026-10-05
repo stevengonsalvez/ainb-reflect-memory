@@ -19,12 +19,12 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import click
-import yaml
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
 from reflect_kb import __version__
+from reflect_kb import okf
 from reflect_kb.metrics import write_metric
 from reflect_kb import errors as _err
 
@@ -88,19 +88,19 @@ def index_is_stale() -> bool:
 
 
 def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
-    if not content.startswith("---"):
-        return {}, content
+    """(frontmatter, stripped body); ({}, content) when absent or unparseable.
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    Splits only on `---` delimiter LINES (okf.parse_note): splitting on the
+    text `---` let a value such as `title: cost --- benefit` truncate the
+    block, and every reader (add, serve, importer) lost the note's metadata.
+    """
+    if not okf.has_frontmatter(content):
         return {}, content
-
     try:
-        frontmatter = yaml.safe_load(parts[1])
-        body = parts[2].strip()
-        return frontmatter or {}, body
-    except yaml.YAMLError:
+        frontmatter, body = okf.parse_note(content)
+    except ValueError:
         return {}, content
+    return frontmatter, body.strip()
 
 
 def generate_document_id(title: str, body: str = "") -> str:
@@ -466,7 +466,25 @@ def add(file_path: str, entities: Optional[str], force: bool):
             if not click.confirm(f"Document {dest.name} exists. Overwrite?"):
                 return
 
-    shutil.copy(source, dest)
+    # OKF v0.2 profile: store the note with the OKF keys it is missing. Only
+    # frontmatter lines are added; body bytes (and so the doc id) never change.
+    # An already-conformant note is copied byte-for-byte, mode included.
+    raw = source.read_bytes()
+    stored = raw
+    try:
+        text = raw.decode("utf-8")
+        normalized = okf.normalize_note(
+            text, actor=okf.writer_actor("reflect-cli"), now=okf.file_mtime(source))
+        if normalized != text:
+            stored = normalized.encode("utf-8")
+    except (UnicodeDecodeError, ValueError) as e:
+        console.print(f"[yellow]Warning: stored verbatim, could not add OKF keys: {e}[/yellow]")
+    if stored is not raw:
+        dest.write_bytes(stored)  # bytes: no newline translation, CRLF survives
+        shutil.copymode(source, dest)
+        content = stored.decode("utf-8")
+    elif source.resolve() != dest.resolve():
+        shutil.copy(source, dest)
 
     # Load or auto-generate entity sidecar
     entities_formatted = None

@@ -1,12 +1,22 @@
 ---
-# S9: this frontmatter holds ONLY semantic fields and is immutable after
-# write — content edits aside, nothing rewrites this file. Volatile ranking
-# signals (importance, maturity, recall_count, helpful_count, ignored_count,
-# stale_count, last_recalled_at) live in reflect.db's `learning_signals`
-# sidecar table and must NEVER be added here: per-query bumps would dirty
-# git-tracked notes and merge-conflict across teammates (ByteRover
-# runtime-signals sidecar shape). `updated` below reflects real content
-# modifications only — ranking updates never touch it.
+# S9: no telemetry in frontmatter. This file holds semantic fields only.
+# Volatile ranking signals (importance, maturity, recall_count, helpful_count,
+# ignored_count, stale_count, last_recalled_at) change on every query, so they
+# live in reflect.db's `learning_signals` sidecar table and must NEVER be added
+# here: per-query bumps would dirty git-tracked notes and merge-conflict across
+# teammates (ByteRover runtime-signals sidecar shape). `updated` below reflects
+# real content modifications only; ranking updates never touch it.
+# Event-driven edits are allowed: content edits, and the OKF lifecycle fields
+# `status`, `verified` and `stale_after`, which change on a rare event
+# (supersede, human confirmation) and cost one commit each. Lifecycle fields
+# are rewritten only through reflect_kb.okf.set_lifecycle_fields, which
+# touches no other line.
+#
+# OKF v0.2 profile: every note is also an Open Knowledge Format concept.
+# `type` is OKF's one required key (always lowercase `learning`); `title`,
+# `description`, `generated`, `sources`, `stale_after` below are OKF keys
+# reflect derives on write. Every other key is a reflect extension key.
+# Timestamps carry an explicit offset (e.g. `Z`).
 type: learning
 id: lrn-{{SLUG}}-{{HASH6}}
 created: {{ISO_TIMESTAMP}}
@@ -27,6 +37,7 @@ learning_type: {{LEARNING_TYPE}}
 # size, then a per-type category average.
 discovery_tokens: {{DISCOVERY_TOKENS}}
 title: "{{TITLE}}"
+description: "{{KEY_INSIGHT}}"          # OKF: one line, <= ~200 chars (key_insight, else first sentence)
 tags: [{{TAGS}}]
 symptoms:
   - "{{SYMPTOM_1}}"
@@ -53,6 +64,17 @@ superseded_by: null
 # ("avoid X service during the incident", "valid for the current migration /
 # sprint / quarter") — durable rules must stay null.
 forget_after: null
+# OKF lifecycle: absolute instant mirroring forget_after (omit when null).
+# stale_after: "{{ISO_TIMESTAMP}}"
+# OKF lifecycle (S9 carve-out, mutable): draft | stable | deprecated; absent
+# means stable. `reflect serve` archive sets deprecated, restore clears it.
+# status: stable
+# OKF trust (S9 carve-out, mutable): who confirmed the note, newest last.
+# verified: [{by: "human:{{USER_ID}}", at: "{{ISO_TIMESTAMP}}"}]
+# OKF trust: the writer actor (`<producer>/<version>`) and created time.
+generated: {by: "{{WRITER}}/{{VERSION}}", at: "{{ISO_TIMESTAMP}}"}
+# OKF provenance: source_path (or `session:<id>`) as a sources entry.
+sources: [{id: source, resource: "{{SOURCE_PATH}}"}]
 provenance:
   source_tool: "{{SOURCE_TOOL}}"      # claude | codex | copilot | gemini
   source_path: "{{SOURCE_PATH}}"
