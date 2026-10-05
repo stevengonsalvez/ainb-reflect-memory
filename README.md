@@ -17,7 +17,7 @@ reflect captures every correction and design decision your AI assistant makes, i
 
 Works across **Claude Code**, **Codex CLI**, and **GitHub Copilot** — same engine, same KB, three harnesses.
 
-> 📖 **Full documentation → [stevengonsalvez.github.io/agents-in-a-box](https://stevengonsalvez.github.io/agents-in-a-box/)** — architecture, per-harness setup, and the Postgres backend in depth.
+> 📖 **Full documentation: [stevengonsalvez.github.io/ainb-reflect-memory](https://stevengonsalvez.github.io/ainb-reflect-memory/)**. Install per harness (Claude Code, Codex, Copilot, Hermes), architecture, CLI and hook reference, and an interactive memory browser demo.
 
 ---
 

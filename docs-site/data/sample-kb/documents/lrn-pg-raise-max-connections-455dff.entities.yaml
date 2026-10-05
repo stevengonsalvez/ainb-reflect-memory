@@ -1,0 +1,23 @@
+document_id: lrn-pg-raise-max-connections-455dff
+extracted_at: '2026-05-27T17:00:00'
+entities:
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: connection pool
+  type: pattern
+  description: Bounded set of reusable database connections
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: acme-api
+  target: PostgreSQL
+  type: uses
+  description: primary datastore
+  strength: 6
+- source: connection pool
+  target: PostgreSQL
+  type: relates_to
+  description: client side of the limit
+  strength: 4

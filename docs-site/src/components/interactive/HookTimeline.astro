@@ -1,0 +1,10 @@
+---
+import './explainer.css';
+const base = import.meta.env.BASE_URL;
+const src = `${base.endsWith('/') ? base : base + '/'}js/explainers/hook-timeline.js`;
+---
+
+<div class="xp xp-hook not-content" id="xp-hook-timeline">
+  <noscript><p class="xp-noscript">This explainer needs JavaScript. The hook tables on the hooks reference page list the same wiring.</p></noscript>
+</div>
+<script is:inline type="module" src={src}></script>

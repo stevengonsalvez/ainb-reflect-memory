@@ -1,0 +1,161 @@
+---
+/**
+ * Diagram: figure + caption + click-to-zoom image.
+ *
+ * Usage in .mdx:
+ *   import Diagram from '../../components/Diagram.astro';
+ *   <Diagram src="reflect-topology.svg" alt="Component topology" caption="One engine, three harnesses." />
+ *
+ * `src` resolves, in order: absolute URL or leading-slash path as given;
+ * otherwise a file name under `public/diagrams/` (base path added for you).
+ * `paper` (default true) draws the image on a light card so diagrams authored
+ * for a light background stay legible in dark mode. Set paper={false} for
+ * transparent, theme-aware SVGs.
+ */
+interface Props {
+  src: string;
+  alt: string;
+  caption?: string;
+  paper?: boolean;
+  width?: number;
+  height?: number;
+}
+const { src, alt, caption, paper = true, width, height } = Astro.props;
+
+const base = import.meta.env.BASE_URL.endsWith('/') ? import.meta.env.BASE_URL : import.meta.env.BASE_URL + '/';
+const url = /^(https?:)?\/\//.test(src) || src.startsWith('/') ? src : `${base}diagrams/${src}`;
+---
+
+<figure class="rf-diagram not-content" data-paper={paper ? 'true' : 'false'}>
+  <button type="button" class="zoom" data-diagram-zoom aria-label={`Enlarge diagram: ${alt}`}>
+    <img src={url} alt={alt} width={width} height={height} loading="lazy" decoding="async" />
+    <span class="hint" aria-hidden="true">click to enlarge</span>
+  </button>
+  {caption && <figcaption>{caption}</figcaption>}
+  <dialog class="rf-diagram-dialog" aria-label={alt}>
+    <form method="dialog"><button class="close" aria-label="Close">close (esc)</button></form>
+    <div class="scroller"><img src={url} alt={alt} loading="lazy" decoding="async" /></div>
+  </dialog>
+</figure>
+
+<style>
+  .rf-diagram {
+    margin: 1.6rem 0;
+  }
+  .zoom {
+    position: relative;
+    display: block;
+    width: 100%;
+    padding: 0;
+    cursor: zoom-in;
+    border: 1px solid var(--rf-line, rgba(100, 149, 237, 0.3));
+    border-radius: 10px;
+    overflow: hidden;
+    background: transparent;
+    line-height: 0;
+  }
+  [data-paper='true'] .zoom {
+    background: var(--rf-paper, #faf9f5);
+    border-color: var(--rf-paper-line, #d1cfc5);
+  }
+  .zoom:hover {
+    border-color: var(--rf-gold, #ffd700);
+  }
+  .zoom img {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 0 !important;
+    border-radius: 0 !important;
+    margin: 0;
+  }
+  .hint {
+    position: absolute;
+    right: 0.6rem;
+    bottom: 0.6rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font: 600 0.68rem/1.4 var(--rf-font-mono, monospace);
+    background: rgba(15, 15, 24, 0.82);
+    color: #dcdce6;
+    opacity: 0;
+    transition: opacity 120ms ease;
+  }
+  .zoom:hover .hint,
+  .zoom:focus-visible .hint {
+    opacity: 1;
+  }
+  figcaption {
+    margin-top: 0.55rem;
+    font-size: var(--sl-text-sm, 0.875rem);
+    color: var(--sl-color-gray-3);
+    text-align: center;
+  }
+  dialog {
+    width: min(96vw, 80rem);
+    max-height: 92vh;
+    padding: 0;
+    border: 1px solid var(--rf-line, #6495ed);
+    border-radius: 10px;
+    background: var(--sl-color-black, #0f0f18);
+    color: var(--sl-color-white);
+    overflow: hidden;
+  }
+  dialog::backdrop {
+    background: rgba(5, 5, 10, 0.78);
+    backdrop-filter: blur(3px);
+  }
+  dialog[open] {
+    display: flex;
+    flex-direction: column;
+  }
+  .scroller {
+    overflow: auto;
+    line-height: 0;
+    background: var(--rf-paper, #faf9f5);
+  }
+  [data-paper='false'] .scroller {
+    background: transparent;
+  }
+  .scroller img {
+    width: max(100%, 56rem);
+    height: auto;
+  }
+  form {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0.4rem 0.6rem;
+    border-bottom: 1px solid var(--rf-line-soft, rgba(100, 149, 237, 0.2));
+  }
+  .close {
+    cursor: pointer;
+    font: 600 0.75rem/1 var(--rf-font-mono, monospace);
+    padding: 0.4rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid var(--rf-line, #6495ed);
+    background: transparent;
+    color: var(--sl-color-text-accent, #6495ed);
+  }
+  .close:hover {
+    color: var(--rf-gold, #ffd700);
+    border-color: var(--rf-gold, #ffd700);
+  }
+</style>
+
+<script>
+  function wire() {
+    document.querySelectorAll<HTMLButtonElement>('[data-diagram-zoom]').forEach((btn) => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      const dialog = btn.parentElement?.querySelector('dialog');
+      if (!dialog) return;
+      btn.addEventListener('click', () => dialog.showModal());
+      // click on the backdrop (the dialog element itself) closes
+      dialog.addEventListener('click', (e) => {
+        if (e.target === dialog) dialog.close();
+      });
+    });
+  }
+  wire();
+  document.addEventListener('astro:page-load', wire);
+</script>

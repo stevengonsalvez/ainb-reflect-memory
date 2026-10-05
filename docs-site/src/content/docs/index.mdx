@@ -1,0 +1,64 @@
+---
+title: reflect
+description: Long-term memory for AI coding agents. Capture corrections, index them, recall them in every new session.
+template: splash
+hero:
+  title: reflect
+  tagline: Long-term memory for coding agents. Correct a mistake once, never again.
+  actions:
+    - text: Quickstart
+      link: /ainb-reflect-memory/start/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: Try the memory browser
+      link: /ainb-reflect-memory/interactive/memory-browser/
+      icon: external
+      variant: secondary
+---
+
+import { CardGrid, LinkCard, LinkButton } from '@astrojs/starlight/components';
+import FlowSteps from '../../components/FlowSteps.astro';
+
+<div class="rf-landing">
+
+<h2>How it works</h2>
+<p class="rf-lede">One loop, running in the background of every session. Same engine and knowledge base across Claude Code, Codex CLI and GitHub Copilot.</p>
+
+<FlowSteps />
+
+<h2>Install and first run</h2>
+<p class="rf-lede">The engine is a Python package. Install it with <code>uv</code>, then create a knowledge base and search it.</p>
+
+```bash
+uv tool install --upgrade --torch-backend cpu \
+  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+reflect --version
+reflect init
+reflect search "how did we fix the tokio panic"
+```
+
+<h2>Find your way around</h2>
+<p class="rf-lede">Start with the overview, then pick the harness you use.</p>
+
+<CardGrid>
+  <LinkCard title="Start here" description="What reflect is, the problem it fixes, a five minute quickstart, and how it compares." href="/ainb-reflect-memory/start/overview/" />
+  <LinkCard title="Install per harness" description="Claude Code, Codex CLI, GitHub Copilot and Hermes setup." href="/ainb-reflect-memory/install/claude-code/" />
+  <LinkCard title="Concepts" description="Architecture, capture, drain, index and storage, and the recall pipeline." href="/ainb-reflect-memory/concepts/architecture/" />
+  <LinkCard title="Interactive" description="Memory browser, recall walkthrough, token economics and hook timeline you can poke at." href="/ainb-reflect-memory/interactive/memory-browser/" />
+  <LinkCard title="Guides" description="The memory browser, the TUI plugin, fleet use, and troubleshooting." href="/ainb-reflect-memory/guides/troubleshooting/" />
+  <LinkCard title="Reference" description="CLI, hooks, configuration, KB format, OKF profile and the serve API." href="/ainb-reflect-memory/reference/cli/" />
+  <LinkCard title="Evals and benchmarks" description="Recall benchmarks and the regression suite that guards them." href="/ainb-reflect-memory/evals/benchmarks/" />
+  <LinkCard title="Design notes" description="Why reflect is shaped the way it is, and how it relates to OKF." href="/ainb-reflect-memory/design/okf-vs-reflect/" />
+</CardGrid>
+
+<aside class="rf-callout" aria-labelledby="rf-demo-h">
+  <span class="tag">live demo, no install</span>
+  <h3 id="rf-demo-h">Try the live memory browser</h3>
+  <p>Browse, search and graph a sample knowledge base right in your browser. The data is invented; the interface is the real one you get from <code>reflect serve</code>.</p>
+  <div class="actions">
+    <LinkButton href="/ainb-reflect-memory/interactive/memory-browser/" variant="primary">Open the memory browser</LinkButton>
+    <LinkButton href="/ainb-reflect-memory/guides/memory-browser/" variant="secondary">Read the guide</LinkButton>
+  </div>
+</aside>
+
+</div>

@@ -1,0 +1,39 @@
+document_id: lrn-pg-idle-in-transaction-timeout-d97f45
+extracted_at: '2026-06-11T12:15:00'
+entities:
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: idle_in_transaction_session_timeout
+  type: concept
+  description: PostgreSQL setting that kills stuck transactions
+- name: migrations
+  type: concept
+  description: Versioned schema changes
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+- name: PgBouncer
+  type: tool
+  description: Connection pooler in front of PostgreSQL
+relationships:
+- source: idle_in_transaction_session_timeout
+  target: PostgreSQL
+  type: configures
+  description: server-side kill switch
+  strength: 7
+- source: migrations
+  target: PostgreSQL
+  type: uses
+  description: DDL needs an exclusive lock
+  strength: 6
+- source: idle_in_transaction_session_timeout
+  target: migrations
+  type: prevents
+  description: unblocks DDL queued behind leaks
+  strength: 6
+- source: PgBouncer
+  target: PostgreSQL
+  type: relates_to
+  description: pooled sessions mask which client leaked
+  strength: 3

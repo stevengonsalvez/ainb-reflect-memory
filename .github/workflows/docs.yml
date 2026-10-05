@@ -1,0 +1,89 @@
+name: docs
+
+# Build the Starlight docs site on every relevant PR (link validation runs as
+# part of the build), and deploy to GitHub Pages on push to main.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs-site/**"
+      - "src/reflect_kb/cli/serve_static/**"
+      - "docs/**"
+      - "src/reflect_kb/serve.py"
+      - "plugin/CHANGELOG.md"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "docs-site/**"
+      - "src/reflect_kb/cli/serve_static/**"
+      - "docs/**"
+      - "src/reflect_kb/serve.py"
+      - "plugin/CHANGELOG.md"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One Pages deployment at a time; never cancel a deploy mid-flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: docs-site
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      # Runs scripts/build-demo.mjs, then `astro build`. The
+      # starlight-links-validator plugin fails the build on broken internal
+      # links and invalid anchors.
+      - name: Build
+        run: npm run build
+
+      - name: Mock API parity and corpus freshness
+        run: |
+          node scripts/test-mock-search.mjs
+          node scripts/build-recall-corpus.mjs --check
+
+      # Post-build checker over dist/: internal links and assets are fatal,
+      # external links are warnings only.
+      - name: Check links
+        run: npm run check-links
+
+      - name: Configure Pages
+        if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: docs-site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v5

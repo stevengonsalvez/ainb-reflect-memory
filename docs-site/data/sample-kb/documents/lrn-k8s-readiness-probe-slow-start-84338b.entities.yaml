@@ -1,0 +1,31 @@
+document_id: lrn-k8s-readiness-probe-slow-start-84338b
+extracted_at: '2026-08-12T09:15:00'
+entities:
+- name: Kubernetes
+  type: technology
+  description: Container orchestrator
+- name: readiness probe
+  type: concept
+  description: Kubernetes gate for receiving traffic
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+relationships:
+- source: Kubernetes
+  target: readiness probe
+  type: implements
+  description: probe types
+  strength: 7
+- source: acme-api
+  target: readiness probe
+  type: configures
+  description: /readyz checks pool
+  strength: 6
+- source: readiness probe
+  target: PostgreSQL
+  type: relates_to
+  description: readyz pings the pool
+  strength: 4

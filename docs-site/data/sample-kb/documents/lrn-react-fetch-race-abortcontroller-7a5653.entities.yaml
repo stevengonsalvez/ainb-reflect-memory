@@ -1,0 +1,47 @@
+document_id: lrn-react-fetch-race-abortcontroller-7a5653
+extracted_at: '2026-06-24T11:45:00'
+entities:
+- name: AbortController
+  type: function
+  description: Web API to cancel in-flight fetches
+- name: useEffect
+  type: function
+  description: React hook for side effects
+- name: fetch
+  type: function
+  description: Web fetch API
+- name: race condition
+  type: error
+  description: Out-of-order async results overwrite newer state
+- name: React
+  type: technology
+  description: UI library used by widgetly
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: AbortController
+  target: race condition
+  type: prevents
+  description: cancels stale requests
+  strength: 8
+- source: useEffect
+  target: AbortController
+  type: uses
+  description: cleanup aborts
+  strength: 7
+- source: fetch
+  target: AbortController
+  type: uses
+  description: signal option
+  strength: 6
+- source: React
+  target: useEffect
+  type: part_of
+  description: core hook
+  strength: 4
+- source: widgetly
+  target: fetch
+  type: uses
+  description: search box
+  strength: 4

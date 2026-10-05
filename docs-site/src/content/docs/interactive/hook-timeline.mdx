@@ -1,0 +1,56 @@
+---
+title: Hook timeline
+description: Scrub through a coding session and see which reflect hook fires at each moment, per harness (Claude Code, Codex, Copilot CLI).
+sidebar:
+  order: 4
+---
+
+import HookTimeline from '../../../components/interactive/HookTimeline.astro';
+
+reflect does nothing on its own. Everything it does happens inside hooks the harness fires. This timeline replays one scripted session: pick a harness, scrub or press Play, and watch which lane lights up at each hook.
+
+<HookTimeline />
+
+## How to read it
+
+| Lane | Meaning | Costs model tokens? |
+|---|---|---|
+| Recall injection | The hook sends `additionalContext` into the model's context before it acts. | Yes: the injected text is input tokens (see [token economics](/ainb-reflect-memory/interactive/token-economics/)). |
+| Capture | Cheap state work: arm a watcher, write a mini-learning, update slots. | No. |
+| Drain enqueue | Append the transcript to `~/.reflect/pending_reflections.jsonl` after the $0 gate. | No. |
+| Drain run | The detached `reflect-drain-bg.sh` process turns queued transcripts into learnings. | Yes: this is the only LLM spend in the write path. |
+
+Two rules fall out of the wiring, and the timeline makes both visible:
+
+- **Producers never reflect.** `Stop`, `PreCompact`, `SessionEnd` and `SubagentStop` are plain shell commands. They can only enqueue. The queue holds one entry per session even though several hooks try to add it (the dedupe is by session id).
+- **The drain is spawned from `SessionStart`.** The next session's start hook launches it detached, so reflection never delays the session that earned the learning.
+
+## Harness differences
+
+Wiring comes straight from each harness's hook file. The counts include every event reflect registers, not just the ones in the scripted session.
+
+| Harness | Hook file | Events | Not wired |
+|---|---|---|---|
+| Claude Code | `.claude-plugin/plugin.json` | 13 | none |
+| Codex | `plugin/codex-hooks.json` | 10 | `Notification`, `PostToolUseFailure`, `SessionEnd` |
+| Copilot CLI | `plugin/copilot-hooks.json` | 13 (camelCase names, `agentStop` for Stop, plus `errorOccurred`) | `postCompact` |
+
+Codex arms the failure watcher from `PostToolUse` because `posttooluse_minilearning.py` detects failed results itself. Without `SessionEnd`, Codex relies on `Stop` and `PreCompact` to enqueue, which is why the dedupe matters.
+
+## Where in the code
+
+| What | Path |
+|---|---|
+| Claude Code wiring | [`.claude-plugin/plugin.json`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/.claude-plugin/plugin.json) |
+| Codex wiring | [`plugin/codex-hooks.json`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/codex-hooks.json) |
+| Copilot wiring | [`plugin/copilot-hooks.json`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/copilot-hooks.json) |
+| Hook scripts and the producer/consumer contract | [`plugin/hooks/README.md`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/README.md) |
+| Recall hooks (SessionStart, UserPromptSubmit) | [`plugin/skills/recall/hooks/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/plugin/skills/recall/hooks) |
+| Enqueue and dedupe | [`plugin/hooks/hook_common.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/hook_common.py) (`enqueue_reflection`) |
+| Drain consumer | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
+
+:::note
+The counts under "state" (3 learnings at start, 2 on prompt 1, and so on) are illustrative. The caps behind them are real: SessionStart injects at most 3 learnings; each prompt at most 2 new ones within 1500 characters (3 blocks, and the header line counts as one).
+:::
+
+For the full hook reference see the [hooks reference](/ainb-reflect-memory/reference/hooks/); for what happens inside the drain see [drain](/ainb-reflect-memory/concepts/drain/).

@@ -1,0 +1,31 @@
+document_id: lrn-react-useeffect-strictmode-double-run-4bc6ed
+extracted_at: '2026-05-16T10:10:00'
+entities:
+- name: useEffect
+  type: function
+  description: React hook for side effects
+- name: StrictMode
+  type: concept
+  description: React dev-only double-invoke checks
+- name: React
+  type: technology
+  description: UI library used by widgetly
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: useEffect
+  target: StrictMode
+  type: relates_to
+  description: double invoke on mount
+  strength: 7
+- source: React
+  target: useEffect
+  type: part_of
+  description: core hook
+  strength: 6
+- source: widgetly
+  target: React
+  type: uses
+  description: UI framework
+  strength: 7

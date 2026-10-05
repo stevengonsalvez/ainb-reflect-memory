@@ -1,0 +1,15 @@
+document_id: lrn-node14-fetch-polyfill-node-fetch-a9a2ae
+extracted_at: '2026-04-18T16:30:00'
+entities:
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+- name: fetch
+  type: function
+  description: Web fetch API
+relationships:
+- source: Node.js
+  target: fetch
+  type: relates_to
+  description: global fetch landed in Node 18
+  strength: 3

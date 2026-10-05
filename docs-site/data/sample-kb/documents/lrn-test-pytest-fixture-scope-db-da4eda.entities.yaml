@@ -1,0 +1,31 @@
+document_id: lrn-test-pytest-fixture-scope-db-da4eda
+extracted_at: '2026-07-21T15:20:00'
+entities:
+- name: pytest
+  type: technology
+  description: Python test framework
+- name: Python
+  type: technology
+  description: Language for the quillbot CLI
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: quillbot
+  type: technology
+  description: Invented Python CLI
+relationships:
+- source: pytest
+  target: PostgreSQL
+  type: uses
+  description: integration tests hit a real database
+  strength: 6
+- source: quillbot
+  target: pytest
+  type: uses
+  description: test runner
+  strength: 7
+- source: quillbot
+  target: Python
+  type: implements
+  description: CLI language
+  strength: 6

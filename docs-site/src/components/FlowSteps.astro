@@ -1,0 +1,125 @@
+---
+/**
+ * FlowSteps: the capture -> drain -> index -> recall loop as hand-authored,
+ * theme-aware inline SVG. Colors come from the site CSS variables, so it
+ * follows dark/light automatically. Two layouts (wide / narrow) so the text
+ * stays readable on phones.
+ */
+const steps = [
+  { n: '01', name: 'capture', tone: 'gold', lines: ['Stop, PreCompact, tool', 'hooks queue transcripts', 'and log failures'] },
+  { n: '02', name: 'drain', tone: 'blue', lines: ['A background writer', 'turns queued transcripts', 'into one note each'] },
+  { n: '03', name: 'index', tone: 'green', lines: ['Embeds notes, builds the', 'BM25, vector and graph', 'stores'] },
+  { n: '04', name: 'recall', tone: 'gold', lines: ['On SessionStart and each', 'prompt: hybrid search,', 'rerank, then inject'] },
+];
+const W = 212, GAP = 34, X0 = 10;
+---
+
+<figure class="rf-flow not-content" role="group" aria-label="reflect loop: capture, drain, index, recall">
+  <svg class="wide" viewBox="0 0 960 262" role="img" aria-labelledby="rf-flow-t1">
+    <title id="rf-flow-t1">Four steps: capture, drain, index, recall. Recall feeds the next session, which captures again.</title>
+    <defs>
+      <marker id="rf-arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" class="arrowhead"></path>
+      </marker>
+    </defs>
+    {steps.map((s, i) => {
+      const x = X0 + i * (W + GAP);
+      return (
+        <g class={`step ${s.tone}`}>
+          <rect x={x} y="10" width={W} height="158" rx="12" class="box"></rect>
+          <rect x={x} y="10" width={W} height="5" rx="2.5" class="bar"></rect>
+          <text x={x + 18} y="46" class="num">{s.n}</text>
+          <text x={x + 18} y="80" class="name">{s.name}</text>
+          {s.lines.map((l, j) => <text x={x + 18} y={108 + j * 19} class="sub">{l}</text>)}
+          {i < steps.length - 1 && <line x1={x + W + 6} y1="89" x2={x + W + GAP - 6} y2="89" class="arrow" marker-end="url(#rf-arr)"></line>}
+        </g>
+      );
+    })}
+    <path d={`M ${X0 + 3 * (W + GAP) + W / 2} 172 V 212 H ${X0 + W / 2} V 176`} class="arrow loop" marker-end="url(#rf-arr)" fill="none"></path>
+    <text x="480" y="240" class="loop-label" text-anchor="middle">next session starts with what the last one learned</text>
+  </svg>
+
+  <svg class="narrow" viewBox="0 0 340 720" role="img" aria-labelledby="rf-flow-t2">
+    <title id="rf-flow-t2">Four steps: capture, drain, index, recall, looping back to the next session.</title>
+    <defs>
+      <marker id="rf-arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+        <path d="M0 0L10 5L0 10z" class="arrowhead"></path>
+      </marker>
+    </defs>
+    {steps.map((s, i) => {
+      const y = 8 + i * 168;
+      return (
+        <g class={`step ${s.tone}`}>
+          <rect x="10" y={y} width="320" height="132" rx="12" class="box"></rect>
+          <rect x="10" y={y} width="320" height="5" rx="2.5" class="bar"></rect>
+          <text x="28" y={y + 34} class="num">{s.n}</text>
+          <text x="72" y={y + 34} class="name sm">{s.name}</text>
+          {s.lines.map((l, j) => <text x="28" y={y + 66 + j * 20} class="sub">{l}</text>)}
+          {i < steps.length - 1 && <line x1="170" y1={y + 138} x2="170" y2={y + 162} class="arrow" marker-end="url(#rf-arr2)"></line>}
+        </g>
+      );
+    })}
+    <text x="170" y="700" class="loop-label" text-anchor="middle">then the next session starts smarter</text>
+  </svg>
+</figure>
+
+<style>
+  .rf-flow {
+    margin: 1.5rem 0 0;
+  }
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    font-family: var(--rf-font-sans);
+  }
+  .narrow {
+    display: none;
+    max-width: 26rem;
+    margin-inline: auto;
+  }
+  @media (max-width: 720px) {
+    .wide { display: none; }
+    .narrow { display: block; }
+  }
+  .box {
+    fill: var(--rf-surface);
+    stroke: var(--rf-line);
+    stroke-width: 1.5;
+  }
+  .step.gold { --tone: var(--rf-gold); }
+  .step.blue { --tone: var(--sl-color-text-accent); }
+  .step.green { --tone: var(--rf-green); }
+  .bar { fill: var(--tone); }
+  .num {
+    font: 700 13px var(--rf-font-mono);
+    fill: var(--tone);
+    letter-spacing: 0.08em;
+  }
+  .name {
+    font: 700 28px var(--rf-font-mono);
+    fill: var(--sl-color-white);
+    letter-spacing: -0.02em;
+  }
+  .name.sm { font-size: 24px; }
+  .sub {
+    font-size: 13.5px;
+    fill: var(--sl-color-gray-2);
+  }
+  .arrow {
+    stroke: var(--sl-color-gray-3);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .arrow.loop {
+    stroke-dasharray: 5 6;
+    stroke: var(--rf-cornflower);
+  }
+  .arrowhead { fill: var(--sl-color-gray-3); }
+  .loop-label {
+    font: 600 13px var(--rf-font-mono);
+    fill: var(--sl-color-gray-3);
+  }
+  .step:hover .box { stroke: var(--tone); }
+</style>

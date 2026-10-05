@@ -1,0 +1,19 @@
+{
+  "name": "reflect-docs-site",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "prepare-demo": "node scripts/build-demo.mjs",
+    "dev": "npm run prepare-demo && astro dev",
+    "build": "npm run prepare-demo && astro build",
+    "preview": "astro preview",
+    "check-links": "node scripts/check-links.mjs"
+  },
+  "dependencies": {
+    "@astrojs/starlight": "^0.42.5",
+    "astro": "^7.3.5",
+    "sharp": "^0.34.0",
+    "starlight-links-validator": "^0.26.0"
+  }
+}

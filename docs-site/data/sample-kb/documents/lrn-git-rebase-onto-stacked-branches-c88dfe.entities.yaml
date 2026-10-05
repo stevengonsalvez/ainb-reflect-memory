@@ -1,0 +1,23 @@
+document_id: lrn-git-rebase-onto-stacked-branches-c88dfe
+extracted_at: '2026-09-12T11:00:00'
+entities:
+- name: git
+  type: tool
+  description: Version control
+- name: git rebase
+  type: tool
+  description: History rewriting command
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+relationships:
+- source: git rebase
+  target: git
+  type: part_of
+  description: history rewriting
+  strength: 6
+- source: GitHub Actions
+  target: git
+  type: uses
+  description: checks run on rebased head
+  strength: 3

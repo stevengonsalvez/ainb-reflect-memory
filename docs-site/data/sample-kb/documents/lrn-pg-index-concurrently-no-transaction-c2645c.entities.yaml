@@ -1,0 +1,39 @@
+document_id: lrn-pg-index-concurrently-no-transaction-c2645c
+extracted_at: '2026-06-19T15:30:00'
+entities:
+- name: CREATE INDEX CONCURRENTLY
+  type: function
+  description: Non-blocking PostgreSQL index build
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: sqlx
+  type: technology
+  description: Async compile-time checked SQL toolkit for Rust
+- name: migrations
+  type: concept
+  description: Versioned schema changes
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: CREATE INDEX CONCURRENTLY
+  target: PostgreSQL
+  type: part_of
+  description: non-blocking build mode
+  strength: 7
+- source: sqlx
+  target: migrations
+  type: implements
+  description: sqlx migrate runner
+  strength: 7
+- source: migrations
+  target: CREATE INDEX CONCURRENTLY
+  type: uses
+  description: needs a no-transaction file
+  strength: 5
+- source: acme-api
+  target: migrations
+  type: uses
+  description: migrations/ directory
+  strength: 4

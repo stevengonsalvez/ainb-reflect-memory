@@ -1,0 +1,348 @@
+{"ts": "2026-04-12T17:19:00+00:00", "op": "drain_extract", "latency_ms": 205}
+{"ts": "2026-04-12T17:19:00+00:00", "op": "rerank", "latency_ms": 212, "candidates": 15}
+{"ts": "2026-04-12T17:19:00+00:00", "op": "capture", "latency_ms": 597}
+{"ts": "2026-04-13T11:31:00+00:00", "op": "rerank", "latency_ms": 815, "candidates": 14}
+{"ts": "2026-04-13T11:31:00+00:00", "op": "inject", "latency_ms": 390}
+{"ts": "2026-04-13T11:31:00+00:00", "op": "drain_extract", "latency_ms": 735}
+{"ts": "2026-04-14T09:36:00+00:00", "op": "rerank", "latency_ms": 371, "candidates": 18}
+{"ts": "2026-04-14T09:36:00+00:00", "op": "inject", "latency_ms": 140}
+{"ts": "2026-04-15T10:48:00+00:00", "op": "recall_search", "latency_ms": 520, "hits": 6}
+{"ts": "2026-04-15T10:48:00+00:00", "op": "capture", "latency_ms": 802}
+{"ts": "2026-04-16T13:21:00+00:00", "op": "search", "latency_ms": 528, "hits": 7}
+{"ts": "2026-04-16T13:21:00+00:00", "op": "recall_search", "latency_ms": 296, "hits": 7}
+{"ts": "2026-04-16T13:21:00+00:00", "op": "recall_search", "latency_ms": 768, "hits": 4}
+{"ts": "2026-04-17T18:52:00+00:00", "op": "recall_search", "latency_ms": 415, "hits": 5}
+{"ts": "2026-04-17T18:52:00+00:00", "op": "search", "latency_ms": 192, "hits": 1}
+{"ts": "2026-04-18T11:49:00+00:00", "op": "recall_search", "latency_ms": 273, "hits": 6}
+{"ts": "2026-04-18T11:49:00+00:00", "op": "drain_extract", "latency_ms": 102}
+{"ts": "2026-04-19T14:35:00+00:00", "op": "inject", "latency_ms": 858}
+{"ts": "2026-04-19T14:35:00+00:00", "op": "rerank", "latency_ms": 743, "candidates": 17}
+{"ts": "2026-04-20T18:56:00+00:00", "op": "inject", "latency_ms": 174}
+{"ts": "2026-04-20T18:56:00+00:00", "op": "recall_search", "latency_ms": 694, "hits": 3, "error": "timeout"}
+{"ts": "2026-04-21T17:11:00+00:00", "op": "recall_search", "latency_ms": 169, "hits": 6}
+{"ts": "2026-04-21T17:11:00+00:00", "op": "rerank", "latency_ms": 346, "candidates": 8}
+{"ts": "2026-04-22T16:39:00+00:00", "op": "capture", "latency_ms": 75}
+{"ts": "2026-04-22T16:39:00+00:00", "op": "drain_extract", "latency_ms": 716}
+{"ts": "2026-04-22T16:39:00+00:00", "op": "search", "latency_ms": 428, "hits": 6}
+{"ts": "2026-04-23T18:25:00+00:00", "op": "recall_search", "latency_ms": 233, "hits": 7}
+{"ts": "2026-04-24T13:38:00+00:00", "op": "recall_search", "latency_ms": 600, "hits": 2}
+{"ts": "2026-04-25T13:39:00+00:00", "op": "recall_search", "latency_ms": 232, "hits": 6}
+{"ts": "2026-04-26T12:22:00+00:00", "op": "search", "latency_ms": 145, "hits": 1}
+{"ts": "2026-04-26T12:22:00+00:00", "op": "inject", "latency_ms": 497}
+{"ts": "2026-04-26T12:22:00+00:00", "op": "search", "latency_ms": 167, "hits": 1}
+{"ts": "2026-04-27T12:30:00+00:00", "op": "recall_search", "latency_ms": 43, "hits": 3}
+{"ts": "2026-04-27T12:30:00+00:00", "op": "rerank", "latency_ms": 170, "candidates": 4}
+{"ts": "2026-04-27T12:30:00+00:00", "op": "recall_search", "latency_ms": 678, "hits": 1}
+{"ts": "2026-04-28T12:33:00+00:00", "op": "inject", "latency_ms": 384}
+{"ts": "2026-04-28T12:33:00+00:00", "op": "rerank", "latency_ms": 817, "candidates": 14}
+{"ts": "2026-04-29T17:51:00+00:00", "op": "drain_extract", "latency_ms": 857}
+{"ts": "2026-04-30T11:12:00+00:00", "op": "rerank", "latency_ms": 768, "candidates": 4}
+{"ts": "2026-04-30T11:12:00+00:00", "op": "drain_extract", "latency_ms": 503}
+{"ts": "2026-04-30T11:12:00+00:00", "op": "capture", "latency_ms": 372}
+{"ts": "2026-05-01T13:23:00+00:00", "op": "recall_search", "latency_ms": 252, "hits": 7}
+{"ts": "2026-05-02T11:30:00+00:00", "op": "inject", "latency_ms": 644}
+{"ts": "2026-05-02T11:30:00+00:00", "op": "search", "latency_ms": 688, "hits": 5}
+{"ts": "2026-05-02T11:30:00+00:00", "op": "recall_search", "latency_ms": 696, "hits": 1}
+{"ts": "2026-05-03T11:30:00+00:00", "op": "search", "latency_ms": 671, "hits": 5}
+{"ts": "2026-05-04T14:29:00+00:00", "op": "capture", "latency_ms": 106}
+{"ts": "2026-05-04T14:29:00+00:00", "op": "recall_search", "latency_ms": 150, "hits": 0}
+{"ts": "2026-05-05T15:51:00+00:00", "op": "recall_search", "latency_ms": 866, "hits": 7}
+{"ts": "2026-05-05T15:51:00+00:00", "op": "search", "latency_ms": 581, "hits": 8}
+{"ts": "2026-05-05T15:51:00+00:00", "op": "recall_search", "latency_ms": 763, "hits": 1}
+{"ts": "2026-05-06T10:27:00+00:00", "op": "drain_extract", "latency_ms": 236}
+{"ts": "2026-05-07T11:18:00+00:00", "op": "recall_search", "latency_ms": 620, "hits": 5}
+{"ts": "2026-05-07T11:18:00+00:00", "op": "search", "latency_ms": 154, "hits": 0}
+{"ts": "2026-05-07T11:18:00+00:00", "op": "search", "latency_ms": 489, "hits": 8}
+{"ts": "2026-05-08T16:08:00+00:00", "op": "recall_search", "latency_ms": 542, "hits": 0}
+{"ts": "2026-05-08T16:08:00+00:00", "op": "drain_extract", "latency_ms": 643, "error": "timeout"}
+{"ts": "2026-05-08T16:08:00+00:00", "op": "drain_extract", "latency_ms": 196}
+{"ts": "2026-05-09T17:46:00+00:00", "op": "rerank", "latency_ms": 353, "candidates": 19}
+{"ts": "2026-05-10T09:56:00+00:00", "op": "recall_search", "latency_ms": 215, "hits": 4}
+{"ts": "2026-05-10T09:56:00+00:00", "op": "recall_search", "latency_ms": 483, "hits": 8}
+{"ts": "2026-05-10T09:56:00+00:00", "op": "inject", "latency_ms": 84}
+{"ts": "2026-05-11T17:32:00+00:00", "op": "rerank", "latency_ms": 729, "candidates": 12}
+{"ts": "2026-05-11T17:32:00+00:00", "op": "rerank", "latency_ms": 509, "candidates": 11}
+{"ts": "2026-05-11T17:32:00+00:00", "op": "drain_extract", "latency_ms": 285}
+{"ts": "2026-05-12T11:53:00+00:00", "op": "recall_search", "latency_ms": 144, "hits": 6}
+{"ts": "2026-05-12T11:53:00+00:00", "op": "recall_search", "latency_ms": 266, "hits": 6}
+{"ts": "2026-05-13T18:19:00+00:00", "op": "inject", "latency_ms": 178}
+{"ts": "2026-05-14T18:42:00+00:00", "op": "recall_search", "latency_ms": 160, "hits": 7}
+{"ts": "2026-05-14T18:42:00+00:00", "op": "inject", "latency_ms": 427}
+{"ts": "2026-05-15T10:42:00+00:00", "op": "recall_search", "latency_ms": 461, "hits": 8}
+{"ts": "2026-05-16T14:12:00+00:00", "op": "search", "latency_ms": 759, "hits": 5}
+{"ts": "2026-05-16T14:12:00+00:00", "op": "rerank", "latency_ms": 471, "candidates": 4}
+{"ts": "2026-05-17T16:39:00+00:00", "op": "rerank", "latency_ms": 85, "candidates": 7}
+{"ts": "2026-05-17T16:39:00+00:00", "op": "drain_extract", "latency_ms": 127}
+{"ts": "2026-05-18T12:02:00+00:00", "op": "recall_search", "latency_ms": 152, "hits": 6}
+{"ts": "2026-05-19T18:52:00+00:00", "op": "search", "latency_ms": 569, "hits": 8}
+{"ts": "2026-05-19T18:52:00+00:00", "op": "capture", "latency_ms": 111}
+{"ts": "2026-05-20T10:27:00+00:00", "op": "recall_search", "latency_ms": 37, "hits": 1}
+{"ts": "2026-05-21T09:38:00+00:00", "op": "recall_search", "latency_ms": 144, "hits": 7, "error": "timeout"}
+{"ts": "2026-05-22T16:26:00+00:00", "op": "capture", "latency_ms": 64}
+{"ts": "2026-05-22T16:26:00+00:00", "op": "recall_search", "latency_ms": 132, "hits": 2}
+{"ts": "2026-05-23T10:12:00+00:00", "op": "capture", "latency_ms": 563}
+{"ts": "2026-05-23T10:12:00+00:00", "op": "recall_search", "latency_ms": 532, "hits": 2}
+{"ts": "2026-05-24T08:16:00+00:00", "op": "recall_search", "latency_ms": 770, "hits": 8}
+{"ts": "2026-05-25T11:32:00+00:00", "op": "recall_search", "latency_ms": 477, "hits": 1}
+{"ts": "2026-05-25T11:32:00+00:00", "op": "capture", "latency_ms": 692}
+{"ts": "2026-05-26T14:32:00+00:00", "op": "capture", "latency_ms": 255}
+{"ts": "2026-05-26T14:32:00+00:00", "op": "drain_extract", "latency_ms": 743}
+{"ts": "2026-05-27T10:25:00+00:00", "op": "inject", "latency_ms": 877}
+{"ts": "2026-05-27T10:25:00+00:00", "op": "recall_search", "latency_ms": 778, "hits": 4}
+{"ts": "2026-05-28T08:05:00+00:00", "op": "drain_extract", "latency_ms": 538}
+{"ts": "2026-05-28T08:05:00+00:00", "op": "recall_search", "latency_ms": 268, "hits": 4}
+{"ts": "2026-05-28T08:05:00+00:00", "op": "recall_search", "latency_ms": 295, "hits": 7, "error": "timeout"}
+{"ts": "2026-05-29T13:21:00+00:00", "op": "search", "latency_ms": 55, "hits": 4}
+{"ts": "2026-05-29T13:21:00+00:00", "op": "recall_search", "latency_ms": 363, "hits": 6}
+{"ts": "2026-05-29T13:21:00+00:00", "op": "recall_search", "latency_ms": 691, "hits": 3}
+{"ts": "2026-05-30T08:05:00+00:00", "op": "drain_extract", "latency_ms": 167}
+{"ts": "2026-05-30T08:05:00+00:00", "op": "recall_search", "latency_ms": 43, "hits": 4}
+{"ts": "2026-05-31T11:05:00+00:00", "op": "inject", "latency_ms": 893}
+{"ts": "2026-05-31T11:05:00+00:00", "op": "capture", "latency_ms": 753}
+{"ts": "2026-05-31T11:05:00+00:00", "op": "rerank", "latency_ms": 802, "candidates": 14}
+{"ts": "2026-06-01T15:09:00+00:00", "op": "capture", "latency_ms": 678}
+{"ts": "2026-06-01T15:09:00+00:00", "op": "drain_extract", "latency_ms": 752}
+{"ts": "2026-06-02T18:27:00+00:00", "op": "capture", "latency_ms": 537}
+{"ts": "2026-06-02T18:27:00+00:00", "op": "rerank", "latency_ms": 536, "candidates": 4}
+{"ts": "2026-06-02T18:27:00+00:00", "op": "rerank", "latency_ms": 748, "candidates": 11}
+{"ts": "2026-06-03T08:08:00+00:00", "op": "search", "latency_ms": 127, "hits": 6}
+{"ts": "2026-06-03T08:08:00+00:00", "op": "rerank", "latency_ms": 662, "candidates": 4}
+{"ts": "2026-06-03T08:08:00+00:00", "op": "capture", "latency_ms": 521}
+{"ts": "2026-06-04T15:51:00+00:00", "op": "capture", "latency_ms": 535}
+{"ts": "2026-06-05T09:42:00+00:00", "op": "recall_search", "latency_ms": 774, "hits": 7}
+{"ts": "2026-06-05T09:42:00+00:00", "op": "recall_search", "latency_ms": 291, "hits": 3}
+{"ts": "2026-06-05T09:42:00+00:00", "op": "recall_search", "latency_ms": 777, "hits": 7}
+{"ts": "2026-06-06T14:04:00+00:00", "op": "inject", "latency_ms": 314}
+{"ts": "2026-06-06T14:04:00+00:00", "op": "rerank", "latency_ms": 678, "candidates": 10}
+{"ts": "2026-06-07T10:21:00+00:00", "op": "capture", "latency_ms": 729}
+{"ts": "2026-06-07T10:21:00+00:00", "op": "rerank", "latency_ms": 32, "candidates": 19}
+{"ts": "2026-06-08T12:43:00+00:00", "op": "capture", "latency_ms": 711}
+{"ts": "2026-06-09T16:18:00+00:00", "op": "search", "latency_ms": 805, "hits": 1}
+{"ts": "2026-06-09T16:18:00+00:00", "op": "rerank", "latency_ms": 339, "candidates": 6}
+{"ts": "2026-06-10T08:18:00+00:00", "op": "recall_search", "latency_ms": 538, "hits": 7}
+{"ts": "2026-06-10T08:18:00+00:00", "op": "search", "latency_ms": 235, "hits": 1}
+{"ts": "2026-06-11T10:47:00+00:00", "op": "recall_search", "latency_ms": 388, "hits": 2}
+{"ts": "2026-06-11T10:47:00+00:00", "op": "capture", "latency_ms": 306}
+{"ts": "2026-06-11T10:47:00+00:00", "op": "capture", "latency_ms": 256}
+{"ts": "2026-06-12T15:25:00+00:00", "op": "recall_search", "latency_ms": 523, "hits": 7}
+{"ts": "2026-06-13T10:26:00+00:00", "op": "search", "latency_ms": 143, "hits": 5, "error": "timeout"}
+{"ts": "2026-06-13T10:26:00+00:00", "op": "capture", "latency_ms": 879}
+{"ts": "2026-06-14T11:45:00+00:00", "op": "inject", "latency_ms": 316}
+{"ts": "2026-06-15T09:25:00+00:00", "op": "inject", "latency_ms": 623}
+{"ts": "2026-06-15T09:25:00+00:00", "op": "inject", "latency_ms": 793}
+{"ts": "2026-06-16T08:17:00+00:00", "op": "recall_search", "latency_ms": 697, "hits": 4}
+{"ts": "2026-06-17T10:15:00+00:00", "op": "search", "latency_ms": 343, "hits": 3}
+{"ts": "2026-06-17T10:15:00+00:00", "op": "drain_extract", "latency_ms": 458}
+{"ts": "2026-06-18T18:25:00+00:00", "op": "rerank", "latency_ms": 756, "candidates": 6}
+{"ts": "2026-06-18T18:25:00+00:00", "op": "capture", "latency_ms": 481}
+{"ts": "2026-06-18T18:25:00+00:00", "op": "recall_search", "latency_ms": 313, "hits": 7}
+{"ts": "2026-06-19T16:08:00+00:00", "op": "search", "latency_ms": 371, "hits": 4}
+{"ts": "2026-06-20T18:16:00+00:00", "op": "capture", "latency_ms": 328}
+{"ts": "2026-06-20T18:16:00+00:00", "op": "capture", "latency_ms": 142}
+{"ts": "2026-06-21T10:04:00+00:00", "op": "rerank", "latency_ms": 851, "candidates": 19}
+{"ts": "2026-06-22T15:58:00+00:00", "op": "inject", "latency_ms": 480}
+{"ts": "2026-06-22T15:58:00+00:00", "op": "rerank", "latency_ms": 269, "candidates": 6}
+{"ts": "2026-06-23T16:05:00+00:00", "op": "recall_search", "latency_ms": 284, "hits": 3}
+{"ts": "2026-06-23T16:05:00+00:00", "op": "capture", "latency_ms": 442}
+{"ts": "2026-06-24T16:13:00+00:00", "op": "recall_search", "latency_ms": 790, "hits": 0}
+{"ts": "2026-06-24T16:13:00+00:00", "op": "rerank", "latency_ms": 388, "candidates": 8}
+{"ts": "2026-06-25T16:40:00+00:00", "op": "recall_search", "latency_ms": 274, "hits": 6}
+{"ts": "2026-06-26T15:27:00+00:00", "op": "drain_extract", "latency_ms": 42}
+{"ts": "2026-06-26T15:27:00+00:00", "op": "search", "latency_ms": 802, "hits": 7}
+{"ts": "2026-06-27T15:00:00+00:00", "op": "search", "latency_ms": 865, "hits": 8}
+{"ts": "2026-06-28T15:15:00+00:00", "op": "recall_search", "latency_ms": 175, "hits": 8}
+{"ts": "2026-06-29T09:52:00+00:00", "op": "capture", "latency_ms": 886}
+{"ts": "2026-06-29T09:52:00+00:00", "op": "search", "latency_ms": 584, "hits": 0, "error": "timeout"}
+{"ts": "2026-06-29T09:52:00+00:00", "op": "recall_search", "latency_ms": 603, "hits": 0}
+{"ts": "2026-06-30T12:08:00+00:00", "op": "recall_search", "latency_ms": 671, "hits": 6}
+{"ts": "2026-06-30T12:08:00+00:00", "op": "recall_search", "latency_ms": 92, "hits": 4}
+{"ts": "2026-06-30T12:08:00+00:00", "op": "rerank", "latency_ms": 417, "candidates": 12}
+{"ts": "2026-07-01T17:00:00+00:00", "op": "rerank", "latency_ms": 491, "candidates": 12}
+{"ts": "2026-07-02T18:53:00+00:00", "op": "search", "latency_ms": 260, "hits": 8}
+{"ts": "2026-07-03T14:45:00+00:00", "op": "search", "latency_ms": 42, "hits": 3}
+{"ts": "2026-07-03T14:45:00+00:00", "op": "capture", "latency_ms": 450}
+{"ts": "2026-07-03T14:45:00+00:00", "op": "recall_search", "latency_ms": 454, "hits": 5}
+{"ts": "2026-07-04T08:44:00+00:00", "op": "capture", "latency_ms": 391}
+{"ts": "2026-07-04T08:44:00+00:00", "op": "recall_search", "latency_ms": 836, "hits": 4}
+{"ts": "2026-07-05T16:04:00+00:00", "op": "rerank", "latency_ms": 225, "candidates": 13}
+{"ts": "2026-07-06T11:14:00+00:00", "op": "recall_search", "latency_ms": 798, "hits": 4}
+{"ts": "2026-07-06T11:14:00+00:00", "op": "capture", "latency_ms": 644}
+{"ts": "2026-07-07T11:31:00+00:00", "op": "inject", "latency_ms": 77}
+{"ts": "2026-07-07T11:31:00+00:00", "op": "recall_search", "latency_ms": 422, "hits": 0}
+{"ts": "2026-07-08T17:09:00+00:00", "op": "recall_search", "latency_ms": 81, "hits": 2}
+{"ts": "2026-07-08T17:09:00+00:00", "op": "inject", "latency_ms": 341}
+{"ts": "2026-07-09T09:59:00+00:00", "op": "search", "latency_ms": 209, "hits": 8}
+{"ts": "2026-07-10T08:19:00+00:00", "op": "capture", "latency_ms": 879}
+{"ts": "2026-07-10T08:19:00+00:00", "op": "search", "latency_ms": 193, "hits": 1, "error": "timeout"}
+{"ts": "2026-07-10T08:19:00+00:00", "op": "recall_search", "latency_ms": 379, "hits": 6}
+{"ts": "2026-07-11T09:35:00+00:00", "op": "search", "latency_ms": 807, "hits": 4}
+{"ts": "2026-07-12T14:05:00+00:00", "op": "capture", "latency_ms": 220}
+{"ts": "2026-07-13T15:12:00+00:00", "op": "search", "latency_ms": 505, "hits": 0}
+{"ts": "2026-07-13T15:12:00+00:00", "op": "recall_search", "latency_ms": 660, "hits": 6}
+{"ts": "2026-07-14T08:29:00+00:00", "op": "drain_extract", "latency_ms": 83}
+{"ts": "2026-07-15T09:57:00+00:00", "op": "search", "latency_ms": 298, "hits": 5}
+{"ts": "2026-07-15T09:57:00+00:00", "op": "rerank", "latency_ms": 288, "candidates": 14}
+{"ts": "2026-07-15T09:57:00+00:00", "op": "recall_search", "latency_ms": 758, "hits": 1}
+{"ts": "2026-07-16T11:06:00+00:00", "op": "capture", "latency_ms": 496}
+{"ts": "2026-07-16T11:06:00+00:00", "op": "search", "latency_ms": 277, "hits": 6}
+{"ts": "2026-07-17T10:59:00+00:00", "op": "recall_search", "latency_ms": 841, "hits": 4}
+{"ts": "2026-07-17T10:59:00+00:00", "op": "drain_extract", "latency_ms": 641}
+{"ts": "2026-07-18T13:29:00+00:00", "op": "drain_extract", "latency_ms": 630}
+{"ts": "2026-07-18T13:29:00+00:00", "op": "recall_search", "latency_ms": 790, "hits": 2}
+{"ts": "2026-07-19T09:41:00+00:00", "op": "rerank", "latency_ms": 577, "candidates": 14}
+{"ts": "2026-07-20T14:56:00+00:00", "op": "inject", "latency_ms": 291}
+{"ts": "2026-07-21T11:06:00+00:00", "op": "rerank", "latency_ms": 746, "candidates": 18}
+{"ts": "2026-07-21T11:06:00+00:00", "op": "recall_search", "latency_ms": 491, "hits": 3}
+{"ts": "2026-07-22T18:48:00+00:00", "op": "drain_extract", "latency_ms": 320}
+{"ts": "2026-07-23T17:17:00+00:00", "op": "recall_search", "latency_ms": 286, "hits": 3}
+{"ts": "2026-07-23T17:17:00+00:00", "op": "recall_search", "latency_ms": 261, "hits": 2}
+{"ts": "2026-07-24T17:12:00+00:00", "op": "recall_search", "latency_ms": 277, "hits": 3}
+{"ts": "2026-07-24T17:12:00+00:00", "op": "recall_search", "latency_ms": 847, "hits": 1}
+{"ts": "2026-07-25T08:06:00+00:00", "op": "search", "latency_ms": 858, "hits": 3}
+{"ts": "2026-07-26T13:02:00+00:00", "op": "recall_search", "latency_ms": 71, "hits": 3}
+{"ts": "2026-07-26T13:02:00+00:00", "op": "drain_extract", "latency_ms": 218}
+{"ts": "2026-07-27T13:32:00+00:00", "op": "search", "latency_ms": 286, "hits": 0}
+{"ts": "2026-07-28T17:45:00+00:00", "op": "search", "latency_ms": 58, "hits": 5}
+{"ts": "2026-07-28T17:45:00+00:00", "op": "recall_search", "latency_ms": 281, "hits": 0}
+{"ts": "2026-07-28T17:45:00+00:00", "op": "capture", "latency_ms": 228}
+{"ts": "2026-07-29T13:26:00+00:00", "op": "search", "latency_ms": 655, "hits": 4}
+{"ts": "2026-07-29T13:26:00+00:00", "op": "recall_search", "latency_ms": 527, "hits": 8}
+{"ts": "2026-07-29T13:26:00+00:00", "op": "search", "latency_ms": 834, "hits": 6}
+{"ts": "2026-07-30T10:40:00+00:00", "op": "recall_search", "latency_ms": 187, "hits": 6}
+{"ts": "2026-07-30T10:40:00+00:00", "op": "search", "latency_ms": 310, "hits": 4}
+{"ts": "2026-07-30T10:40:00+00:00", "op": "recall_search", "latency_ms": 783, "hits": 5}
+{"ts": "2026-07-31T08:55:00+00:00", "op": "capture", "latency_ms": 420}
+{"ts": "2026-07-31T08:55:00+00:00", "op": "recall_search", "latency_ms": 26, "hits": 6}
+{"ts": "2026-08-01T14:07:00+00:00", "op": "search", "latency_ms": 393, "hits": 7}
+{"ts": "2026-08-02T10:00:00+00:00", "op": "rerank", "latency_ms": 676, "candidates": 16}
+{"ts": "2026-08-03T17:59:00+00:00", "op": "capture", "latency_ms": 195}
+{"ts": "2026-08-03T17:59:00+00:00", "op": "recall_search", "latency_ms": 553, "hits": 2}
+{"ts": "2026-08-04T09:24:00+00:00", "op": "capture", "latency_ms": 831}
+{"ts": "2026-08-04T09:24:00+00:00", "op": "recall_search", "latency_ms": 149, "hits": 0}
+{"ts": "2026-08-05T15:20:00+00:00", "op": "rerank", "latency_ms": 671, "candidates": 16}
+{"ts": "2026-08-06T17:44:00+00:00", "op": "capture", "latency_ms": 897}
+{"ts": "2026-08-07T14:39:00+00:00", "op": "drain_extract", "latency_ms": 207}
+{"ts": "2026-08-08T08:25:00+00:00", "op": "recall_search", "latency_ms": 387, "hits": 1}
+{"ts": "2026-08-08T08:25:00+00:00", "op": "inject", "latency_ms": 855}
+{"ts": "2026-08-08T08:25:00+00:00", "op": "recall_search", "latency_ms": 595, "hits": 0}
+{"ts": "2026-08-09T13:07:00+00:00", "op": "rerank", "latency_ms": 583, "candidates": 13}
+{"ts": "2026-08-09T13:07:00+00:00", "op": "search", "latency_ms": 275, "hits": 6}
+{"ts": "2026-08-10T13:28:00+00:00", "op": "search", "latency_ms": 43, "hits": 0}
+{"ts": "2026-08-10T13:28:00+00:00", "op": "rerank", "latency_ms": 260, "candidates": 18}
+{"ts": "2026-08-10T13:28:00+00:00", "op": "drain_extract", "latency_ms": 489}
+{"ts": "2026-08-11T15:25:00+00:00", "op": "recall_search", "latency_ms": 387, "hits": 6}
+{"ts": "2026-08-12T15:32:00+00:00", "op": "capture", "latency_ms": 61}
+{"ts": "2026-08-12T15:32:00+00:00", "op": "recall_search", "latency_ms": 771, "hits": 5}
+{"ts": "2026-08-12T15:32:00+00:00", "op": "rerank", "latency_ms": 75, "candidates": 16}
+{"ts": "2026-08-13T10:01:00+00:00", "op": "inject", "latency_ms": 769}
+{"ts": "2026-08-14T09:12:00+00:00", "op": "inject", "latency_ms": 523}
+{"ts": "2026-08-15T10:43:00+00:00", "op": "inject", "latency_ms": 87}
+{"ts": "2026-08-15T10:43:00+00:00", "op": "rerank", "latency_ms": 278, "candidates": 9}
+{"ts": "2026-08-15T10:43:00+00:00", "op": "rerank", "latency_ms": 855, "candidates": 18}
+{"ts": "2026-08-16T16:58:00+00:00", "op": "recall_search", "latency_ms": 289, "hits": 8}
+{"ts": "2026-08-16T16:58:00+00:00", "op": "search", "latency_ms": 223, "hits": 2}
+{"ts": "2026-08-17T18:59:00+00:00", "op": "capture", "latency_ms": 405}
+{"ts": "2026-08-17T18:59:00+00:00", "op": "drain_extract", "latency_ms": 137}
+{"ts": "2026-08-18T08:40:00+00:00", "op": "inject", "latency_ms": 483}
+{"ts": "2026-08-18T08:40:00+00:00", "op": "rerank", "latency_ms": 127, "candidates": 12}
+{"ts": "2026-08-19T18:54:00+00:00", "op": "capture", "latency_ms": 400}
+{"ts": "2026-08-19T18:54:00+00:00", "op": "inject", "latency_ms": 611}
+{"ts": "2026-08-20T13:48:00+00:00", "op": "search", "latency_ms": 200, "hits": 0}
+{"ts": "2026-08-21T16:16:00+00:00", "op": "capture", "latency_ms": 619}
+{"ts": "2026-08-21T16:16:00+00:00", "op": "inject", "latency_ms": 770, "error": "timeout"}
+{"ts": "2026-08-22T08:14:00+00:00", "op": "recall_search", "latency_ms": 660, "hits": 6}
+{"ts": "2026-08-23T13:57:00+00:00", "op": "recall_search", "latency_ms": 252, "hits": 0}
+{"ts": "2026-08-24T08:36:00+00:00", "op": "search", "latency_ms": 555, "hits": 5}
+{"ts": "2026-08-24T08:36:00+00:00", "op": "search", "latency_ms": 328, "hits": 2}
+{"ts": "2026-08-25T17:53:00+00:00", "op": "recall_search", "latency_ms": 34, "hits": 3}
+{"ts": "2026-08-25T17:53:00+00:00", "op": "search", "latency_ms": 85, "hits": 2}
+{"ts": "2026-08-26T12:25:00+00:00", "op": "inject", "latency_ms": 77}
+{"ts": "2026-08-26T12:25:00+00:00", "op": "rerank", "latency_ms": 378, "candidates": 18}
+{"ts": "2026-08-27T16:46:00+00:00", "op": "recall_search", "latency_ms": 20, "hits": 0}
+{"ts": "2026-08-27T16:46:00+00:00", "op": "recall_search", "latency_ms": 210, "hits": 3}
+{"ts": "2026-08-28T09:00:00+00:00", "op": "rerank", "latency_ms": 221, "candidates": 8}
+{"ts": "2026-08-28T09:00:00+00:00", "op": "rerank", "latency_ms": 678, "candidates": 17}
+{"ts": "2026-08-28T09:00:00+00:00", "op": "recall_search", "latency_ms": 336, "hits": 1}
+{"ts": "2026-08-29T08:56:00+00:00", "op": "drain_extract", "latency_ms": 752}
+{"ts": "2026-08-29T08:56:00+00:00", "op": "search", "latency_ms": 467, "hits": 7}
+{"ts": "2026-08-29T08:56:00+00:00", "op": "capture", "latency_ms": 199}
+{"ts": "2026-08-30T09:16:00+00:00", "op": "capture", "latency_ms": 146}
+{"ts": "2026-08-31T12:45:00+00:00", "op": "recall_search", "latency_ms": 587, "hits": 6}
+{"ts": "2026-09-01T16:16:00+00:00", "op": "capture", "latency_ms": 242}
+{"ts": "2026-09-01T16:16:00+00:00", "op": "rerank", "latency_ms": 193, "candidates": 12}
+{"ts": "2026-09-02T11:10:00+00:00", "op": "inject", "latency_ms": 216}
+{"ts": "2026-09-02T11:10:00+00:00", "op": "search", "latency_ms": 264, "hits": 6}
+{"ts": "2026-09-02T11:10:00+00:00", "op": "capture", "latency_ms": 729}
+{"ts": "2026-09-03T16:30:00+00:00", "op": "drain_extract", "latency_ms": 734, "error": "timeout"}
+{"ts": "2026-09-03T16:30:00+00:00", "op": "recall_search", "latency_ms": 762, "hits": 3}
+{"ts": "2026-09-04T12:50:00+00:00", "op": "search", "latency_ms": 619, "hits": 1}
+{"ts": "2026-09-05T10:09:00+00:00", "op": "recall_search", "latency_ms": 129, "hits": 2}
+{"ts": "2026-09-06T10:44:00+00:00", "op": "recall_search", "latency_ms": 161, "hits": 0}
+{"ts": "2026-09-07T08:04:00+00:00", "op": "drain_extract", "latency_ms": 224}
+{"ts": "2026-09-07T08:04:00+00:00", "op": "drain_extract", "latency_ms": 700}
+{"ts": "2026-09-07T08:04:00+00:00", "op": "drain_extract", "latency_ms": 748}
+{"ts": "2026-09-08T09:15:00+00:00", "op": "recall_search", "latency_ms": 54, "hits": 0}
+{"ts": "2026-09-09T18:05:00+00:00", "op": "capture", "latency_ms": 508}
+{"ts": "2026-09-09T18:05:00+00:00", "op": "recall_search", "latency_ms": 795, "hits": 3}
+{"ts": "2026-09-09T18:05:00+00:00", "op": "search", "latency_ms": 287, "hits": 0}
+{"ts": "2026-09-10T12:03:00+00:00", "op": "capture", "latency_ms": 348}
+{"ts": "2026-09-10T12:03:00+00:00", "op": "rerank", "latency_ms": 507, "candidates": 13}
+{"ts": "2026-09-10T12:03:00+00:00", "op": "recall_search", "latency_ms": 442, "hits": 0}
+{"ts": "2026-09-11T09:22:00+00:00", "op": "capture", "latency_ms": 570}
+{"ts": "2026-09-11T09:22:00+00:00", "op": "capture", "latency_ms": 867}
+{"ts": "2026-09-12T12:10:00+00:00", "op": "recall_search", "latency_ms": 226, "hits": 4}
+{"ts": "2026-09-12T12:10:00+00:00", "op": "inject", "latency_ms": 24}
+{"ts": "2026-09-13T09:31:00+00:00", "op": "drain_extract", "latency_ms": 208}
+{"ts": "2026-09-13T09:31:00+00:00", "op": "rerank", "latency_ms": 871, "candidates": 12}
+{"ts": "2026-09-13T09:31:00+00:00", "op": "recall_search", "latency_ms": 854, "hits": 3}
+{"ts": "2026-09-14T11:31:00+00:00", "op": "recall_search", "latency_ms": 671, "hits": 1}
+{"ts": "2026-09-15T16:50:00+00:00", "op": "capture", "latency_ms": 384}
+{"ts": "2026-09-16T14:57:00+00:00", "op": "recall_search", "latency_ms": 681, "hits": 0}
+{"ts": "2026-09-16T14:57:00+00:00", "op": "search", "latency_ms": 458, "hits": 8}
+{"ts": "2026-09-16T14:57:00+00:00", "op": "search", "latency_ms": 665, "hits": 3}
+{"ts": "2026-09-17T10:34:00+00:00", "op": "capture", "latency_ms": 791}
+{"ts": "2026-09-17T10:34:00+00:00", "op": "recall_search", "latency_ms": 615, "hits": 5}
+{"ts": "2026-09-17T10:34:00+00:00", "op": "drain_extract", "latency_ms": 481}
+{"ts": "2026-09-18T13:10:00+00:00", "op": "search", "latency_ms": 811, "hits": 4}
+{"ts": "2026-09-18T13:10:00+00:00", "op": "recall_search", "latency_ms": 493, "hits": 3}
+{"ts": "2026-09-19T12:19:00+00:00", "op": "drain_extract", "latency_ms": 652}
+{"ts": "2026-09-19T12:19:00+00:00", "op": "recall_search", "latency_ms": 273, "hits": 5}
+{"ts": "2026-09-19T12:19:00+00:00", "op": "search", "latency_ms": 261, "hits": 5}
+{"ts": "2026-09-20T12:46:00+00:00", "op": "recall_search", "latency_ms": 693, "hits": 1}
+{"ts": "2026-09-21T10:09:00+00:00", "op": "capture", "latency_ms": 465}
+{"ts": "2026-09-21T10:09:00+00:00", "op": "recall_search", "latency_ms": 129, "hits": 4}
+{"ts": "2026-09-22T14:29:00+00:00", "op": "recall_search", "latency_ms": 894, "hits": 6}
+{"ts": "2026-09-23T16:40:00+00:00", "op": "search", "latency_ms": 165, "hits": 4}
+{"ts": "2026-09-23T16:40:00+00:00", "op": "search", "latency_ms": 778, "hits": 3}
+{"ts": "2026-09-24T14:44:00+00:00", "op": "rerank", "latency_ms": 682, "candidates": 17}
+{"ts": "2026-09-24T14:44:00+00:00", "op": "capture", "latency_ms": 688}
+{"ts": "2026-09-24T14:44:00+00:00", "op": "drain_extract", "latency_ms": 736}
+{"ts": "2026-09-25T11:43:00+00:00", "op": "capture", "latency_ms": 484}
+{"ts": "2026-09-26T12:40:00+00:00", "op": "recall_search", "latency_ms": 449, "hits": 3}
+{"ts": "2026-09-26T12:40:00+00:00", "op": "capture", "latency_ms": 664}
+{"ts": "2026-09-26T12:40:00+00:00", "op": "drain_extract", "latency_ms": 514}
+{"ts": "2026-09-27T17:54:00+00:00", "op": "rerank", "latency_ms": 696, "candidates": 9}
+{"ts": "2026-09-27T17:54:00+00:00", "op": "search", "latency_ms": 30, "hits": 6}
+{"ts": "2026-09-28T09:02:00+00:00", "op": "rerank", "latency_ms": 184, "candidates": 10}
+{"ts": "2026-09-28T09:02:00+00:00", "op": "recall_search", "latency_ms": 608, "hits": 7}
+{"ts": "2026-09-29T15:32:00+00:00", "op": "capture", "latency_ms": 868}
+{"ts": "2026-09-30T13:26:00+00:00", "op": "inject", "latency_ms": 235}
+{"ts": "2026-09-30T13:26:00+00:00", "op": "recall_search", "latency_ms": 546, "hits": 1}
+{"ts": "2026-09-30T13:26:00+00:00", "op": "rerank", "latency_ms": 672, "candidates": 5}
+{"ts": "2026-10-01T14:25:00+00:00", "op": "recall_search", "latency_ms": 448, "hits": 6}
+{"ts": "2026-10-02T18:22:00+00:00", "op": "recall_search", "latency_ms": 249, "hits": 4}
+{"ts": "2026-10-02T18:22:00+00:00", "op": "inject", "latency_ms": 559}
+{"ts": "2026-10-02T18:22:00+00:00", "op": "inject", "latency_ms": 421}
+{"ts": "2026-10-03T10:08:00+00:00", "op": "drain_extract", "latency_ms": 669}
+{"ts": "2026-10-04T18:35:00+00:00", "op": "recall_search", "latency_ms": 169, "hits": 5}
+{"ts": "2026-10-04T18:35:00+00:00", "op": "drain_extract", "latency_ms": 834}
+{"ts": "2026-10-04T18:35:00+00:00", "op": "search", "latency_ms": 321, "hits": 8}
+{"ts": "2026-10-05T15:22:00+00:00", "op": "recall_search", "latency_ms": 405, "hits": 4}
+{"ts": "2026-10-06T18:11:00+00:00", "op": "recall_search", "latency_ms": 759, "hits": 4}
+{"ts": "2026-10-06T18:11:00+00:00", "op": "capture", "latency_ms": 348}
+{"ts": "2026-10-07T14:39:00+00:00", "op": "recall_search", "latency_ms": 391, "hits": 2}
+{"ts": "2026-10-07T14:39:00+00:00", "op": "drain_extract", "latency_ms": 78}
+{"ts": "2026-10-07T14:39:00+00:00", "op": "rerank", "latency_ms": 352, "candidates": 8}
+{"ts": "2026-10-08T13:40:00+00:00", "op": "recall_search", "latency_ms": 31, "hits": 3}
+{"ts": "2026-10-08T13:40:00+00:00", "op": "capture", "latency_ms": 276}
+{"ts": "2026-10-08T13:40:00+00:00", "op": "rerank", "latency_ms": 894, "candidates": 11}

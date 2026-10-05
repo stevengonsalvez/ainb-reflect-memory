@@ -1,0 +1,56 @@
+---
+title: Memory browser demo
+description: The real reflect serve web UI running in your browser against an invented sample knowledge base. No install, no backend.
+tableOfContents: false
+sidebar:
+  order: 1
+head:
+  - tag: style
+    content: |
+      .sl-container { max-width: none !important; }
+      .rf-demo-frame { display: block; width: 100%; height: 85vh; min-height: 640px;
+        border: 1px solid var(--sl-color-hairline); border-radius: 8px;
+        background: var(--sl-color-bg); color-scheme: light dark; }
+      .rf-demo-bar { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; align-items: center;
+        justify-content: space-between; margin: 0 0 0.75rem; font-size: var(--sl-text-sm); }
+  - tag: script
+    content: |
+      // Point "Open full screen" at this deployment (dev, preview, Pages). The absolute
+      // URL in the page is the no-JS fallback and keeps the link validator quiet.
+      document.addEventListener("DOMContentLoaded", function () {
+        var a = document.getElementById("rf-demo-open");
+        var f = document.querySelector(".rf-demo-frame");
+        if (a && f) a.href = f.getAttribute("src");
+      });
+---
+
+This is the real `reflect serve` web UI (`src/reflect_kb/cli/serve_static/index.html`), running entirely in your browser. A small fetch shim answers its `/api/*` calls from a bundled snapshot of an invented sample knowledge base: no install, no server.
+
+<div class="rf-demo-bar">
+  <span>Sample data is invented. Archive, restore, confidence edits and compress-queue changes live in memory only and reset on reload.</span>
+  <a id="rf-demo-open" href="https://stevengonsalvez.github.io/ainb-reflect-memory/demo/" target="_blank" rel="noopener">Open full screen &#8599;</a>
+</div>
+
+<iframe
+  class="rf-demo-frame"
+  src="/ainb-reflect-memory/demo/"
+  title="reflect memory browser, live demo with sample data"
+  loading="lazy"
+></iframe>
+
+## What to try
+
+| Try | Where | What happens |
+|---|---|---|
+| Search | Box in the header: type `postgres` | Lexical BM25-lite ranking over title, tags and body. Cards show `match` and `browse` scores. |
+| Graph view | **Graph** tab | Two-layer graph: memory nodes plus entity nodes. Drag nodes, scroll to zoom, click a memory node to open it. Toggle entities and labels. |
+| Filters | Left sidebar | Facet by confidence, type, scope and tag. Combine with search and the sort menu (newest, recall score, title). |
+| Curation drawer | Click any card | Edit confidence, see related memories and extracted entities, or **Archive** the note. |
+| Superseded chains | **Superseded** tab | Notes replaced by newer ones, shown newest to oldest. |
+| Archived and restore | Archive a note, then open **Archived** | The note leaves the list, the graph and the stats. **Restore** brings it back. |
+| Compress queue | **select**, tick two or more cards | **Queue for compression** marks the group for the `/reflect` consolidate step. |
+| Stats | **Stats** tab | Counts by confidence, type, scope and tag. They update as you archive and restore. |
+
+:::note
+Against a real knowledge base the same UI runs as `reflect serve` and its curation actions edit your markdown notes on disk. See the [memory browser guide](/ainb-reflect-memory/guides/memory-browser/) and the [serve API reference](/ainb-reflect-memory/reference/serve-api/).
+:::

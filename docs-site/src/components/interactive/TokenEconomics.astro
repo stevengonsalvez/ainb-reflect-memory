@@ -1,0 +1,10 @@
+---
+import './explainer.css';
+const base = import.meta.env.BASE_URL;
+const src = `${base.endsWith('/') ? base : base + '/'}js/explainers/token-economics.js`;
+---
+
+<div class="xp xp-econ not-content" id="xp-token-economics">
+  <noscript><p class="xp-noscript">This calculator needs JavaScript. The defaults it uses are listed in the table below the calculator.</p></noscript>
+</div>
+<script is:inline type="module" src={src}></script>

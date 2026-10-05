@@ -1,0 +1,39 @@
+document_id: lrn-docker-buildkit-cache-mounts-fecb00
+extracted_at: '2026-05-20T14:10:00'
+entities:
+- name: BuildKit
+  type: tool
+  description: Docker build backend with cache mounts
+- name: Docker
+  type: technology
+  description: Container build and runtime
+- name: cargo
+  type: tool
+  description: Rust build tool and package manager
+- name: pnpm
+  type: tool
+  description: Disk-efficient Node package manager
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+relationships:
+- source: BuildKit
+  target: Docker
+  type: part_of
+  description: default builder in modern Docker
+  strength: 7
+- source: BuildKit
+  target: cargo
+  type: configures
+  description: cargo registry cache mount
+  strength: 4
+- source: BuildKit
+  target: pnpm
+  type: configures
+  description: pnpm store cache mount
+  strength: 4
+- source: GitHub Actions
+  target: BuildKit
+  type: uses
+  description: docker/build-push-action
+  strength: 5

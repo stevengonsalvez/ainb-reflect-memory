@@ -1,0 +1,23 @@
+document_id: lrn-ci-concurrency-cancel-in-progress-b1fe65
+extracted_at: '2026-09-03T10:50:00'
+entities:
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: Playwright
+  type: technology
+  description: Browser end-to-end test framework
+- name: Docker
+  type: technology
+  description: Container build and runtime
+relationships:
+- source: GitHub Actions
+  target: Playwright
+  type: uses
+  description: e2e job is the slowest
+  strength: 4
+- source: GitHub Actions
+  target: Docker
+  type: uses
+  description: image build job
+  strength: 4

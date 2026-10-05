@@ -1,0 +1,1211 @@
+{
+ "now": "2026-10-14T00:00:00+00:00",
+ "queries": {
+  "postgres": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 2.952,
+    "browse_score": 0.276
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.545,
+    "browse_score": 0.524
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.487,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 2.457,
+    "browse_score": 0.783
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.438,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.406,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 2.376,
+    "browse_score": 0.655
+   }
+  ],
+  "POSTGRES connection pool": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 6.923,
+    "browse_score": 0.368
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 5.83,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.545,
+    "browse_score": 0.524
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 2.457,
+    "browse_score": 0.783
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.438,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.406,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 2.376,
+    "browse_score": 0.655
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 1.947,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 1.86,
+    "browse_score": 0.378
+   }
+  ],
+  "postgres postgres": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 5.905,
+    "browse_score": 0.368
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 5.09,
+    "browse_score": 0.699
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 4.973,
+    "browse_score": 1.457
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 4.915,
+    "browse_score": 1.044
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 4.875,
+    "browse_score": 0.724
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 4.813,
+    "browse_score": 0.786
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 4.751,
+    "browse_score": 0.873
+   }
+  ],
+  "docker": [
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 4.242,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 3.673,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 3.543,
+    "browse_score": 0.464
+   }
+  ],
+  "react hooks": [
+   {
+    "id": "lrn-react-fetch-race-abortcontroller-7a5653",
+    "match_score": 3.802,
+    "browse_score": 0.805
+   },
+   {
+    "id": "lrn-react-useeffect-strictmode-double-run-4bc6ed",
+    "match_score": 3.682,
+    "browse_score": 0.454
+   },
+   {
+    "id": "lrn-react-effect-cleanup-ignore-flag-4ad6bf",
+    "match_score": 3.663,
+    "browse_score": 0.326
+   }
+  ],
+  "retry backoff": [],
+  "ci": [
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 2.725,
+    "browse_score": 1.194
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.707,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.704,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.292,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 2.256,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.22,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.115,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 1.272,
+    "browse_score": 0.309
+   }
+  ],
+  "cache invalidation": [
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 3.049,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 3.031,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.957,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.938,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.861,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.425,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.311,
+    "browse_score": 0.436
+   }
+  ],
+  "x-reflect": [],
+  "a/b": [],
+  "nonexistent-zzzz": [],
+  "a": [],
+  "": [],
+  "   ": [],
+  "cache": [
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 3.049,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 3.031,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.957,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.938,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.861,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.425,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.311,
+    "browse_score": 0.436
+   }
+  ],
+  "auth": [
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 2.504,
+    "browse_score": 0.823
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.477,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-samesite-lax-oauth-redirect-24ec2c",
+    "match_score": 2.451,
+    "browse_score": 0.712
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 2.4,
+    "browse_score": 0.978
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.334,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.322,
+    "browse_score": 0.87
+   },
+   {
+    "id": "lrn-ts-satisfies-over-annotation-251d75",
+    "match_score": 2.136,
+    "browse_score": 0.425
+   }
+  ],
+  "perf": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 2.768,
+    "browse_score": 0.276
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.639,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.625,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 2.566,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.559,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.478,
+    "browse_score": 1.093
+   }
+  ],
+  "rust": [
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 3.072,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.859,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-rust-axum-body-extractor-last-3d1f6f",
+    "match_score": 2.817,
+    "browse_score": 0.422
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.8,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.727,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.419,
+    "browse_score": 0.543
+   }
+  ],
+  "jwt": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 4.422,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 3.792,
+    "browse_score": 0.823
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 3.517,
+    "browse_score": 0.87
+   }
+  ],
+  "security": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 3.751,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 3.635,
+    "browse_score": 0.978
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 3.517,
+    "browse_score": 0.87
+   }
+  ],
+  "acme-api": [
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.387,
+    "browse_score": 0.58
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.366,
+    "browse_score": 0.291
+   }
+  ],
+  "widgetly": [
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 3.421,
+    "browse_score": 0.796
+   }
+  ],
+  "postgresql": [],
+  "github actions": [],
+  "Allow 30s of": [
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 12.436,
+    "browse_score": 0.549
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.825,
+    "browse_score": 0.35
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 2.533,
+    "browse_score": 0.652
+   },
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 2.205,
+    "browse_score": 0.796
+   },
+   {
+    "id": "lrn-test-flaky-e2e-networkidle-958b44",
+    "match_score": 1.885,
+    "browse_score": 0.198
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 1.687,
+    "browse_score": 0.362
+   }
+  ],
+  "Share one HS256": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 14.511,
+    "browse_score": 0.141
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.193,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.076,
+    "browse_score": 0.58
+   }
+  ],
+  "Verify JWTs with": [
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 9.551,
+    "browse_score": 0.58
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 3.663,
+    "browse_score": 0.378
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.335,
+    "browse_score": 0.141
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 1.265,
+    "browse_score": 0.28
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 1.249,
+    "browse_score": 0.766
+   },
+   {
+    "id": "lrn-react-effect-cleanup-ignore-flag-4ad6bf",
+    "match_score": 1.132,
+    "browse_score": 0.217
+   },
+   {
+    "id": "lrn-k8s-readiness-probe-slow-start-84338b",
+    "match_score": 1.12,
+    "browse_score": 0.705
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 1.12,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 0.868,
+    "browse_score": 0.362
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 0.751,
+    "browse_score": 0.142
+   },
+   {
+    "id": "lrn-python-asyncio-gather-return-exceptions-6c1bb8",
+    "match_score": 0.747,
+    "browse_score": 0.527
+   },
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 0.736,
+    "browse_score": 0.549
+   },
+   {
+    "id": "lrn-react-useeffect-strictmode-double-run-4bc6ed",
+    "match_score": 0.697,
+    "browse_score": 0.303
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 0.694,
+    "browse_score": 0.296
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 0.668,
+    "browse_score": 0.437
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 0.65,
+    "browse_score": 0.309
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 0.612,
+    "browse_score": 0.729
+   }
+  ],
+  "Rotate refresh tokens": [
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 14.195,
+    "browse_score": 0.652
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.685,
+    "browse_score": 0.141
+   }
+  ]
+ },
+ "queries_full": {
+  "postgres": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 3.167,
+    "browse_score": 0.276
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.722,
+    "browse_score": 0.524
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.654,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 2.625,
+    "browse_score": 0.783
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.599,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.569,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 2.535,
+    "browse_score": 0.655
+   }
+  ],
+  "POSTGRES connection pool": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 7.347,
+    "browse_score": 0.368
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 6.157,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.722,
+    "browse_score": 0.524
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 2.625,
+    "browse_score": 0.783
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.599,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.569,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 2.535,
+    "browse_score": 0.655
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.025,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 1.932,
+    "browse_score": 0.378
+   }
+  ],
+  "postgres postgres": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 6.334,
+    "browse_score": 0.368
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 5.445,
+    "browse_score": 0.699
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 5.307,
+    "browse_score": 1.457
+   },
+   {
+    "id": "lrn-pg-index-concurrently-no-transaction-c2645c",
+    "match_score": 5.25,
+    "browse_score": 1.044
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 5.199,
+    "browse_score": 0.724
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 5.138,
+    "browse_score": 0.786
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 5.069,
+    "browse_score": 0.873
+   }
+  ],
+  "docker": [
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 3.958,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-docker-compose-v1-hyphen-cli-dadf4c",
+    "match_score": 3.928,
+    "browse_score": 0.212
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 3.419,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 3.294,
+    "browse_score": 0.464
+   }
+  ],
+  "react hooks": [
+   {
+    "id": "lrn-react-fetch-race-abortcontroller-7a5653",
+    "match_score": 3.966,
+    "browse_score": 0.805
+   },
+   {
+    "id": "lrn-react-useeffect-strictmode-double-run-4bc6ed",
+    "match_score": 3.837,
+    "browse_score": 0.454
+   },
+   {
+    "id": "lrn-react-effect-cleanup-ignore-flag-4ad6bf",
+    "match_score": 3.816,
+    "browse_score": 0.326
+   }
+  ],
+  "retry backoff": [],
+  "ci": [
+   {
+    "id": "lrn-docker-compose-v1-hyphen-cli-dadf4c",
+    "match_score": 2.537,
+    "browse_score": 0.212
+   },
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 2.52,
+    "browse_score": 1.194
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.503,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.497,
+    "browse_score": 0.543
+   },
+   {
+    "id": "lrn-webpack5-persistent-cache-ci-353a79",
+    "match_score": 2.238,
+    "browse_score": 0.255
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.112,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 2.077,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.044,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 1.944,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 1.16,
+    "browse_score": 0.309
+   }
+  ],
+  "cache invalidation": [
+   {
+    "id": "lrn-webpack5-persistent-cache-ci-353a79",
+    "match_score": 3.069,
+    "browse_score": 0.382
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 3.015,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 2.996,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.923,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.904,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.825,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.387,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.27,
+    "browse_score": 0.436
+   }
+  ],
+  "x-reflect": [],
+  "a/b": [],
+  "nonexistent-zzzz": [],
+  "a": [],
+  "": [],
+  "   ": [],
+  "cache": [
+   {
+    "id": "lrn-webpack5-persistent-cache-ci-353a79",
+    "match_score": 3.069,
+    "browse_score": 0.382
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 3.015,
+    "browse_score": 1.149
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 2.996,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 2.923,
+    "browse_score": 0.213
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 2.904,
+    "browse_score": 0.42
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.825,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 2.387,
+    "browse_score": 0.444
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.27,
+    "browse_score": 0.436
+   }
+  ],
+  "auth": [
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 2.677,
+    "browse_score": 0.823
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.647,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-samesite-lax-oauth-redirect-24ec2c",
+    "match_score": 2.618,
+    "browse_score": 0.712
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 2.562,
+    "browse_score": 0.978
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.489,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.476,
+    "browse_score": 0.87
+   },
+   {
+    "id": "lrn-ts-satisfies-over-annotation-251d75",
+    "match_score": 2.276,
+    "browse_score": 0.425
+   }
+  ],
+  "perf": [
+   {
+    "id": "lrn-pg-raise-max-connections-455dff",
+    "match_score": 2.941,
+    "browse_score": 0.276
+   },
+   {
+    "id": "lrn-pg-explain-analyze-buffers-da1acb",
+    "match_score": 2.799,
+    "browse_score": 0.589
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.784,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 2.719,
+    "browse_score": 0.464
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.712,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.623,
+    "browse_score": 1.093
+   }
+  ],
+  "rust": [
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 3.267,
+    "browse_score": 0.436
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 3.037,
+    "browse_score": 0.555
+   },
+   {
+    "id": "lrn-rust-axum-body-extractor-last-3d1f6f",
+    "match_score": 2.991,
+    "browse_score": 0.422
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 2.972,
+    "browse_score": 0.567
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 2.892,
+    "browse_score": 1.093
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 2.559,
+    "browse_score": 0.543
+   }
+  ],
+  "jwt": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 4.626,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 3.955,
+    "browse_score": 0.823
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 3.658,
+    "browse_score": 0.87
+   }
+  ],
+  "security": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 3.911,
+    "browse_score": 0.211
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 3.785,
+    "browse_score": 0.978
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 3.658,
+    "browse_score": 0.87
+   }
+  ],
+  "acme-api": [
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.448,
+    "browse_score": 0.58
+   },
+   {
+    "id": "lrn-rust-cargo-chef-docker-layers-3da5e1",
+    "match_score": 2.426,
+    "browse_score": 0.291
+   }
+  ],
+  "widgetly": [
+   {
+    "id": "lrn-yarn-v1-resolutions-pin-1a416c",
+    "match_score": 3.114,
+    "browse_score": 0.14
+   },
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 2.944,
+    "browse_score": 0.796
+   }
+  ],
+  "postgresql": [],
+  "github actions": [],
+  "Allow 30s of": [
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 12.94,
+    "browse_score": 0.549
+   },
+   {
+    "id": "lrn-pg-idle-in-transaction-timeout-d97f45",
+    "match_score": 2.912,
+    "browse_score": 0.35
+   },
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 2.602,
+    "browse_score": 0.652
+   },
+   {
+    "id": "lrn-ci-concurrency-cancel-in-progress-b1fe65",
+    "match_score": 2.301,
+    "browse_score": 0.796
+   },
+   {
+    "id": "lrn-test-flaky-e2e-networkidle-958b44",
+    "match_score": 1.959,
+    "browse_score": 0.198
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 1.747,
+    "browse_score": 0.362
+   }
+  ],
+  "Share one HS256": [
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 14.989,
+    "browse_score": 0.141
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 2.266,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 2.142,
+    "browse_score": 0.58
+   }
+  ],
+  "Verify JWTs with": [
+   {
+    "id": "lrn-auth-jwt-rs256-jwks-rotation-7c4e8c",
+    "match_score": 9.809,
+    "browse_score": 0.58
+   },
+   {
+    "id": "lrn-rust-tokio-spawn-blocking-hashing-94cb2e",
+    "match_score": 3.764,
+    "browse_score": 0.378
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.417,
+    "browse_score": 0.141
+   },
+   {
+    "id": "lrn-ci-actions-cache-node-modules-8204a1",
+    "match_score": 1.257,
+    "browse_score": 0.28
+   },
+   {
+    "id": "lrn-ci-pnpm-store-cache-setup-node-3e4ae8",
+    "match_score": 1.24,
+    "browse_score": 0.766
+   },
+   {
+    "id": "lrn-node14-fetch-polyfill-node-fetch-a9a2ae",
+    "match_score": 1.224,
+    "browse_score": 0.148
+   },
+   {
+    "id": "lrn-yarn-v1-resolutions-pin-1a416c",
+    "match_score": 1.224,
+    "browse_score": 0.14
+   },
+   {
+    "id": "lrn-react-effect-cleanup-ignore-flag-4ad6bf",
+    "match_score": 1.122,
+    "browse_score": 0.217
+   },
+   {
+    "id": "lrn-k8s-readiness-probe-slow-start-84338b",
+    "match_score": 1.11,
+    "browse_score": 0.705
+   },
+   {
+    "id": "lrn-perf-redis-cache-stampede-singleflight-4c1630",
+    "match_score": 1.11,
+    "browse_score": 0.37
+   },
+   {
+    "id": "lrn-rust-sqlx-offline-ci-39896c",
+    "match_score": 0.854,
+    "browse_score": 0.362
+   },
+   {
+    "id": "lrn-ci-npm-install-cache-folder-7d5322",
+    "match_score": 0.741,
+    "browse_score": 0.142
+   },
+   {
+    "id": "lrn-python-asyncio-gather-return-exceptions-6c1bb8",
+    "match_score": 0.737,
+    "browse_score": 0.527
+   },
+   {
+    "id": "lrn-auth-jwt-clock-skew-leeway-c68e95",
+    "match_score": 0.725,
+    "browse_score": 0.549
+   },
+   {
+    "id": "lrn-react-useeffect-strictmode-double-run-4bc6ed",
+    "match_score": 0.686,
+    "browse_score": 0.303
+   },
+   {
+    "id": "lrn-docker-layer-order-deps-first-0de1bc",
+    "match_score": 0.683,
+    "browse_score": 0.296
+   },
+   {
+    "id": "lrn-test-pytest-fixture-scope-db-da4eda",
+    "match_score": 0.657,
+    "browse_score": 0.437
+   },
+   {
+    "id": "lrn-docker-buildkit-cache-mounts-fecb00",
+    "match_score": 0.638,
+    "browse_score": 0.309
+   },
+   {
+    "id": "lrn-rust-pool-size-vs-pgbouncer-29a129",
+    "match_score": 0.6,
+    "browse_score": 0.729
+   }
+  ],
+  "Rotate refresh tokens": [
+   {
+    "id": "lrn-auth-refresh-token-rotation-reuse-831860",
+    "match_score": 14.616,
+    "browse_score": 0.652
+   },
+   {
+    "id": "lrn-auth-jwt-hs256-shared-secret-357866",
+    "match_score": 2.762,
+    "browse_score": 0.141
+   }
+  ]
+ }
+}
