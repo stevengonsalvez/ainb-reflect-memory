@@ -27,7 +27,7 @@ export const FIELDS = [
 
   // ---- recall
   { key: 'startLearnings', group: 'Recall', label: 'Learnings injected at SessionStart', v: 3, min: 0, max: 10, step: 1, src: 'code', ref: 'SESSION_START_LIMIT = 3 in plugin/skills/recall/hooks/session_start_recall.py' },
-  { key: 'learningsPerPrompt', group: 'Recall', label: 'New learnings injected per prompt (average)', v: 1, min: 0, max: 2, step: 0.1, src: 'assumption', ref: 'USER_PROMPT_LIMIT = 3 blocks in user_prompt_submit_recall.py, but the markdown header line counts as one block, so at most 2 learnings per prompt (verified by calling filter_to_new). The hook also skips ids already injected this session, so the average sits lower.' },
+  { key: 'learningsPerPrompt', group: 'Recall', label: 'New learnings injected per prompt (average)', v: 1, min: 0, max: 3, step: 0.1, src: 'assumption', ref: 'USER_PROMPT_LIMIT = 3 learnings in user_prompt_submit_recall.py (the markdown header line is not counted), so at most 3 per prompt. The hook also skips ids already injected this session, so the average sits lower.' },
   { key: 'tokensPerLearning', group: 'Recall', label: 'Tokens per injected learning', v: 110, min: 30, max: 400, step: 5, src: 'assumption', ref: 'The per-prompt block is capped at 1500 chars (USER_PROMPT_MAX_CHARS), about 375 tokens for up to 3 learnings, so roughly 125 tokens each is the ceiling (about 190 each when only 2 fit).' },
   { key: 'persist', group: 'Recall', label: 'Count re-reads of injected text on later prompts (prompt cache)', v: true, type: 'check', src: 'assumption', note: 'Injected context stays in the conversation, so every later prompt re-reads it at the cache-read price.' },
 

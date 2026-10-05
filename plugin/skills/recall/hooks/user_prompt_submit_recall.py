@@ -312,9 +312,10 @@ def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[
     """Strip out blocks corresponding to already-injected learning IDs.
 
     The recall script emits markdown as a flat list of bullets (one per
-    learning). We split on top-level ``"- "`` lines and keep blocks whose
-    ``[lrn-...]`` ID is NOT in ``already_injected``. Returns
-    ``(filtered_markdown, new_ids)``.
+    learning) under a ``## ...`` header. We split on top-level ``"- "`` lines
+    and keep the header plus the first ``USER_PROMPT_LIMIT`` learning blocks
+    whose ``[lrn-...]`` ID is NOT in ``already_injected``. Returns
+    ``(filtered_markdown, new_ids)``; empty when no new learning survives.
     """
     if not markdown:
         return "", []
@@ -330,6 +331,14 @@ def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[
     if current:
         blocks.append(current)
 
+    # The recall markdown opens with a ``## Prior learnings ...`` header
+    # block. It is framing, not a learning: keep it, but never count it
+    # against USER_PROMPT_LIMIT (it used to, so only LIMIT-1 learnings
+    # reached the model).
+    header = ""
+    if blocks and not blocks[0][0].startswith("- "):
+        header = "\n".join(blocks.pop(0))
+
     kept_blocks: list[str] = []
     kept_ids: list[str] = []
     for block in blocks:
@@ -341,7 +350,9 @@ def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[
         kept_ids.extend(ids_in_block)
         if len(kept_blocks) >= USER_PROMPT_LIMIT:
             break
-    return "\n".join(kept_blocks), kept_ids[:USER_PROMPT_LIMIT]
+    if not kept_blocks:
+        return "", []  # nothing new: a lone header is noise, inject nothing
+    return "\n".join([header, *kept_blocks] if header else kept_blocks), kept_ids[:USER_PROMPT_LIMIT]
 
 
 # --- Mini-learning capture (Phase 2 of PostToolUse arming) ---------------

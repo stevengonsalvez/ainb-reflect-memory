@@ -93,7 +93,7 @@ export const HOOKS = {
     scripts: ['plugin/skills/recall/hooks/user_prompt_submit_recall.py'],
     lanes: ['recall', 'capture'],
     does:
-      'Uses the prompt itself as the recall query (skipped under 12 chars). Over-fetches 9, drops ids already injected this session, keeps the first 3 blocks (the header line is one, so at most 2 learnings) within 1500 chars. Before recall it checks the armed watchers: if a tool failed or a permission prompt was just shown and this prompt reads like a correction or a decision, it writes a mini-learning to disk with no LLM call.',
+      'Uses the prompt itself as the recall query (skipped under 12 chars). Over-fetches 9, drops ids already injected this session, keeps the header plus the first 3 new learnings within 1500 chars. Before recall it checks the armed watchers: if a tool failed or a permission prompt was just shown and this prompt reads like a correction or a decision, it writes a mini-learning to disk with no LLM call.',
   },
   preTool: {
     scripts: ['plugin/hooks/pretooluse_context.py'],

@@ -455,10 +455,10 @@ function init(root, corpus) {
       const tokCut = b.tokRows.filter((r) => !r.kept);
       const hook = b.hook;
       put(
-        ...stageHeader(i, 'Last two cuts. R4 trims by estimated tokens (chars / 4) when --max-tokens is set. Then render_markdown writes one line per learning with its token economics and stops at --max-chars.' + (hook ? ' The UserPromptSubmit hook then keeps only the first ' + C.USER_PROMPT_LIMIT + ' blocks, and the header line counts as a block.' : ''), [
+        ...stageHeader(i, 'Last two cuts. R4 trims by estimated tokens (chars / 4) when --max-tokens is set. Then render_markdown writes one line per learning with its token economics and stops at --max-chars.' + (hook ? ' The UserPromptSubmit hook then keeps the header plus the first ' + C.USER_PROMPT_LIMIT + ' learnings (the header does not count toward the cap).' : ''), [
           ['--max-tokens', b.maxTokens ? String(b.maxTokens) : '0 (off)'],
           ['--max-chars', String(b.maxChars)],
-          ['hook cut', hook ? C.USER_PROMPT_LIMIT + ' blocks, ' + C.USER_PROMPT_MAX_CHARS + ' chars' : 'n/a for this caller'],
+          ['hook cut', hook ? C.USER_PROMPT_LIMIT + ' learnings, ' + C.USER_PROMPT_MAX_CHARS + ' chars' : 'n/a for this caller'],
         ]),
         b.entries.length ? h('table', { class: 'xp-table' }, h('thead', null, h('tr', null, ['', 'Learning', 'Read', 'Discovery', 'Chars so far', 'Cut because'].map((x) => h('th', { text: x })))), h('tbody', null, rows)) : h('p', { class: 'xp-warn', text: 'Nothing survived to render.' }),
         tokCut.length ? h('p', { class: 'xp-note', text: tokCut.length + ' dropped by the token budget before rendering.' }) : null,

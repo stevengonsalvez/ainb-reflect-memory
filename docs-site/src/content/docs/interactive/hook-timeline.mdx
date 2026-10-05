@@ -50,7 +50,7 @@ Codex arms the failure watcher from `PostToolUse` because `posttooluse_minilearn
 | Drain consumer | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
 
 :::note
-The counts under "state" (3 learnings at start, 2 on prompt 1, and so on) are illustrative. The caps behind them are real: SessionStart injects at most 3 learnings; each prompt at most 2 new ones within 1500 characters (3 blocks, and the header line counts as one).
+The counts under "state" (3 learnings at start, 2 on prompt 1, and so on) are illustrative. The caps behind them are real: SessionStart injects at most 3 learnings; each prompt at most 3 new ones within 1500 characters (the header line is not counted).
 :::
 
 For the full hook reference see the [hooks reference](/ainb-reflect-memory/reference/hooks/); for what happens inside the drain see [drain](/ainb-reflect-memory/concepts/drain/).
