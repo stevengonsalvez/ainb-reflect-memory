@@ -76,7 +76,7 @@ def test_prepare_dedups_by_signal_hash(tmp_path, monkeypatch):
     t = _write(tmp_path / "sig.jsonl", [
         ("user", "No, never use var. The root cause was a missing index."),
     ])
-    monkeypatch.setattr(reflect_cascade, "_signal_hash_seen", lambda h: True)
+    monkeypatch.setattr(reflect_cascade, "_signal_hash_seen", lambda h, conn=None: True)
     prep = reflect_cascade.prepare(t)
     assert prep.action == "skip" and prep.reason == "dup-signal-hash"
 

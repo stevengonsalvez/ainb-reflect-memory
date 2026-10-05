@@ -210,7 +210,7 @@ def test_cascade_proof_recording_fails_silently(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise RuntimeError("db gone")
 
-    monkeypatch.setattr(reflect_cascade, "_signal_hash_seen", lambda h: True)
+    monkeypatch.setattr(reflect_cascade, "_signal_hash_seen", lambda h, conn=None: True)
     monkeypatch.setattr(reflect_db, "get_learnings_by_content_hash", boom)
     transcript = tmp_path / "sig.jsonl"
     transcript.write_text(

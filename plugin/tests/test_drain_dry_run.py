@@ -127,14 +127,57 @@ def test_dry_run_leaves_all_durable_state_untouched(tmp_path, cascade):
     assert _tree(state) == before_state          # queue, cost ledger, retry, poison, debounce, ...
     assert not (tmp_path / "claude-calls.log").exists()   # never calls the model
     if cascade == "1":
-        # The cascade's chunk-hash bookkeeping lives in the DB under HOME.
-        db = home / ".reflect" / "reflect.db"
-        if db.exists():
-            conn = sqlite3.connect(db)
-            try:
-                assert conn.execute("SELECT COUNT(*) FROM chunk_hashes").fetchone()[0] == 0
-            finally:
-                conn.close()
+        # The cascade's DB reads must not create or migrate reflect.db either.
+        assert not (home / ".reflect").exists(), list(home.rglob("*"))
+
+
+def test_dry_run_leaves_an_existing_reflect_db_byte_identical(tmp_path):
+    """With an existing DB the dry run writes nothing to it: same bytes, no new
+    -wal/-shm files, no new rows."""
+    import reflect_db
+
+    state, home = tmp_path / "state", tmp_path / "home"
+    transcripts = _transcripts(tmp_path, n=1)
+    queue_before = _seed(state, transcripts)
+    db = home / ".reflect" / "reflect.db"
+    conn = reflect_db.init_db(db)
+    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    conn.close()
+    reflect_db.close_all()
+    for suffix in ("-wal", "-shm"):
+        Path(f"{db}{suffix}").unlink(missing_ok=True)
+    before = _tree(home)
+    assert list(before) == [".reflect/reflect.db"]
+
+    log = _run(state, home, _stub_claude(tmp_path),
+               REFLECT_DRAIN_DRY_RUN="1", REFLECT_DRAIN_CASCADE="1")
+
+    assert "DRY_RUN=1" in log
+    assert (state / "pending_reflections.jsonl").read_bytes() == queue_before
+    assert _tree(home) == before
+    conn = sqlite3.connect(db)
+    try:
+        assert conn.execute("SELECT COUNT(*) FROM chunk_hashes").fetchone()[0] == 0
+    finally:
+        conn.close()
+
+
+def test_prepare_dry_run_never_creates_the_db(tmp_path, monkeypatch):
+    """prepare(dry_run=True) against an empty HOME gives the live verdict
+    without mkdir-ing ~/.reflect or running schema migrations."""
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("REFLECT_STATE_DIR", str(tmp_path / "state"))
+    import reflect_cascade
+    import reflect_db
+
+    reflect_db.close_all()
+    t = _signal_transcript(tmp_path / "t.jsonl")
+    dry = reflect_cascade.prepare(t, out_path=tmp_path / "slice.txt", dry_run=True)
+    assert dry.action == "reflect"
+    assert not (home / ".reflect").exists()
+    assert not reflect_db._CONN_CACHE
 
 
 def test_dry_run_does_not_count_toward_the_daily_cap(tmp_path):
