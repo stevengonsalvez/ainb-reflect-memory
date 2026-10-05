@@ -1,0 +1,18 @@
+version: 1
+groups:
+- ids:
+  - lrn-rust-cargo-chef-docker-layers-3da5e1
+  - lrn-docker-layer-order-deps-first-0de1bc
+  - lrn-docker-buildkit-cache-mounts-fecb00
+  queued_at: '2026-09-28T08:15:00+00:00'
+  status: pending
+- ids:
+  - lrn-test-playwright-auto-wait-no-sleep-201eaf
+  - lrn-test-flaky-e2e-networkidle-958b44
+  queued_at: '2026-09-29T14:02:00+00:00'
+  status: pending
+- ids:
+  - lrn-react-fetch-race-abortcontroller-7a5653
+  - lrn-react-effect-cleanup-ignore-flag-4ad6bf
+  queued_at: '2026-10-01T10:30:00+00:00'
+  status: pending

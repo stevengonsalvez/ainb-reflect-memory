@@ -1,0 +1,47 @@
+document_id: lrn-perf-redis-cache-stampede-singleflight-4c1630
+extracted_at: '2026-10-02T09:00:00'
+entities:
+- name: Redis
+  type: technology
+  description: In-memory cache and data store
+- name: singleflight
+  type: pattern
+  description: Collapse concurrent identical loads into one
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: Rust
+  type: technology
+  description: Systems language behind the acme-api backend
+- name: tokio
+  type: technology
+  description: Async runtime for Rust
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: singleflight
+  target: Redis
+  type: relates_to
+  description: guards cache rebuilds
+  strength: 7
+- source: singleflight
+  target: PostgreSQL
+  type: prevents
+  description: avoids duplicate heavy queries
+  strength: 6
+- source: acme-api
+  target: Redis
+  type: uses
+  description: pricing cache
+  strength: 6
+- source: singleflight
+  target: tokio
+  type: uses
+  description: watch channel shares the result
+  strength: 4
+- source: acme-api
+  target: Rust
+  type: implements
+  description: backend language
+  strength: 4

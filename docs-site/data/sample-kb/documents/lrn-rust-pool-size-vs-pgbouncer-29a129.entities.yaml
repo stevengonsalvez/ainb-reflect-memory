@@ -1,0 +1,47 @@
+document_id: lrn-rust-pool-size-vs-pgbouncer-29a129
+extracted_at: '2026-09-20T09:10:00'
+entities:
+- name: connection pool
+  type: pattern
+  description: Bounded set of reusable database connections
+- name: sqlx
+  type: technology
+  description: Async compile-time checked SQL toolkit for Rust
+- name: PgBouncer
+  type: tool
+  description: Connection pooler in front of PostgreSQL
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: Kubernetes
+  type: technology
+  description: Container orchestrator
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: sqlx
+  target: connection pool
+  type: implements
+  description: PgPool is the bounded pool
+  strength: 7
+- source: connection pool
+  target: PgBouncer
+  type: requires
+  description: must fit inside server-side limits
+  strength: 8
+- source: PgBouncer
+  target: PostgreSQL
+  type: relates_to
+  description: multiplexes client connections
+  strength: 8
+- source: Kubernetes
+  target: connection pool
+  type: relates_to
+  description: replica count multiplies pool size
+  strength: 4
+- source: acme-api
+  target: connection pool
+  type: uses
+  description: one pool per replica
+  strength: 5

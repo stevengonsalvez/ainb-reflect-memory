@@ -1,0 +1,26 @@
+document_id: lrn-ci-actions-cache-node-modules-8204a1
+extracted_at: '2026-05-02T11:15:00'
+entities:
+- name: actions/cache
+  type: tool
+  description: GitHub Actions cache step
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+- name: npm
+  type: tool
+  description: Default Node package manager
+relationships:
+- source: GitHub Actions
+  target: actions/cache
+  type: uses
+  description: cache step
+  strength: 6
+- source: actions/cache
+  target: npm
+  type: configures
+  description: caches node_modules
+  strength: 5

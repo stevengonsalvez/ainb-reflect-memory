@@ -1,0 +1,31 @@
+document_id: lrn-test-flaky-e2e-networkidle-958b44
+extracted_at: '2026-06-09T09:35:00'
+entities:
+- name: Playwright
+  type: technology
+  description: Browser end-to-end test framework
+- name: networkidle
+  type: concept
+  description: Playwright wait state that never settles on polling pages
+- name: flaky test
+  type: error
+  description: Test that passes and fails without code change
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: networkidle
+  target: flaky test
+  type: causes
+  description: never settles on polling pages
+  strength: 6
+- source: Playwright
+  target: networkidle
+  type: relates_to
+  description: discouraged wait state
+  strength: 5
+- source: widgetly
+  target: Playwright
+  type: uses
+  description: dashboard e2e
+  strength: 5

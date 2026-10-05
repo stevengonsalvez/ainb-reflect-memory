@@ -1,0 +1,34 @@
+document_id: lrn-rust-tokio-spawn-blocking-hashing-94cb2e
+extracted_at: '2026-04-22T13:05:00'
+entities:
+- name: tokio
+  type: technology
+  description: Async runtime for Rust
+- name: Rust
+  type: technology
+  description: Systems language behind the acme-api backend
+- name: argon2
+  type: technology
+  description: Memory-hard password hashing
+- name: axum
+  type: technology
+  description: Rust web framework built on tokio and tower
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: argon2
+  target: tokio
+  type: relates_to
+  description: CPU-bound call blocks the runtime
+  strength: 6
+- source: axum
+  target: tokio
+  type: uses
+  description: handlers run on tokio workers
+  strength: 8
+- source: acme-api
+  target: argon2
+  type: uses
+  description: password verification on /login
+  strength: 5

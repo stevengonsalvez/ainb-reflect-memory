@@ -1,0 +1,26 @@
+document_id: lrn-rust-axum-body-extractor-last-3d1f6f
+extracted_at: '2026-05-03T10:30:00'
+entities:
+- name: axum
+  type: technology
+  description: Rust web framework built on tokio and tower
+- name: Rust
+  type: technology
+  description: Systems language behind the acme-api backend
+- name: tokio
+  type: technology
+  description: Async runtime for Rust
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: acme-api
+  target: axum
+  type: uses
+  description: HTTP layer
+  strength: 7
+- source: axum
+  target: Rust
+  type: implements
+  description: framework written in Rust
+  strength: 3

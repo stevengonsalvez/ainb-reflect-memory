@@ -1,0 +1,31 @@
+document_id: lrn-test-playwright-auto-wait-no-sleep-201eaf
+extracted_at: '2026-06-05T14:00:00'
+entities:
+- name: Playwright
+  type: technology
+  description: Browser end-to-end test framework
+- name: flaky test
+  type: error
+  description: Test that passes and fails without code change
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+relationships:
+- source: Playwright
+  target: flaky test
+  type: prevents
+  description: auto-wait removes timing races
+  strength: 7
+- source: widgetly
+  target: Playwright
+  type: uses
+  description: e2e suite
+  strength: 7
+- source: GitHub Actions
+  target: Playwright
+  type: uses
+  description: sharded e2e job
+  strength: 5

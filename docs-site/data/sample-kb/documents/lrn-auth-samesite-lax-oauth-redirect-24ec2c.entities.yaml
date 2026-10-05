@@ -1,0 +1,23 @@
+document_id: lrn-auth-samesite-lax-oauth-redirect-24ec2c
+extracted_at: '2026-08-05T10:25:00'
+entities:
+- name: SameSite cookie
+  type: concept
+  description: Cookie attribute controlling cross-site sends
+- name: OAuth
+  type: concept
+  description: Delegated authorization protocol
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: SameSite cookie
+  target: OAuth
+  type: relates_to
+  description: redirect callback is cross-site
+  strength: 6
+- source: widgetly
+  target: SameSite cookie
+  type: configures
+  description: session cookie attributes
+  strength: 5

@@ -1,0 +1,23 @@
+document_id: lrn-ts-satisfies-over-annotation-251d75
+extracted_at: '2026-07-16T13:30:00'
+entities:
+- name: TypeScript
+  type: technology
+  description: Typed superset of JavaScript
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+- name: Vite
+  type: tool
+  description: Frontend bundler and dev server
+relationships:
+- source: widgetly
+  target: TypeScript
+  type: implements
+  description: strict TS everywhere
+  strength: 6
+- source: Vite
+  target: TypeScript
+  type: uses
+  description: esbuild strips types
+  strength: 3

@@ -1,0 +1,47 @@
+document_id: lrn-auth-jwt-rs256-jwks-rotation-7c4e8c
+extracted_at: '2026-09-02T08:45:00'
+entities:
+- name: JWT
+  type: concept
+  description: JSON Web Token bearer credential
+- name: RS256
+  type: concept
+  description: RSA signature algorithm for JWTs
+- name: JWKS
+  type: concept
+  description: JSON Web Key Set endpoint for public keys
+- name: HS256
+  type: concept
+  description: Shared-secret HMAC algorithm for JWTs
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: JWT
+  target: RS256
+  type: uses
+  description: signature algorithm
+  strength: 8
+- source: RS256
+  target: JWKS
+  type: requires
+  description: public keys published by kid
+  strength: 8
+- source: HS256
+  target: RS256
+  type: relates_to
+  description: replaced by
+  strength: 4
+- source: acme-api
+  target: JWKS
+  type: uses
+  description: fetches and caches keys
+  strength: 6
+- source: widgetly
+  target: JWT
+  type: uses
+  description: bearer token in Authorization header
+  strength: 5

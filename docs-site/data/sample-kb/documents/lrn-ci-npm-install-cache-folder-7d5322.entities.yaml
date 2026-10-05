@@ -1,0 +1,23 @@
+document_id: lrn-ci-npm-install-cache-folder-7d5322
+extracted_at: '2026-04-11T08:00:00'
+entities:
+- name: npm
+  type: tool
+  description: Default Node package manager
+- name: actions/cache
+  type: tool
+  description: GitHub Actions cache step
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+relationships:
+- source: npm
+  target: actions/cache
+  type: uses
+  description: cache ~/.npm
+  strength: 4
+- source: GitHub Actions
+  target: npm
+  type: uses
+  description: install step
+  strength: 4

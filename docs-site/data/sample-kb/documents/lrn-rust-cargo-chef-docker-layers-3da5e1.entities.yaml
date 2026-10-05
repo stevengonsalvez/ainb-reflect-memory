@@ -1,0 +1,42 @@
+document_id: lrn-rust-cargo-chef-docker-layers-3da5e1
+extracted_at: '2026-07-14T11:02:00'
+entities:
+- name: cargo-chef
+  type: tool
+  description: Dependency-layer caching for Rust Docker builds
+- name: Docker
+  type: technology
+  description: Container build and runtime
+- name: Rust
+  type: technology
+  description: Systems language behind the acme-api backend
+- name: cargo
+  type: tool
+  description: Rust build tool and package manager
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: cargo-chef
+  target: Docker
+  type: configures
+  description: splits dependency and source layers
+  strength: 7
+- source: cargo-chef
+  target: cargo
+  type: uses
+  description: cargo chef cook wraps cargo build
+  strength: 6
+- source: GitHub Actions
+  target: Docker
+  type: uses
+  description: image build job
+  strength: 5
+- source: acme-api
+  target: Docker
+  type: uses
+  description: ships as a container
+  strength: 5

@@ -1,0 +1,34 @@
+document_id: lrn-docker-layer-order-deps-first-0de1bc
+extracted_at: '2026-05-12T09:00:00'
+entities:
+- name: Docker
+  type: technology
+  description: Container build and runtime
+- name: pnpm
+  type: tool
+  description: Disk-efficient Node package manager
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: Docker
+  target: pnpm
+  type: uses
+  description: install layer
+  strength: 5
+- source: widgetly
+  target: Docker
+  type: uses
+  description: container image for the dashboard
+  strength: 5
+- source: GitHub Actions
+  target: Docker
+  type: uses
+  description: image build job
+  strength: 5

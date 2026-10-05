@@ -1,0 +1,47 @@
+document_id: lrn-rust-sqlx-offline-ci-39896c
+extracted_at: '2026-06-02T16:40:00'
+entities:
+- name: sqlx
+  type: technology
+  description: Async compile-time checked SQL toolkit for Rust
+- name: Rust
+  type: technology
+  description: Systems language behind the acme-api backend
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: cargo
+  type: tool
+  description: Rust build tool and package manager
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: sqlx
+  target: PostgreSQL
+  type: uses
+  description: query! macros verify SQL against a live schema
+  strength: 8
+- source: sqlx
+  target: cargo
+  type: part_of
+  description: cargo sqlx prepare is a cargo subcommand
+  strength: 5
+- source: GitHub Actions
+  target: sqlx
+  type: requires
+  description: offline metadata replaces the CI database
+  strength: 6
+- source: acme-api
+  target: sqlx
+  type: uses
+  description: all data access goes through sqlx
+  strength: 7
+- source: acme-api
+  target: Rust
+  type: implements
+  description: backend language
+  strength: 6

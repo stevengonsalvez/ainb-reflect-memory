@@ -1,0 +1,31 @@
+document_id: lrn-python-asyncio-gather-return-exceptions-6c1bb8
+extracted_at: '2026-08-24T16:00:00'
+entities:
+- name: asyncio
+  type: technology
+  description: Python async runtime
+- name: Python
+  type: technology
+  description: Language for the quillbot CLI
+- name: quillbot
+  type: technology
+  description: Invented Python CLI
+- name: uv
+  type: tool
+  description: Fast Python package and project manager
+relationships:
+- source: asyncio
+  target: Python
+  type: part_of
+  description: stdlib
+  strength: 7
+- source: quillbot
+  target: asyncio
+  type: uses
+  description: parallel downloads
+  strength: 6
+- source: quillbot
+  target: uv
+  type: uses
+  description: project tooling
+  strength: 3

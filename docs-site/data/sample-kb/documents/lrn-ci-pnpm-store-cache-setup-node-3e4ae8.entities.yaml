@@ -1,0 +1,39 @@
+document_id: lrn-ci-pnpm-store-cache-setup-node-3e4ae8
+extracted_at: '2026-09-15T15:00:00'
+entities:
+- name: pnpm
+  type: tool
+  description: Disk-efficient Node package manager
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: actions/cache
+  type: tool
+  description: GitHub Actions cache step
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: GitHub Actions
+  target: pnpm
+  type: uses
+  description: 'setup-node cache: pnpm'
+  strength: 8
+- source: pnpm
+  target: Node.js
+  type: relates_to
+  description: hard-linked store
+  strength: 5
+- source: actions/cache
+  target: pnpm
+  type: configures
+  description: store directory keyed by lockfile hash
+  strength: 6
+- source: widgetly
+  target: pnpm
+  type: uses
+  description: workspace package manager
+  strength: 6

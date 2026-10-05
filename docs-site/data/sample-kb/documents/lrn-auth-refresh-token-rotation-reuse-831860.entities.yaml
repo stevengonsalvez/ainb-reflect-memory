@@ -1,0 +1,39 @@
+document_id: lrn-auth-refresh-token-rotation-reuse-831860
+extracted_at: '2026-07-29T13:40:00'
+entities:
+- name: refresh token rotation
+  type: pattern
+  description: Issue a new refresh token on every use
+- name: OAuth
+  type: concept
+  description: Delegated authorization protocol
+- name: JWT
+  type: concept
+  description: JSON Web Token bearer credential
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+relationships:
+- source: refresh token rotation
+  target: OAuth
+  type: part_of
+  description: OAuth 2.0 security BCP
+  strength: 7
+- source: refresh token rotation
+  target: JWT
+  type: relates_to
+  description: access tokens stay short lived
+  strength: 4
+- source: widgetly
+  target: refresh token rotation
+  type: uses
+  description: silent refresh in the SPA
+  strength: 5
+- source: refresh token rotation
+  target: PostgreSQL
+  type: uses
+  description: token family table
+  strength: 4

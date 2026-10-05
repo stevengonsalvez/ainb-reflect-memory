@@ -1,0 +1,34 @@
+document_id: lrn-react-effect-cleanup-ignore-flag-4ad6bf
+extracted_at: '2026-06-26T09:50:00'
+entities:
+- name: useEffect
+  type: function
+  description: React hook for side effects
+- name: fetch
+  type: function
+  description: Web fetch API
+- name: race condition
+  type: error
+  description: Out-of-order async results overwrite newer state
+- name: React
+  type: technology
+  description: UI library used by widgetly
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: useEffect
+  target: race condition
+  type: prevents
+  description: ignore flag drops stale results
+  strength: 6
+- source: fetch
+  target: race condition
+  type: causes
+  description: out-of-order resolution
+  strength: 5
+- source: widgetly
+  target: React
+  type: uses
+  description: UI framework
+  strength: 4

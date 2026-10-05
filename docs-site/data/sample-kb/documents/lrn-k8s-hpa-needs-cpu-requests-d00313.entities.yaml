@@ -1,0 +1,31 @@
+document_id: lrn-k8s-hpa-needs-cpu-requests-d00313
+extracted_at: '2026-09-08T14:20:00'
+entities:
+- name: HPA
+  type: concept
+  description: Kubernetes HorizontalPodAutoscaler
+- name: Kubernetes
+  type: technology
+  description: Container orchestrator
+- name: OOMKilled
+  type: error
+  description: Container terminated for exceeding memory limit
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: HPA
+  target: Kubernetes
+  type: part_of
+  description: autoscaling/v2
+  strength: 7
+- source: acme-api
+  target: HPA
+  type: uses
+  description: scales on CPU 70%
+  strength: 5
+- source: HPA
+  target: OOMKilled
+  type: relates_to
+  description: memory limits drive eviction instead
+  strength: 3

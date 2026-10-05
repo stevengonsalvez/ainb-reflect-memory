@@ -1,0 +1,23 @@
+document_id: lrn-docker-compose-v1-hyphen-cli-dadf4c
+extracted_at: '2026-04-10T13:00:00'
+entities:
+- name: docker compose
+  type: tool
+  description: Multi-container local orchestration
+- name: Docker
+  type: technology
+  description: Container build and runtime
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+relationships:
+- source: docker compose
+  target: Docker
+  type: part_of
+  description: plugin in v2
+  strength: 4
+- source: GitHub Actions
+  target: docker compose
+  type: uses
+  description: service containers
+  strength: 3

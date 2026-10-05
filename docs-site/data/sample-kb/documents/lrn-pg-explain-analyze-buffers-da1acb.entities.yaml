@@ -1,0 +1,23 @@
+document_id: lrn-pg-explain-analyze-buffers-da1acb
+extracted_at: '2026-07-02T10:00:00'
+entities:
+- name: EXPLAIN ANALYZE
+  type: tool
+  description: PostgreSQL query plan with real timings
+- name: PostgreSQL
+  type: technology
+  description: Relational database used by acme-api
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+relationships:
+- source: EXPLAIN ANALYZE
+  target: PostgreSQL
+  type: part_of
+  description: built-in plan tool
+  strength: 7
+- source: acme-api
+  target: EXPLAIN ANALYZE
+  type: uses
+  description: query tuning workflow
+  strength: 3

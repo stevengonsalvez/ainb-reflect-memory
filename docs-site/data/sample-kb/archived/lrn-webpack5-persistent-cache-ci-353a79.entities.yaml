@@ -1,0 +1,23 @@
+document_id: lrn-webpack5-persistent-cache-ci-353a79
+extracted_at: '2026-04-15T09:40:00'
+entities:
+- name: webpack
+  type: tool
+  description: Legacy bundler
+- name: GitHub Actions
+  type: technology
+  description: CI runner used by all sample projects
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+relationships:
+- source: webpack
+  target: Node.js
+  type: uses
+  description: runs on Node
+  strength: 3
+- source: GitHub Actions
+  target: webpack
+  type: uses
+  description: build job
+  strength: 3

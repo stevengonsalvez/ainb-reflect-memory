@@ -1,0 +1,23 @@
+document_id: lrn-yarn-v1-resolutions-pin-1a416c
+extracted_at: '2026-04-08T10:00:00'
+entities:
+- name: yarn
+  type: tool
+  description: Legacy Node package manager
+- name: Node.js
+  type: technology
+  description: JavaScript runtime
+- name: widgetly
+  type: technology
+  description: Invented React dashboard app
+relationships:
+- source: widgetly
+  target: yarn
+  type: uses
+  description: retired when the repo moved to pnpm
+  strength: 4
+- source: yarn
+  target: Node.js
+  type: relates_to
+  description: package manager
+  strength: 3

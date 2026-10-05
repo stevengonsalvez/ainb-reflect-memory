@@ -1,0 +1,23 @@
+document_id: lrn-auth-jwt-clock-skew-leeway-c68e95
+extracted_at: '2026-06-28T16:05:00'
+entities:
+- name: JWT
+  type: concept
+  description: JSON Web Token bearer credential
+- name: acme-api
+  type: technology
+  description: Invented Rust HTTP API
+- name: Kubernetes
+  type: technology
+  description: Container orchestrator
+relationships:
+- source: JWT
+  target: acme-api
+  type: relates_to
+  description: exp and nbf validation
+  strength: 5
+- source: Kubernetes
+  target: JWT
+  type: relates_to
+  description: node clock drift across pods
+  strength: 3
