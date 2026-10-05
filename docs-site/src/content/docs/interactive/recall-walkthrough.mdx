@@ -1,0 +1,72 @@
+---
+title: Recall walkthrough
+description: Type a query against an invented knowledge base and step through every stage of reflect's recall pipeline (arms, RRF, rerank, MMR, budget cut) with the real constants and intermediate ranked lists.
+sidebar:
+  order: 2
+---
+
+import RecallWalkthrough from '../../../components/interactive/RecallWalkthrough.astro';
+
+Recall turns a prompt into a few injected learnings. This page runs a **toy** version of that pipeline over an invented 32-note knowledge base so you can see every intermediate ranking. The stage order, the fusion and boost formulas, and all constants are the real ones from `recall.py`. The retrievers are stand-ins: a hashed bag-of-words "toy embedding" instead of the neural model, a small BM25 instead of QMD, and term coverage instead of the cross-encoder. Rankings here illustrate the mechanics; they are not what your KB would return.
+
+<RecallWalkthrough />
+
+## The stages
+
+| # | Stage | What happens | Constants |
+|---|---|---|---|
+| 1 | Query | Cache lookup (exact hash, then fuzzy Jaccard), then a date phrase such as "last month" is parsed out of the query. | cache TTL 3600 s, fuzzy threshold 0.85 |
+| 2 | Arms | Vector (`--mode naive`), BM25 (QMD) and graph (`--mode local`) run in parallel; a temporal arm joins only when a date phrase was found. | `fetched_limit = max(limit x 2, 10)` |
+| 3 | Arm floors | Optional per-arm coverage floor before fusion (R12). Off by default. | calibrated: vector 0.1, bm25 0.15, graph 0, temporal 0.05 |
+| 4 | RRF | `score = sum 1 / (k + rank)` over arms. | `RRF_K = 60` |
+| 5 | Rerank | Cross-encoder scores the top 20, then bounded boosts multiply the sigmoid. | `CE_CANDIDATES = 20`, alphas 0.2 / 0.2 / 0.2 / 0.1 |
+| 6 | Filters | Quarantine, `--confidence`, then the out-of-domain gate on the best of the top 5. | `--min-overlap` 0.2 at SessionStart, off elsewhere |
+| 7 | MMR | Pick the top-k one by one, trading relevance against similarity to what is already picked. | `MMR_LAMBDA = 0.7`, window 20 |
+| 8 | Budget cut | Optional token budget, then `render_markdown` stops at `--max-chars`. The UserPromptSubmit hook cuts again. | see callers below |
+
+The bounded boost is `1 + alpha x (norm - 0.5)`, so each signal moves a score by at most plus or minus `alpha / 2` (10 percent for confidence, recency and tags; 5 percent for proof count). That is why the cross-encoder, not metadata, decides the order.
+
+## Callers and their budgets
+
+The same pipeline serves three callers with different limits. Switch the caller under "Tune the constants" to see each one.
+
+| Caller | `--limit` | `--max-chars` | `--min-overlap` | Notes |
+|---|---|---|---|---|
+| `UserPromptSubmit` hook | 9 (3 x 3, over-fetch) | 3000 | off | Drops ids already injected this session, keeps the first 3 blocks, then hard-cuts at 1500 chars. |
+| `SessionStart` hook | 3 | 1500 | 0.2 | `--max-tokens` from `REFLECT_RECALL_MAX_TOKENS`, default 0 (off). |
+| `/reflect:recall` | 10 (`REFLECT_RECALL_LIMIT`) | 2000 | off | Explicit, higher-limit path. |
+
+:::note
+In the UserPromptSubmit hook the "first 3 blocks" include the `## Prior learnings relevant to ...` header line, so in practice at most **2 learnings** reach the model per prompt, not 3. The widget reproduces this in the last stage. It was checked by calling `filter_to_new` from `user_prompt_submit_recall.py` on a header plus four entries: it returned the header and two entries.
+:::
+
+## What is real and what is a toy
+
+| Piece | In this page | In reflect |
+|---|---|---|
+| Vector arm | Signed-hash bag of words plus character trigrams, 384 dims | `reflect search --mode naive`, `all-mpnet-base-v2` over nano-graphrag chunks |
+| Lexical arm | BM25 with k1 1.2, b 0.75 | QMD (`qmd search`) |
+| Graph arm | Seed entities from the query, one hop over the sample KB's entity edges, 6 neighbours per seed | `reflect search --mode local`, entity neighbourhood walk |
+| Temporal arm | Subset of the date parser | `fetch_temporal` and `temporal_extraction.py` |
+| Fusion, boosts, MMR, budget | Same formulas, same constants | `rrf_fuse`, `rerank_with_scores`, `mmr_select`, `filter_by_token_budget`, `render_markdown` |
+| Cross-encoder | IDF-weighted term coverage mapped to a logit | `cross-encoder/ms-marco-MiniLM-L-6-v2` (`plugin/reflect.toml`, `[recall.cross_encoder]`) |
+
+The knowledge base is the same invented one behind the [memory browser demo](/ainb-reflect-memory/interactive/memory-browser/): learnings about auth, CI, Docker, Postgres and others for fictional projects. `discovery_tokens` on each note are invented too.
+
+## Where in the code
+
+| Stage | File | Symbol |
+|---|---|---|
+| Whole pipeline order | [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py) | `recall()` |
+| Date phrase | [`plugin/skills/recall/scripts/temporal_extraction.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/temporal_extraction.py) | `extract_temporal_constraint` |
+| Arms and floors | `recall.py` | `fetch_qmd`, `fetch_temporal`, `apply_arm_floor`, `CALIBRATED_FLOORS` |
+| Fusion | `recall.py` | `rrf_fuse`, `RRF_K` |
+| Rerank | `recall.py`, [`src/reflect_kb/recall/cross_encoder.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/src/reflect_kb/recall/cross_encoder.py) | `rerank_with_scores`, `bounded_boost`, `CE_CANDIDATES`, `CrossEncoderReranker` |
+| Boost config | [`plugin/reflect.toml`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/reflect.toml) | `[recall.cross_encoder]`, `[recall.boost]` |
+| Filters and OOD gate | `recall.py` | `filter_by_confidence`, `apply_ood_gate`, `lexical_overlap` |
+| Diversity | `recall.py` | `mmr_select`, `MMR_LAMBDA`, `MMR_CANDIDATES` |
+| Budget and render | `recall.py` | `filter_by_token_budget`, `render_markdown`, `block_economics` |
+| Hook budgets | [`plugin/skills/recall/hooks/user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py), [`session_start_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py) | `USER_PROMPT_LIMIT`, `filter_to_new`, `SESSION_START_LIMIT`, `SESSION_START_MIN_OVERLAP` |
+| Staged (ID-only) recall | [`plugin/skills/recall/scripts/recall_stages.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall_stages.py) | `index`, `timeline`, `hydrate` |
+
+Every knob has an environment variable (`RECALL_CROSS_ENCODER`, `RECALL_MMR`, `RECALL_MMR_LAMBDA`, `RECALL_GRAPH_ARM`, `RECALL_TEMPORAL_ARM`, `RECALL_ARM_<NAME>_MIN_SCORE`, and the `RECALL_*_ALPHA` family); see the [recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/) and [retrieval features](/ainb-reflect-memory/concepts/retrieval-features/) concept pages. For the cost side of injection see [token economics](/ainb-reflect-memory/interactive/token-economics/).

@@ -1,0 +1,75 @@
+---
+title: Token economics
+description: A calculator for what reflect costs per day and month (capture, drain, recall) against the tokens it saves by not rediscovering context. Every default is traced to the code or labelled as an assumption.
+sidebar:
+  order: 3
+---
+
+import TokenEconomics from '../../../components/interactive/TokenEconomics.astro';
+
+reflect spends tokens in two places: the **drain** (an LLM turns queued transcripts into learnings) and **recall** (injected learnings ride along in your session's context). Capture itself is free. Move the inputs, watch the numbers.
+
+Each input carries a badge: <span style="color:var(--sl-color-green)">**code**</span> means the default is read from the shipped code, <span style="color:var(--sl-color-blue)">**measured**</span> means it is a number from the changelog, and <span style="color:var(--sl-color-orange)">**assumption**</span> means the repo has no value and you should enter your own.
+
+<TokenEconomics />
+
+## What each number means
+
+| Cost | What it covers | Model |
+|---|---|---|
+| Capture | Hooks, the enqueue gate, mini-learnings. Shell commands and regex, no model call. | none |
+| Drain | One `claude -p` run per queued transcript on `REFLECT_DRAIN_MODEL`. | Haiku, Sonnet (default) or Opus |
+| Recall | Injected learnings, billed as input tokens to your session model. Re-reads on later prompts are priced at the cache-read rate. | your session model |
+| Est. saved | Injected learnings that actually spare a rediscovery, times the tokens that rediscovery would have cost, priced at a blend of input and output. | your session model |
+
+Prices are USD per 1M tokens: Haiku 0.80 in / 4.00 out, Sonnet 3.00 / 15.00, Opus 15.00 / 75.00. The model applies the prompt-cache multipliers (read 0.1x, write 1.25x) that `plugin/scripts/reflect_cost.py` documents.
+
+## The drain: single-shot vs multi-step
+
+The writer is selected by `REFLECT_DRAIN_WRITER`, which defaults to `extract` since 5.2.5.
+
+| | extract (default) | agentic (legacy) |
+|---|---|---|
+| Model turns | 1, tool-free (`--allowedTools "" --max-turns 1`) | up to `REFLECT_DRAIN_MAX_TURNS` (16) |
+| Context growth | fixed: baseline + slice | every turn re-sends the whole conversation |
+| Cost shape | linear in slice size | roughly quadratic in turns |
+| Measured | 77,982 tokens, $0.40, 3 learnings on a 1.5 MB transcript | 1.5M tokens, $1.07, nothing kept (17 turns, hit the cap) |
+| Output | JSON action list executed by `drain_extract.py` | model writes files and runs `reflect add` itself |
+
+Extract falls back to agentic only when no slice exists or the trigger is `skill_refresh`. Both numbers in the "Measured" row come from the 5.2.5 changelog; the calculator's "Model check" panel re-runs its own formula against them so you can see how far the model sits from reality.
+
+### What bounds the drain
+
+| Control | Default | Effect on cost |
+|---|---|---|
+| `REFLECT_DRAIN_MAX` | 3 | entries per drain run |
+| `REFLECT_DRAIN_DAILY_MAX` | 20 | entries per UTC day, hard ceiling on daily drain spend |
+| `REFLECT_DRAIN_DEBOUNCE_SEC` | 600 | at most one drain run per 10 minutes |
+| `REFLECT_DRAIN_MAX_INPUT_CHARS` | 60000 | caps the writer input (about 15K tokens) |
+| `REFLECT_DRAIN_MAX_TURNS` | 16 | agentic writer only |
+| `REFLECT_DRAIN_TOKEN_MAX` | 2000000 | a finished run above this is archived so it is never retried |
+| `REFLECT_DRAIN_MODEL` | `sonnet` | price tier of every drain call |
+
+The calculator derives drain capacity as `min(daily cap, runs per day x entries per run)` and tells you when the queue backs up.
+
+## Reading the savings honestly
+
+`recall.py` prints `D:<n> -> R:<n>` for every injected learning: the estimated discovery tokens versus the tokens to read the note, and sums them as "saved". That assumes every injected learning was needed. The calculator keeps the same discovery numbers (category averages: bug-fix 3000, anti-pattern 2500, correction 2000, pattern 1500, decision 1200, default 1500) but multiplies by a usefulness slider you set, and prints the **break-even usefulness**: the share of injected learnings that must save a rediscovery for reflect to pay for itself in raw tokens.
+
+:::caution
+Dollar savings here are tokens only. They do not count the wall-clock time or the repeated mistakes a correct recall prevents, and the usefulness rate is an assumption, not a measurement. Use the break-even figure as a sanity check rather than a promise.
+:::
+
+## Where in the code
+
+| Default | Source |
+|---|---|
+| Recall limits (3 at SessionStart; per prompt 3 blocks including the header, so 2 learnings; 1500 chars) | [`plugin/skills/recall/hooks/session_start_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py), [`user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py) |
+| Discovery-token averages, 4 chars per token, `D:` and `R:` accounting | [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py) |
+| Drain caps, model, writer default | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
+| Slice cap (60,000 chars) and cascade | [`plugin/scripts/reflect_cascade.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/reflect_cascade.py) |
+| Single-shot writer (max 12 learnings) | [`plugin/scripts/drain_extract.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/drain_extract.py) |
+| Measured runs, 64K baseline, 5.2.x notes | [`plugin/CHANGELOG.md`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/CHANGELOG.md) |
+| Cache multipliers, `reflect cost` | [`plugin/scripts/reflect_cost.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/reflect_cost.py) |
+
+Check your real spend with `/reflect:cost` (backed by `reflect_cost.py`); it reads the drainer's own log. For the mechanics behind each stage see [drain](/ainb-reflect-memory/concepts/drain/) and the [recall walkthrough](/ainb-reflect-memory/interactive/recall-walkthrough/).
