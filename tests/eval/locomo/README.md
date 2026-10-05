@@ -30,12 +30,26 @@ over-suppressed at 0.15 and was dropped.
 
 ```
 sessions ─▶ extract atomic notes (claude -p) ─▶ reflect reindex (real engine)
-question ─▶ recall.py (real engine, 57 arms via RECALL_* env) ─▶ context
+question ─▶ recall.py (real engine, arms toggled via RECALL_* env) ─▶ context
          ─▶ answer (claude -p) ─▶ judge vs gold (claude -p) ─▶ J-score
 ```
 
 Four configs: `arms_on` (4.1.0 recall arms), `arms_off` (≈4.0), `no_memory`
 (floor), `full_context` (ceiling).
+
+`recall.py` treats an unset arm knob as ON, so `arms_on` exports every knob `=1` and
+`arms_off` exports every knob `=0` (R1 graph, R2 cross-encoder, R3 MMR, R5/R6 temporal,
+A2 bitemporal edges, R9 fuzzy cache, A4 follow-up; `REFLECT_TIERED_INJECT` is a SessionStart
+knob and inert here). `python3 locomo_bench.py --print-config` prints the effective env per
+config with no data and no LLM calls; `tests/test_locomo_arms_off.py` proves over a toy KB
+that `arms_off` retrieves differently from `arms_on` and that each knob changes behaviour.
+
+> **Known issue in stored results.** The `arms_on`/`arms_off` pairs in `results/report_pilot50*.json`
+> were produced by an earlier harness whose `arms_off` only deleted the knobs, so both
+> configs ran identical retrieval and the on-vs-off deltas are noise. The numbers are kept
+> as stored; the arms ablation must be re-run with the fixed harness (command in
+> [REPORT.md](./REPORT.md#re-running-the-arms-ablation)). Reports from the fixed harness carry
+> an `arm_env` field; `make_report.py` flags any report without it as an invalid ablation.
 
 ## Setup
 
@@ -62,13 +76,19 @@ cd reflect-kb/tests/eval/locomo
 python3 locomo_bench.py --samples 0 --per-cat 10 --tag pilot
 # tuned retrieval
 python3 locomo_bench.py --samples 0 --per-cat 10 --recall-limit 25 --recall-max-chars 10000 --tag tuned
+# arms ablation (fixed harness; new tag so no stale verdicts are reused)
+REFLECT_EMBED_MODEL=BAAI/bge-base-en-v1.5 REFLECT_RECALL_HYDE=1 python3 locomo_bench.py \
+  --samples 0 --per-cat 10 --recall-limit 25 --recall-max-chars 10000 \
+  --judge-model opus --configs arms_on,arms_off --tag pilot50_D_armsfix
+# effective env per config, no data / no LLM
+python3 locomo_bench.py --print-config
 # full benchmark (~$1k, hours)
 python3 locomo_bench.py --samples all --tag full
 # render the markdown scorecard
 python3 make_report.py results/report_<tag>.json REPORT.md
 ```
 
-Key flags: `--configs` (subset of the 4), `--recall-limit` / `--recall-max-chars`
+Key flags: `--configs` (subset of the 4), `--print-config` (dry check), `--recall-limit` / `--recall-max-chars`
 (retrieval budget — the biggest lever on multi-hop), `--recall-concurrency`
 (torch-bound, keep ≤3), `--concurrency` (claude answer/judge), `--per-cat` /
 `--limit-qa` (scope). Runs are resumable — per-session extraction and per-QA

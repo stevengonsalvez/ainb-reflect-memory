@@ -89,7 +89,7 @@ The fixes are two env-gated, no-new-key options, both off by default: a stronger
 
 ![LOCOMO positioning of reflect against other memory systems](/ainb-reflect-memory/img/start-locomo-positioning.png)
 
-reflect lands mid-field, on par with Memobase and Zep and above Mem0. Newer systems (ByteRover, Honcho, Hindsight) score higher but are self-reported on their own harnesses. Judges and harnesses differ across the field, so read this as directional placement, not a ranking. Methodology, ablation and judge calibration: [benchmarks](/ainb-reflect-memory/evals/benchmarks/).
+reflect lands mid-field, on par with Memobase and Zep and above Mem0. Newer systems (ByteRover, Honcho, Hindsight) score higher but are self-reported on their own harnesses. Judges and harnesses differ across the field, so read this as directional placement, not a ranking. Methodology, tuning steps and judge calibration: [benchmarks](/ainb-reflect-memory/evals/benchmarks/).
 
 ## Observability and correction
 

@@ -40,7 +40,7 @@ question ──▶ recall.py (real engine, recall arms via RECALL_* env) ──�
 | Extraction | A LOCOMO-domain adapter (exhaustive conversational extraction). The shipped writer targets coding transcripts, so porting this to the real writer is a follow-up. |
 | LLM calls | `claude -p --setting-sources '' --strict-mcp-config` (clean Sonnet, OAuth, no session hooks, CLAUDE.md or MCP; no API key needed) |
 
-The harness defines four configs: `arms_on` (the 4.1.0 recall arms), `arms_off` (about 4.0 behavior), `no_memory` (floor, question only) and `full_context` (ceiling, whole conversation in the prompt).
+The harness defines four configs: `arms_on` (every 4.1.0 recall arm knob exported `=1`), `arms_off` (every knob exported `=0`, about 4.0 behavior), `no_memory` (floor, question only) and `full_context` (ceiling, whole conversation in the prompt).
 
 ## Config tuning: 0.52 to 0.64 (Sonnet judge)
 
@@ -77,15 +77,15 @@ Each shipped as an additive, env-gated change. Defaults are unchanged and no new
 | **F** abstention / OOD gate | `REFLECT_RECALL_MIN_OVERLAP` (R7) | over-suppressed: 27/50 answers became "NOT MENTIONED" (vs 12/50), answerable QA fell to 0.44 | drop at 0.15; needs a far gentler value |
 | **G** conversational extraction | realized as the benchmark's exhaustive-extraction adapter | already inside the 0.52 to 0.64 gain | porting to the real writer is a follow-up |
 
-**Winning config:** bge-base embedder + bge-reranker + HyDE + recall arms on, recall 25 results / 10k chars, exhaustive extraction, no OOD gate. Opus-judged **0.80**.
+**Winning config:** bge-base embedder + bge-reranker + HyDE + recall arms at their default (on), recall 25 results / 10k chars, exhaustive extraction, no OOD gate. Opus-judged **0.80**.
 
-### The 4.1.0 recall arms
+### The 4.1.0 recall arms: not yet measured
 
-Across earlier stages the 57 recall arms were net-negative (-0.02). With bge and HyDE they turn positive (arms-on 0.80 vs arms-off 0.76, +0.04): a stronger embedder and answer-shaped queries give the graph and rerank arms better candidates. The arms amplify good retrieval rather than create it.
+The stored `arms_on` vs `arms_off` pairs (for example 0.80 vs 0.76 on the bge and HyDE run) are not evidence about the arms. `recall.py` treats an unset arm knob as on, and the harness's `arms_off` used to only delete the variables, so both configs ran identical retrieval and the differences are run-to-run noise. REPORT.md no longer claims the arms are positive. The harness now exports `=0` for every arm in `arms_off` (check with `python3 locomo_bench.py --print-config`), and the ablation has to be re-run: the command is on the [LOCOMO in full](/ainb-reflect-memory/evals/locomo/#were-the-410-arms-positive) page under Reproduce. What the data supports is that the embedder swap and HyDE moved the score, with the arms on in every run.
 
 ### Placement against published systems
 
-reflect's tuned four-category mean (single, multi, temporal, open = 0.80 / 0.80 / 0.80 / 0.70) is quoted in the report as about **0.76**, which on the Hindsight LOCOMO leaderboard sits near Memobase (75.8) and Zep (75.1), above Mem0 (66.9). Judges differ (Opus here, GPT-4o-mini there; 15 to 20 points of swing), so this is directional placement, not a ranking. The repo's charts ([positioning](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_positioning.png), [comparison](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_comparison.png)) plot this at 77.5, which is the plain mean of those four category scores.
+reflect's tuned four-category mean (single, multi, temporal, open = 0.80 / 0.80 / 0.80 / 0.70) is **0.775** (the report said about 0.76 until corrected), which on the Hindsight LOCOMO leaderboard sits near Memobase (75.8) and Zep (75.1), above Mem0 (66.9). Judges differ (Opus here, GPT-4o-mini there; 15 to 20 points of swing), so this is directional placement, not a ranking. The repo's charts ([positioning](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_positioning.png), [comparison](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_comparison.png)) plot this as 77.5, the same figure.
 
 ## Reproduce
 

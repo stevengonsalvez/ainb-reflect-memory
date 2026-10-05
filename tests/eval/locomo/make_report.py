@@ -71,10 +71,19 @@ def main() -> None:
         on, off = micro(rpt, "arms_on"), micro(rpt, "arms_off")
         d = (on[0]/on[1] if on[1] else 0) - (off[0]/off[1] if off[1] else 0)
         L.append("## 4.1.0 recall-arms ablation\n")
+        if not rpt.get("arm_env"):
+            # Reports written before the harness exported arms_off=0 carry no arm_env.
+            L.append("> **INVALID ABLATION.** This report has no `arm_env`, so it predates the "
+                     "arms_off fix: `arms_off` only deleted the knobs, recall.py defaults every "
+                     "arm to ON, and both configs ran identical retrieval. The delta below is "
+                     "run-to-run noise, not an arm effect. Re-run with the fixed harness.\n")
         L.append(f"- arms ON overall J = **{on[0]/on[1]:.3f}** ({on[0]}/{on[1]})")
         L.append(f"- arms OFF overall J = **{off[0]/off[1]:.3f}** ({off[0]}/{off[1]})")
-        L.append(f"- **Δ (on − off) = {d:+.3f}**  "
-                 f"{'→ arms help' if d > 0 else '→ no measured gain' if d == 0 else '→ arms hurt (investigate)'}\n")
+        verdict = ("→ arms help" if d > 0 else "→ no measured gain" if d == 0
+                   else "→ arms hurt (investigate)")
+        if not rpt.get("arm_env"):
+            verdict = "→ not interpretable (identical retrieval in both configs)"
+        L.append(f"- **Δ (on − off) = {d:+.3f}**  {verdict}\n")
         L.append("Per-category Δ:\n")
         L.append("| category | arms ON | arms OFF | Δ |")
         L.append("|---|---|---|---|")
@@ -109,8 +118,11 @@ def main() -> None:
     # --- methodology ---
     L.append("## Methodology notes\n")
     L.append("- **Retrieval** is reflect-kb's real engine (`reflect reindex` + `recall.py`); the "
-             "57 v4.1.0 arms toggle via `RECALL_*` env knobs (arms-ON sets them, arms-OFF leaves "
-             "pre-4.1 defaults).")
+             "v4.1.0 arms toggle via `RECALL_*` env knobs. recall.py treats an unset knob as ON, so "
+             "arms-ON exports every knob `=1` and arms-OFF exports every knob `=0` "
+             "(`locomo_bench.py --print-config` lists them).")
+    for cfg, env in (rpt.get("arm_env") or {}).items():
+        L.append(f"  - `{cfg}`: " + " ".join(f"{k}={v}" for k, v in env.items()))
     L.append("- **Ingestion** is a LOCOMO-domain adapter: each session is LLM-extracted into atomic "
              "memory notes (reflect's shipped writer targets coding transcripts, not persona chat).")
     L.append("- **Answer/judge** run on clean `claude -p --setting-sources '' --strict-mcp-config` "

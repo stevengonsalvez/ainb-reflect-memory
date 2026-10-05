@@ -57,13 +57,17 @@ question ──▶ recall.py (the shipped script, --no-cache, --confidence ANY) 
 
 | Config | What the answerer gets |
 |---|---|
-| `arms_on` | `recall.py` with the 4.1.0 knobs exported (`RECALL_GRAPH_ARM`, `RECALL_CROSS_ENCODER`, `RECALL_MMR`, `RECALL_TEMPORAL`, `RECALL_TEMPORAL_ARM`, `RECALL_BITEMPORAL_EDGES`, `RECALL_FUZZY_CACHE`, `RECALL_FOLLOWUP`, `REFLECT_TIERED_INJECT`, all `=1`) |
-| `arms_off` | `recall.py` with those variables removed from the environment |
+| `arms_on` | `recall.py` with every arm knob exported `=1`: `RECALL_GRAPH_ARM`, `RECALL_CROSS_ENCODER`, `RECALL_MMR`, `RECALL_TEMPORAL`, `RECALL_TEMPORAL_ARM`, `RECALL_BITEMPORAL_EDGES`, `RECALL_FUZZY_CACHE`, `RECALL_FOLLOWUP`, `REFLECT_TIERED_INJECT` |
+| `arms_off` | `recall.py` with the same nine knobs exported `=0` |
 | `no_memory` | The question only (floor) |
 | `full_context` | The entire conversation in the prompt (ceiling) |
 
-:::caution[`arms_off` is not "arms off" on the current code]
-The harness comment says the 4.1.0 arms are off by default. In `recall.py` they are not: R1, R2, R3, R5, R6, R9 and the follow-up diagnostic are read as `os.environ.get(NAME, "1") != "0"`, so removing the variable leaves them **on**, and they have been on by default since they were introduced (June 2026). The `arms_off` config only deletes the variables, so `arms_on` and `arms_off` ran the same retrieval code. The one variable in the `arms_on` list that defaults off, `REFLECT_TIERED_INJECT`, acts at SessionStart and does nothing inside `recall.py`. Every `arms_on` minus `arms_off` difference below is therefore run-to-run noise (extraction is cached, but answers and HyDE output are not). A true arms-off run needs `RECALL_GRAPH_ARM=0 RECALL_CROSS_ENCODER=0 RECALL_MMR=0 RECALL_TEMPORAL=0 RECALL_TEMPORAL_ARM=0 RECALL_FUZZY_CACHE=0`, which the harness does not set.
+`recall.py` reads each arm knob as `os.environ.get(NAME, "1") != "0"`, so an unset knob is **on**. `arms_off` therefore has to export `=0`, not remove the variable. Two of the nine are inert inside this harness: `REFLECT_TIERED_INJECT` is a SessionStart hook knob (opt-in, default off, never read by `recall.py`), and `RECALL_FUZZY_CACHE` has nothing to act on because the harness passes `--no-cache`. The R8 bounded boosts, token economics and the opt-in R7/R12 gates are not arms and are identical in both configs.
+
+`python3 locomo_bench.py --print-config` prints the effective env per config without touching data or a model, and fails if a listed knob is not read by the engine. `tests/test_locomo_arms_off.py` proves over a toy KB and a fake engine CLI (no model, no API) that `arms_off` retrieves differently from `arms_on` and that each knob changes behaviour on its own. The verdict cache is keyed on the effective arm env, so a verdict cached under the old behaviour is never reused.
+
+:::caution[Stored `arms_on` / `arms_off` pairs were measured with identical retrieval]
+Every pair in the runs table below was produced by an earlier harness whose `arms_off` only deleted the variables. Because the arms default to on, both configs ran the same retrieval, and every `arms_on` minus `arms_off` difference is run-to-run noise (extraction is cached, but answers and HyDE output are not). The stored numbers are kept as recorded, but they say nothing about whether the arms help. The harness is fixed; the pair has to be re-run (see [Reproduce](#reproduce)). Reports written by the fixed harness carry an `arm_env` field, and `make_report.py` marks any report without it as an invalid ablation.
 :::
 
 ### Flags
@@ -109,11 +113,13 @@ The report files record the answerer (`"model": "sonnet"`) but **not which judge
 
 The best-config 50-question run (`pilot50_D`, both configs) cost about $15, matching REPORT.md.
 
+Read each `arms_on` / `arms_off` pair as two noisy samples of the same retrieval (see the caution above), not as an ablation.
+
 Reading the table:
 
 - **No memory scores 0.20, all from adversarial.** The base model cannot answer anything else, so memory is doing the work.
 - **Full context scores 0.68** under the baseline-era judge, with open-domain at 0.2. The later 0.80 is under a different judge (Opus), so the two are not directly comparable.
-- **Recall budget is the first lever.** Going from top-8/3000 to top-25/10000 lifted multi-hop from 0.1 to 0.5 (`arms_on` 0.1 to 0.5, `arms_off` 0.2 to 0.5).
+- **Recall budget is the first lever.** Going from top-8/3000 to top-25/10000 lifted multi-hop from 0.1 to 0.5 (`arms_on` 0.1 to 0.5, `arms_off` 0.2 to 0.5; both ran the same retrieval, so the two columns are repeat samples).
 - **The abstention gate was a regression**, see below.
 
 ### Opus-judged headline table
@@ -161,7 +167,7 @@ The REPORT text says the arm-threshold step is `reflect calibrate-thresholds`. T
 
 ### Were the 4.1.0 arms positive?
 
-REPORT section 4 concludes the arms turned positive with bge and HyDE (`arms_on` 0.80 vs `arms_off` 0.76). Given the `arms_off` caveat above, that +0.04 is not evidence about the arms. What the data does support: the arms are on in both columns, and the stronger embedder plus answer-shaped queries are what moved the score. To measure the arms properly, rerun with explicit `=0` values.
+Unknown. An earlier REPORT section 4 concluded the arms turned positive with bge and HyDE (`arms_on` 0.80 vs `arms_off` 0.76). That pair came from identical retrieval, so the +0.04 is noise and the conclusion has been withdrawn in REPORT.md. What the data does support: the arms were on in every stored run, and the stronger embedder plus answer-shaped queries are what moved the score. At n = 50 a delta under about 0.1 is not resolvable even with a correct ablation, so treat the re-run as a first look and repeat it (or use more conversations) before drawing a conclusion.
 
 ## Where reflect sits
 
@@ -188,7 +194,7 @@ Values as plotted by `plot_positioning.py` (LLM-judge J, percent, 4 categories):
 
 How to read it:
 
-- **77.5 is the 4-category mean**: (0.80 + 0.80 + 0.80 + 0.70) / 4 over single, multi, temporal and open-domain, leaving out adversarial as most published numbers do. An earlier README said 76.2; that was an arithmetic slip corrected in commit `1df981337`. The REPORT.md in this repo still says "about 0.76" in its section 5, which is stale.
+- **77.5 is the 4-category mean**: (0.80 + 0.80 + 0.80 + 0.70) / 4 over single, multi, temporal and open-domain, leaving out adversarial as most published numbers do. An earlier README said 76.2 and an earlier REPORT.md said "about 0.76"; both were arithmetic slips, corrected (the README in commit `1df981337`, REPORT section 5 afterwards) to 0.775.
 - **The two reflect bars are not on the same basis.** The Opus bar is the 4-category mean. The Sonnet bar (70.0) matches the 5-category pooled overall in `judge_calibration_pilot50_D.json` (0.70, Sonnet), so it includes adversarial.
 - **Harnesses and judges differ across the field** (the same Zep reads 75 on one harness and about 66 on another), so this is directional placement, not a ranking. reflect lands mid-field, on par with Memobase and Zep and above Mem0; the newest systems score higher but are self-reported.
 - The dashed "full-context 72.9" line in the chart has no source recorded in this repo. The stored `full_context` run scored 0.68 over five categories.
@@ -221,13 +227,24 @@ REFLECT_EMBED_MODEL=BAAI/bge-base-en-v1.5 REFLECT_RECALL_HYDE=1 \
 # re-grade cached answers with several judges
 python3 calibrate_judge.py --tag pilot50_D --judges haiku,sonnet,opus
 
+# effective arm env per config (no data, no model); arms_on all =1, arms_off all =0
+python3 locomo_bench.py --print-config
+
+# re-run the arms ablation with the fixed harness (about $15, Opus judge).
+# Use a NEW tag; extraction is cached and reused.
+REFLECT_EMBED_MODEL=BAAI/bge-base-en-v1.5 REFLECT_RECALL_HYDE=1 \\
+  python3 locomo_bench.py --samples 0 --per-cat 10 \\
+  --recall-limit 25 --recall-max-chars 10000 --judge-model opus \\
+  --configs arms_on,arms_off --tag pilot50_D_armsfix
+python3 make_report.py results/report_pilot50_D_armsfix.json REPORT_armsfix.md
+
 # render a scorecard from any stored or new report (works offline)
 python3 make_report.py results/report_pilot50_D.json REPORT.md
 ```
 
 Full benchmark (`--samples all`, 1986 QA across the configs) is about $1k and hours, per REPORT.md; it has not been run.
 
-What was and was not verified for this page: the dataset URL returns 200 and the structure and counts above were read from the file; `make_report.py` renders the stored `report_pilot50_D.json` offline; every flag in the table was read from `parse_args`. The model-calling steps (`locomo_bench.py`, `calibrate_judge.py`) were not executed here because they spend model budget. The exact `REFLECT_CE_MODEL` value used for fix B (the REPORT says a bge reranker) is not recorded in the repo, so the command above leaves the cross-encoder at its default.
+What was and was not verified for this page: the dataset URL returns 200 and the structure and counts above were read from the file; `make_report.py` renders the stored `report_pilot50_D.json` offline; every flag in the table was read from `parse_args`. The model-calling steps (`locomo_bench.py` runs, `calibrate_judge.py`) were not executed here because they spend model budget; `--print-config` and `tests/test_locomo_arms_off.py` spend none and were run. The exact `REFLECT_CE_MODEL` value used for fix B (the REPORT says a bge reranker) is not recorded in the repo, so the command above leaves the cross-encoder at its default.
 
 Caveats for any reproduction:
 
