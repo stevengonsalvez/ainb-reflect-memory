@@ -42,7 +42,7 @@ OKF's unit is the concept: one `.md` file, id equal to its path, a bundle being 
 | Required keys | `type` only | `reflect add`: `title`, `category`, `key_insight` | OKF is looser |
 | Identity | file path | `id` field, but several id schemes ([see KB format](/ainb-reflect-memory/reference/kb-format/#ids-and-file-names)) | OKF is simpler |
 | Relations | untyped markdown links | 14 typed relationship kinds in the sidecar, with `tcommit`, `tvalid`, `tvalid_end` clocks | reflect |
-| Supersession | `status: deprecated` plus prose | DB `is_latest` and `superseded_by_learning_id`; frontmatter `superseded_by` is not used by the ranker | reflect, with a gap |
+| Supersession | `status: deprecated` plus prose | DB `is_latest` and `superseded_by_learning_id`; frontmatter `superseded_by` and `status` are honoured by recall (`filter_superseded()`), ledger links are weak | reflect |
 | Trust | `generated` and `verified` actors, derived tiers | `confidence_num`, `proof_count`, `authority`, `quarantine` | OKF has clearer semantics |
 | Freshness | `stale_after`, an absolute instant | `forget_after` plus recency boost | tie |
 | Provenance | `sources[]` and per-claim footnotes | `provenance{}` and DB source quote and hash; the drain writer writes no `provenance` block | OKF |

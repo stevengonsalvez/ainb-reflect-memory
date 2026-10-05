@@ -176,8 +176,14 @@ Learnings leave circulation through several separate mechanisms. Full mechanics,
 | TTL forget | `forget_after` has passed. Hourly `reflect_forget_sweep.py` (a launchd template ships) | Ledger `archived`, and the note and sidecar move into a `.forgotten/` directory |
 | Soft archive | Memory browser | Note and sidecar move to `archived/`. Restore moves them back |
 
-:::caution
-The first four are ledger states. Recall's file arms read `documents/` directly and the code I traced (`recall.py`, `recall_stages.py`) does not filter on `is_latest` or `status`. A note retired only in the ledger stays in the corpus and stays searchable until a file-level mechanism (TTL forget, archive, or deleting the file and reindexing) removes it. Archive and forget drop the note from the file-based corpus at once, but the graph cache keeps returning it until `reflect reindex`.
+Recall enforces retirement. After the arms are fetched and before ranking and final selection, `recall.py` drops a candidate when any of these hold:
+
+- its frontmatter has `superseded_by` set, or `status` is `superseded` or `archived`;
+- a note with the same id sits in `archived/` or `documents/.forgotten/`, which covers the graph cache and the temporal arm still returning a note until `reflect reindex`;
+- the ledger (`reflect.db`, opened read-only) has a row with `is_latest = 0` or status `superseded` or `archived` for it.
+
+:::note
+Ledger rows carry their own generated ids, so recall links a row to a note through the note at the row's `artifact_path` (its file stem or frontmatter id) or a matching `content_hash`. The TTL sweep and anything else that records `artifact_path` link reliably. A row with neither (the cascade's CREATE writes no `artifact_path`) cannot be matched to a note file, so a contradiction demotion on such a row stays ledger-only until the note is archived or carries `superseded_by`. With no ledger file, recall skips that signal and nothing fails. Set `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` to bypass the filter when debugging.
 :::
 
 ## Team routing
