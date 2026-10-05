@@ -9,6 +9,7 @@ on:
       - "docs-site/**"
       - "src/reflect_kb/cli/serve_static/**"
       - "docs/**"
+      - "src/reflect_kb/serve.py"
       - "plugin/CHANGELOG.md"
       - ".github/workflows/docs.yml"
   pull_request:
@@ -16,6 +17,7 @@ on:
       - "docs-site/**"
       - "src/reflect_kb/cli/serve_static/**"
       - "docs/**"
+      - "src/reflect_kb/serve.py"
       - "plugin/CHANGELOG.md"
       - ".github/workflows/docs.yml"
   workflow_dispatch:
@@ -51,6 +53,11 @@ jobs:
       # links and invalid anchors.
       - name: Build
         run: npm run build
+
+      - name: Mock API parity and corpus freshness
+        run: |
+          node scripts/test-mock-search.mjs
+          node scripts/build-recall-corpus.mjs --check
 
       # Post-build checker over dist/: internal links and assets are fatal,
       # external links are warnings only.
