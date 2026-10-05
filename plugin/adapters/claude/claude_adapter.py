@@ -140,23 +140,40 @@ class ClaudeAdapter(AdapterBase):
         # Match both the rendered command (current installs) and the
         # legacy unsubstituted template (broken-by-bootstrap installs).
         removable = {wanted_command, _LEGACY_SESSION_START_HOOK_COMMAND}
-        ss = cfg.get("hooks", {}).get("SessionStart", [])
+        if not isinstance(cfg, dict):
+            return [
+                f"settings.json is not a JSON object; "
+                f"skipped hook removal: {settings_path}"
+            ]
+        # settings.json is user-edited: `hooks` may be null, an event value may
+        # not be a list, an entry may not be a dict. Anything that is not
+        # recognisably ours is foreign and is left exactly as found.
+        hooks = cfg.get("hooks")
+        ss = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+        if not isinstance(ss, list):
+            return []
         filtered: list = []
         changed = False
         for entry in ss:
+            inner = entry.get("hooks") if isinstance(entry, dict) else None
+            if not isinstance(inner, list):
+                filtered.append(entry)
+                continue
             kept_hooks = [
-                h for h in entry.get("hooks", [])
-                if h.get("command") not in removable
+                h for h in inner
+                if not (isinstance(h, dict) and isinstance(h.get("command"), str)
+                        and h["command"] in removable)
             ]
-            if kept_hooks != entry.get("hooks", []):
-                changed = True
+            if len(kept_hooks) == len(inner):
+                filtered.append(entry)
+                continue
+            changed = True
             if kept_hooks:
                 new_entry = dict(entry)
                 new_entry["hooks"] = kept_hooks
                 filtered.append(new_entry)
         if not changed:
             return []
-        hooks = cfg.setdefault("hooks", {})
         if filtered:
             hooks["SessionStart"] = filtered
         else:

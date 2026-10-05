@@ -155,6 +155,76 @@ def test_uninstall_drops_empty_hooks_block(tmp_path):
     assert json.loads((claude_dir / "settings.json").read_text()) == {}
 
 
+@pytest.mark.parametrize("hooks", [None, [], "nope", {"SessionStart": None},
+                                   {"SessionStart": "nope"}, {"SessionStart": {"a": 1}}])
+def test_uninstall_tolerates_malformed_hooks_block(tmp_path, hooks):
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    original = json.dumps({"model": "opus", "hooks": hooks})
+    (claude_dir / "settings.json").write_text(original)
+
+    result = _run("uninstall", "--home", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "Traceback" not in result.stderr
+    assert (claude_dir / "settings.json").read_text() == original
+
+
+def test_uninstall_tolerates_non_object_settings(tmp_path):
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    (claude_dir / "settings.json").write_text("[1, 2]")
+
+    result = _run("uninstall", "--home", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert (claude_dir / "settings.json").read_text() == "[1, 2]"
+
+
+def test_uninstall_removes_managed_hook_amid_malformed_entries(tmp_path):
+    """Non-dict entries, non-list inner hooks and non-dict hook items are foreign:
+    kept verbatim, while the managed entry is still removed."""
+    claude_dir = tmp_path / ".claude"
+    claude_dir.mkdir()
+    managed = claude_adapter._render_session_start_hook_command(claude_dir)
+    foreign = [
+        "a string entry",
+        None,
+        42,
+        {"matcher": "", "hooks": None},
+        {"matcher": "", "hooks": "nope"},
+        {"matcher": "", "hooks": []},
+    ]
+    (claude_dir / "settings.json").write_text(json.dumps({
+        "hooks": {
+            "SessionStart": [
+                *foreign,
+                {"matcher": "", "hooks": [
+                    "stray string", None, {"command": ["not", "a", "str"]},
+                    {"type": "command", "command": "echo foreign"},
+                    {"type": "command", "command": managed},
+                ]},
+                {"matcher": "", "hooks": [{"type": "command", "command": managed}]},
+            ],
+            "Stop": "not a list either",
+        },
+    }))
+
+    result = _run("uninstall", "--home", str(tmp_path))
+
+    assert result.returncode == 0, result.stderr
+    assert "removed SessionStart hook" in result.stdout
+    cfg = json.loads((claude_dir / "settings.json").read_text())
+    ss = cfg["hooks"]["SessionStart"]
+    assert ss[:len(foreign)] == foreign
+    assert ss[len(foreign):] == [{"matcher": "", "hooks": [
+        "stray string", None, {"command": ["not", "a", "str"]},
+        {"type": "command", "command": "echo foreign"},
+    ]}]
+    assert cfg["hooks"]["Stop"] == "not a list either"
+    assert managed not in json.dumps(cfg)
+
+
 def test_uninstall_removes_only_managed_skill_files(tmp_path):
     claude_dir = tmp_path / ".claude"
     managed = _seed_managed_skill(claude_dir, "recall")
