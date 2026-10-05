@@ -38,6 +38,7 @@ import os
 import random
 import re
 import shutil
+import sqlite3
 import subprocess
 import sys
 import time
@@ -2126,6 +2127,188 @@ def filter_by_confidence(learnings: list[Learning], threshold: str) -> list[Lear
     return [lrn for lrn in learnings if rank.get(lrn.confidence, 0) >= min_rank]
 
 
+# --- Supersession filter --------------------------------------------------
+# A note retired by supersession or archive must not be recalled. Signals,
+# strongest-evidence-first, all best-effort and read-only:
+#   * frontmatter ``superseded_by`` set, or ``status`` superseded/archived;
+#   * the note's id also sits in the KB's ``archived/`` (serve soft-archive) or
+#     ``documents/.forgotten/`` (TTL sweep) dir. The graph cache and the
+#     temporal arm's rglob can still surface those until a reindex;
+#   * the SQLite ledger (reflect.db) marks the matching row ``is_latest = 0`` or
+#     status superseded/archived. Ledger ids are not note ids, so rows are
+#     matched through the note at ``artifact_path`` (stem or frontmatter id)
+#     or ``content_hash``.
+# No ledger / no archive dirs just means fewer signals, never an error.
+# REFLECT_RECALL_INCLUDE_SUPERSEDED=1 turns the whole filter off (debugging).
+INCLUDE_SUPERSEDED_ENV = "REFLECT_RECALL_INCLUDE_SUPERSEDED"
+RETIRED_STATUSES = frozenset({"superseded", "archived"})
+_EMPTY_MARKERS = frozenset({"", "null", "none", "~", "false"})
+
+
+def include_superseded() -> bool:
+    """Env opt-out, read per call so tests and long-lived callers can toggle."""
+    return os.environ.get(INCLUDE_SUPERSEDED_ENV, "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
+def _retire_key(raw: Any) -> str:
+    """Comparable form of a note id / file stem: drops the ``lrn-`` prefix the
+    drain adds to the frontmatter id but not to the file name."""
+    key = str(raw or "").strip().lower()
+    return key[4:] if key.startswith("lrn-") else key
+
+
+def _note_keys(lrn: Learning) -> set[str]:
+    """Identity keys of a note: its id (its name only when it has no id, as in
+    ``Learning.id``) and content hashes. A name never matches another note's id."""
+    fm = lrn.frontmatter
+    keys = {_retire_key(fm.get("id") or fm.get("name"))}
+    prov = fm.get("provenance")
+    for h in (fm.get("content_hash"), prov.get("content_hash") if isinstance(prov, dict) else None):
+        if h:
+            keys.add(f"hash:{h}")
+    keys.discard("")
+    return keys
+
+
+def is_superseded_in_frontmatter(lrn: Learning) -> bool:
+    fm = lrn.frontmatter
+    if str(fm.get("superseded_by") or "").strip().lower() not in _EMPTY_MARKERS:
+        return True
+    return str(fm.get("status") or "").strip().lower() in RETIRED_STATUSES
+
+
+# Retired-note files are named <slug>-<hash6>.md and the drain's note id is
+# lrn-<slug>-<hash6>, so the trailing hash6 links a file name to a candidate id
+# without opening the file. Only files that link to a candidate are read.
+_HASH_TAIL_RE = re.compile(r"[0-9a-f]{6}")
+# reflect_forget_sweep.archive_artifact_file suffixes a name collision in
+# .forgotten/ as <stem>.<i><suffix> with i in 1..999. archived/ never suffixes.
+_COLLISION_SUFFIX_RE = re.compile(r"\.[1-9]\d{0,2}$")
+
+
+def _hash_tail(key: str) -> str:
+    tail = key.rsplit("-", 1)[-1]
+    return tail if _HASH_TAIL_RE.fullmatch(tail) else ""
+
+
+def _may_be_candidate(stem_key: str, want: set[str], tails: set[str]) -> bool:
+    return stem_key in want or _hash_tail(stem_key) in tails
+
+
+def _fm_id_key(fm: dict[str, Any]) -> str:
+    return _retire_key(fm.get("id") or fm.get("name"))
+
+
+def _archived_dir_keys(docs_root: Path, want: set[str], tails: set[str]) -> set[str]:
+    """Retired keys from archived/ and .forgotten/. Lists names only; opens a
+    file only when its name could belong to a candidate (``want`` ids / hash6
+    ``tails``), so cost does not grow with the number of retired notes."""
+    keys: set[str] = set()
+    for d, sweep_dir in ((docs_root.parent / "archived", False), (docs_root / ".forgotten", True)):
+        try:
+            paths = sorted(d.glob("*.md")) if d.is_dir() else []
+        except OSError:
+            continue
+        names = {p.name for p in paths}
+        for path in paths:
+            stems = {_retire_key(path.stem)}
+            m = _COLLISION_SUFFIX_RE.search(path.stem) if sweep_dir else None
+            if m:
+                base = path.stem[: m.start()]
+                stems.add(_retire_key(base))
+                if f"{base}.md" in names:  # a real collision: the base file is still there
+                    keys.add(_retire_key(base))
+            keys.add(_retire_key(path.stem))
+            if not any(_may_be_candidate(k, want, tails) for k in stems):
+                continue
+            try:
+                fm, _ = parse_frontmatter(path.read_text())
+            except (OSError, UnicodeDecodeError):
+                continue
+            keys.add(_fm_id_key(fm))
+    keys.discard("")
+    return keys
+
+
+def _ledger_db_path() -> Path | None:
+    try:
+        scripts = _plugin_scripts_dir()
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        import reflect_db
+
+        return Path(reflect_db.db_path())
+    except Exception:
+        return None  # stripped deploy: no ledger signal
+
+
+def _ledger_retired_keys(want: set[str], tails: set[str]) -> set[str]:
+    """Keys of ledger rows retired by supersession, revert or archive. Opens the
+    DB read-only (never creates it); a missing or unreadable ledger is empty.
+    Retired notes are only read when their file name could belong to a candidate."""
+    db = _ledger_db_path()
+    if db is None or not db.is_file():
+        return set()
+    keys: set[str] = set()
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = conn.execute(
+                "SELECT id, artifact_path, content_hash FROM learnings "
+                "WHERE is_latest = 0 OR status IN ('superseded', 'archived')"
+            ).fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return set()
+    for lid, artifact_path, content_hash in rows:
+        keys.add(_retire_key(lid))
+        if artifact_path:
+            note = Path(str(artifact_path)).expanduser()
+            keys.add(_retire_key(note.stem))
+            # File names (slug-hash6) are not frontmatter ids (lrn-...), so read
+            # the retired note for the id recall will see on candidates, but
+            # only when its name links to one.
+            if _may_be_candidate(_retire_key(note.stem), want, tails):
+                try:
+                    fm, _ = parse_frontmatter(note.read_text())
+                except (OSError, UnicodeDecodeError):
+                    fm = {}
+                keys.add(_fm_id_key(fm))
+        if content_hash:
+            keys.add(f"hash:{content_hash}")
+    keys.discard("")
+    return keys
+
+
+def filter_superseded(
+    learnings: list[Learning], docs_root: Path | None = None
+) -> list[Learning]:
+    """Drop candidates that were superseded, archived or retired in the ledger.
+
+    Runs before ranking and final selection so a retired note neither takes a
+    result slot nor its superseder's. ``REFLECT_RECALL_INCLUDE_SUPERSEDED=1``
+    returns the list untouched.
+    """
+    if not learnings or include_superseded():
+        return learnings
+    live = [lrn for lrn in learnings if not is_superseded_in_frontmatter(lrn)]
+    if not live:
+        return []
+    # Work is scoped to the candidates: only retired notes whose name or hash
+    # links to one are opened, so a KB with thousands of retired notes costs
+    # the same per prompt as one with none.
+    cand_keys = [_note_keys(lrn) for lrn in live]
+    want = set().union(*cand_keys)
+    tails = {t for k in want if (t := _hash_tail(k))}
+    retired = _ledger_retired_keys(want, tails)
+    if docs_root is not None:
+        retired |= _archived_dir_keys(docs_root, want, tails)
+    return [lrn for lrn, keys in zip(live, cand_keys) if not retired & keys]
+
+
 def _content_terms(text: str) -> set[str]:
     return {
         t for t in re.findall(r"[a-z0-9][a-z0-9_\-]{2,}", text.lower())
@@ -3015,6 +3198,7 @@ def recall(
                 )
                 for r in cached.get("results", [])
             ]
+            learnings = filter_superseded(learnings, docs_root)  # cache holds raw fetch
             ce_scores = _coerce_ce_scores(cached.get("ce_scores")) if CROSS_ENCODER_ENABLED else None  # R2
             embeddings = _coerce_embeddings(cached.get("embeddings")) if mmr_on else None  # R3
             learnings, rank_scores = rerank_with_scores(
@@ -3171,6 +3355,7 @@ def recall(
         # R9: register this fetch's token set so near-identical future
         # queries can fuzzy-hit the payload just written.
         update_cache_index(query, cache_mode, fetched_limit, cache_file)  # R15
+    learnings = filter_superseded(learnings, docs_root)  # before rank + selection
     learnings, rank_scores = rerank_with_scores(
         learnings, query_tags, ce_scores=ce_scores,
         current_project=rerank_project,  # R15×R16

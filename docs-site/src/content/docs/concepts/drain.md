@@ -181,11 +181,7 @@ If `reflect` is not on `PATH`, notes are still written but stay invisible to rec
 | Poisoned entries | `~/.reflect/poison-reflections.jsonl` |
 | Retry counters, writer streaks | `~/.reflect/retry-count.jsonl`, `~/.reflect/writer-health.jsonl` |
 | Errors raised | `/reflect:status` and `reflect errors count` (kinds such as `drain_poison`, `drain_oversized_input`, `drain_quota_deferred`, `drain_unknown_command`) |
-| Dry run | `REFLECT_DRAIN_DRY_RUN=1` logs the call it would make. It does not call the model, but it still removes the entry from the queue and records a `dry_run` row that counts toward the daily cap |
-
-:::caution
-`REFLECT_DRAIN_DRY_RUN=1` is not side-effect free for the queue. In a test run against a one-entry queue, the entry was consumed. Use a copy of the state dir (`REFLECT_STATE_DIR`) when dry-running.
-:::
+| Dry run | `REFLECT_DRAIN_DRY_RUN=1` logs what it would do and writes nothing durable. The queue is left exactly as found, no cost-ledger row is written (so the daily cap is unchanged), and nothing is added to the poison file, retry counters, errors ledger, debounce stamp or quota-deferral marker. The cascade runs in read-only mode, so it records no chunk hashes and bumps no proof counts. The model is never called. Only `drain.log` is written |
 
 ## Why it looks like this
 

@@ -145,7 +145,7 @@ Four callers run `recall.py`. Each builds its own query and passes its own limit
 | Caller | Fires on | Query | Limit and size | Other flags |
 |---|---|---|---|---|
 | `session_start_recall.py` | `SessionStart` | project + branch + commit tags (see below) | `--limit 3`, `--max-chars 1500` | `--min-overlap 0.2`, `--max-tokens 0`, `--no-gap-log`, `--no-followup` |
-| `user_prompt_submit_recall.py` | `UserPromptSubmit` | the prompt text | fetches `--limit 9`, keeps 3 not-yet-injected, `--max-chars 3000` then a hard cut at 1500 chars | passes `--session-id`; no min-overlap, no gap/followup suppression |
+| `user_prompt_submit_recall.py` | `UserPromptSubmit` | the prompt text | fetches `--limit 9`, keeps 3 not-yet-injected, `--max-chars 3000`, then fits up to 3 whole learnings into 1500 chars (a learning that does not fit is dropped, not cut, and is not marked injected) | passes `--session-id`; no min-overlap, no gap/followup suppression |
 | `subagent_start_recall.py` | `SubagentStart` | `subagent <type> \| cwd <cwd> \| agent_id <id> \| <task prompt>` | `--limit 3`, `--max-chars 1500` | `--no-gap-log`, `--no-followup`, 5 s timeout |
 | `/reflect:recall` skill | you type it | your query | `--limit 10`, `--max-chars 2000` | all flags available |
 
@@ -259,6 +259,8 @@ Each factor is `1 + alpha * (norm - 0.5)`, with `norm` clamped to 0..1, so it st
 Alphas are clamped to 0..2; a malformed value falls back to the default. Recency reads the `<!-- archived: ISO -->` header in the note body (written by the ingest archive step), not frontmatter; a note without that header counts as undated and gets the neutral 0.5. The project boost is skipped (neutral) when the corpus is already a single-project shard.
 
 ### 7. Filters, gate, MMR, budget
+
+Before any of this (after fusion, before rerank), `filter_superseded()` drops notes retired by frontmatter (`superseded_by` set, `status` superseded or archived), notes whose id sits in `archived/` or `documents/.forgotten/`, and notes whose ledger row has `is_latest = 0`. Matching is on note id (never name) and content hash, and only retired notes whose file name or ledger row links to a candidate are opened, so the cost does not grow with the retired backlog. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off. A missing ledger is fine; ledger ids differ from note ids, so a ledger-only retirement with no `artifact_path` cannot always be linked to a file.
 
 Applied in this order after scoring:
 

@@ -85,17 +85,23 @@ def test_dry_run_processes_without_reindex(tmp_path):
     assert "DRY_RUN=1" in log
     # A dry run must have zero side effects beyond logging.
     assert "reindex" not in log
-    # Entry was removed from the queue after a successful (dry) process.
-    assert (state / "pending_reflections.jsonl").read_text().strip() == ""
+    # Dry run: the entry stays queued (see test_drain_dry_run.py).
+    assert (state / "pending_reflections.jsonl").read_text().strip()
 
 
 def test_debounce_blocks_immediate_rerun(tmp_path):
     state = tmp_path / "state"
     _make_queue(state)
-    # First run with a long window stamps the debounce file.
-    _run(state, REFLECT_DRAIN_DEBOUNCE_SEC="600")
+    # First (live) run with a long window stamps the debounce file. A dry run
+    # never stamps it, so use a live run with a stub `claude`.
+    stub = state.parent / "claude-stub"
+    stub.write_text('#!/usr/bin/env bash\necho \'{"type":"result","is_error":false,"result":"ok"}\'\n')
+    stub.chmod(0o755)
+    live = dict(REFLECT_DRAIN_DEBOUNCE_SEC="600", REFLECT_DRAIN_DRY_RUN="0",
+                REFLECT_DRAIN_CLAUDE_BIN=str(stub), REFLECT_QUOTA_GATE="0")
+    _run(state, **live)
     _make_queue(state)
-    _run(state, REFLECT_DRAIN_DEBOUNCE_SEC="600")
+    _run(state, **live)
     log = (state / "drain.log").read_text()
     assert "debounce:" in log
     # The second run must not have processed the re-seeded entry.
@@ -130,8 +136,9 @@ def test_stale_lock_is_reclaimed(tmp_path):
     _run(state)
     log = (state / "drain.log").read_text()
     assert "stale lock detected" in log
-    # After reclaiming, it processed the entry.
-    assert (state / "pending_reflections.jsonl").read_text().strip() == ""
+    # After reclaiming, it processed the entry (dry run: previewed, still queued).
+    assert "DRY_RUN=1" in log
+    assert (state / "pending_reflections.jsonl").read_text().strip()
 
 
 if __name__ == "__main__":

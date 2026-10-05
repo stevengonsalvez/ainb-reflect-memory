@@ -72,6 +72,10 @@ Runs `qmd search QUERY -c learnings` and reads the matching note files. It has n
 
 The JSON output (`--format json`) carries the parsed range under `temporal`.
 
+### Superseded and archived filter
+
+Not an arm: a filter on the fused candidates, applied before ranking and final selection. A note is dropped when its frontmatter has `superseded_by` set or a `status` of `superseded` or `archived`, when its id matches a note in the KB's `archived/` or `documents/.forgotten/` directory, or when the ledger marks the matching row `is_latest = 0` (or status `superseded` or `archived`). A query that matches both an old note and the note that replaced it injects only the replacement. The cache stores the unfiltered fetch, so the filter also runs on a cache hit. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off for debugging. Without a ledger file only the file-level signals apply. See [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/) for how ledger rows are linked to notes and the limits of that link.
+
 ## Ranking
 
 ### Cross-encoder rerank (R2)

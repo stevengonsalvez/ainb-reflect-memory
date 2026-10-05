@@ -258,14 +258,43 @@ def _signal_set_hash(signals) -> str:
         return hashlib.sha256(blob).hexdigest()[:16]
 
 
-def _signal_hash_seen(signal_hash: str) -> bool:
+def _readonly_conn():
+    """Connection for a dry-run pass: reads, never writes.
+
+    ``reflect_db.get_conn`` mkdirs the DB parent and runs the schema DDL and
+    migrations, which is a durable write. A dry run opens the existing DB
+    ``mode=ro`` instead, and when there is no DB yet it reads an empty in-memory
+    one, so nothing is created on disk. If even that fails it returns a bare
+    in-memory connection whose queries raise, so callers fail open (and never
+    fall back to ``get_conn``).
+    """
+    import sqlite3
+    try:
+        import reflect_db
+        path = reflect_db.db_path()
+        if path.exists():
+            # A cleanly closed WAL db has no -wal/-shm; a plain mode=ro open
+            # would leave empty ones behind, so read it immutable instead.
+            live = Path(f"{path}-wal").exists() or Path(f"{path}-shm").exists()
+            flag = "mode=ro" if live else "immutable=1"
+            conn = sqlite3.connect(f"file:{path}?{flag}", uri=True)
+        else:
+            conn = sqlite3.connect(":memory:")
+            conn.executescript(reflect_db._SCHEMA_DDL)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except Exception:
+        return sqlite3.connect(":memory:")
+
+
+def _signal_hash_seen(signal_hash: str, conn=None) -> bool:
     """True if a learning with this content hash already exists in the KB.
     Best-effort: returns False if the DB is unavailable (fail-open to reflect)."""
     if not signal_hash:
         return False
     try:
         from reflect_db import get_known_content_hashes
-        return signal_hash in get_known_content_hashes()
+        return signal_hash in get_known_content_hashes(conn=conn)
     except Exception:
         return False
 
@@ -291,7 +320,8 @@ def _record_proof_for_hash(signal_hash: str, source_memory_id: str) -> int:
         return 0
 
 
-def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, int]:
+def _delta_retain_chunks(sliced: str, source_memory_id: str,
+                         dry_run: bool = False, conn=None) -> tuple[str, int, int]:
     """S7 delta retain: drop slice chunks already reflected on a prior drain.
 
     Hashes each signal-window chunk (Hindsight ``_classify_chunk_diff`` /
@@ -312,9 +342,10 @@ def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, 
         return sliced, 0, 0
     try:
         import reflect_db
-        reflect_db.prune_chunk_hashes()
+        if not dry_run:
+            reflect_db.prune_chunk_hashes()
         hashes = [reflect_db.compute_chunk_hash(c) for c in chunks]
-        seen = reflect_db.get_seen_chunk_hashes(hashes)
+        seen = reflect_db.get_seen_chunk_hashes(hashes, conn=conn)
         kept: list[str] = []
         fresh: list[str] = []
         for chunk, h in zip(chunks, hashes):
@@ -323,7 +354,7 @@ def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, 
             kept.append(chunk)
             fresh.append(h)
         skipped = total - len(kept)
-        if fresh:
+        if fresh and not dry_run:
             reflect_db.record_chunk_hashes(fresh, source_memory_id=source_memory_id)
         filtered = "\n…\n".join(kept) if kept else ""
         return filtered, total, skipped
@@ -342,7 +373,7 @@ def _content_tokens(text: str) -> set[str]:
 
 
 def recall_related_learnings(signals, *, limit: int = _RELATED_LIMIT,
-                             min_overlap: float = _RELATED_MIN_OVERLAP):
+                             min_overlap: float = _RELATED_MIN_OVERLAP, conn=None):
     """S5: recall existing (non-retired) learnings related to *signals*.
 
     Deterministic, stdlib-only token-overlap match between signal text /
@@ -354,7 +385,7 @@ def recall_related_learnings(signals, *, limit: int = _RELATED_LIMIT,
         return []
     try:
         from reflect_db import get_conn
-        rows = get_conn().execute(
+        rows = (conn or get_conn()).execute(
             f"""SELECT id, title, category, status, proof_count, created_at
                 FROM learnings
                 WHERE status NOT IN ({", ".join("?" for _ in _RETIRED_STATUSES)})
@@ -621,7 +652,7 @@ def _build_revision_block(related: list[dict], transcript_path: str) -> str:
 
 
 def recall_scope_observations(scope: str = _OBSERVATION_SCOPE_DEFAULT, *,
-                              limit: int = _OBSERVATION_LIMIT) -> list[dict]:
+                              limit: int = _OBSERVATION_LIMIT, conn=None) -> list[dict]:
     """O1: existing observations in *scope*, strongest evidence first.
 
     The candidates the drain's second pass revises against — listing them is
@@ -631,7 +662,7 @@ def recall_scope_observations(scope: str = _OBSERVATION_SCOPE_DEFAULT, *,
     """
     try:
         from reflect_db import get_observations
-        rows = get_observations(scope=scope, limit=limit)
+        rows = get_observations(scope=scope, limit=limit, conn=conn)
     except Exception:
         return []
     return [
@@ -1598,8 +1629,14 @@ def bound_transcript(transcript: str | Path, *, out_path: Optional[str | Path] =
 
 
 def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LINES,
-            out_path: Optional[str | Path] = None) -> Prep:
-    """Gate + slice + hash-dedup. No LLM. Writes the slice file when reflecting."""
+            out_path: Optional[str | Path] = None, dry_run: bool = False) -> Prep:
+    """Gate + slice + hash-dedup. No LLM. Writes the slice file when reflecting.
+
+    ``dry_run`` makes the pass read-only against durable state: no proof bump,
+    no chunk-hash prune/record, no lifecycle event, and no DB creation or
+    migration (reads go through ``_readonly_conn``). Without it a dry-run drain
+    would mark the chunks as seen and the real drain would then skip them.
+    The returned verdict is the same one a live pass would reach."""
     p = Path(transcript)
     verdict = reflect_gate.evaluate(p)
     dialogue = reflect_gate.extract_dialogue(p) if p.exists() else ""
@@ -1614,11 +1651,13 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
 
     signals = detect_signals(dialogue)
     signal_hash = _signal_set_hash(signals)
-    if _signal_hash_seen(signal_hash):
-        bumped = _record_proof_for_hash(signal_hash, str(p))
+    ro = _readonly_conn() if dry_run else None
+    if _signal_hash_seen(signal_hash, conn=ro):
+        bumped = 0 if dry_run else _record_proof_for_hash(signal_hash, str(p))
         dup = Prep("skip", "dup-signal-hash", len(signals), orig_tokens, 0,
                    signal_hash=signal_hash, proof_bumped=bumped)
-        _emit_consolidation_completed(dup)
+        if not dry_run:
+            _emit_consolidation_completed(dup)
         return dup
 
     sliced = slice_dialogue(dialogue, signals, context_lines)
@@ -1629,7 +1668,8 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
     # drain (re-running drain on an identical transcript yields 0 new chunks ->
     # 0 new learnings). When every chunk is a known re-run, skip the whole
     # transcript instead of handing the drain an empty slice.
-    sliced, chunks_total, chunks_skipped = _delta_retain_chunks(sliced, str(p))
+    sliced, chunks_total, chunks_skipped = _delta_retain_chunks(
+        sliced, str(p), dry_run=dry_run, conn=ro)
     if chunks_total and chunks_skipped == chunks_total:
         return Prep("skip", "dup-chunk-hash", len(signals), orig_tokens, 0,
                     signal_hash=signal_hash, chunks_total=chunks_total,
@@ -1643,7 +1683,7 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
 
     # S5: recall existing learnings related to the signal set so the drain
     # writer can revise beliefs (UPDATE/DELETE) instead of always creating.
-    related = recall_related_learnings(signals)
+    related = recall_related_learnings(signals, conn=ro)
 
     prep = Prep(
         action="reflect",
@@ -1685,12 +1725,13 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
     # O1: the consolidated-observations second pass rides every drain — the
     # block carries the action contract plus the scope's existing
     # observations (DB-vetted, like the revision block; safe post-filter).
-    observations = recall_scope_observations()
+    observations = recall_scope_observations(conn=ro)
     prep.observation_count = len(observations)
     body += _build_observation_block(observations, str(p))
     Path(out_path).write_text(body, encoding="utf-8")
     prep.slice_path = str(out_path)
-    _emit_consolidation_completed(prep)
+    if not dry_run:
+        _emit_consolidation_completed(prep)
     return prep
 
 
@@ -1793,6 +1834,8 @@ def main() -> None:
     pp.add_argument("transcript")
     pp.add_argument("--out", default=None)
     pp.add_argument("--context", type=int, default=_DEFAULT_CONTEXT_LINES)
+    pp.add_argument("--dry-run", action="store_true",
+                    help="decide only: no chunk-hash/proof/event writes")
     rv = sub.add_parser("revise")
     rv.add_argument(
         "--actions", default="-",
@@ -1844,7 +1887,8 @@ def main() -> None:
         sys.exit(0 if summary.get("recorded") else 1)
 
     if args.cmd == "prepare":
-        prep = prepare(args.transcript, context_lines=args.context, out_path=args.out)
+        prep = prepare(args.transcript, context_lines=args.context, out_path=args.out,
+                       dry_run=args.dry_run)
         print(json.dumps(asdict(prep)))
         # exit 0 = reflect (slice ready), 1 = skip
         sys.exit(0 if prep.action == "reflect" else 1)

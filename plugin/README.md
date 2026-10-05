@@ -349,6 +349,10 @@ brew install bash coreutils jq
 #   echo 'export PATH="$(brew --prefix)/bin:$(brew --prefix coreutils)/libexec/gnubin:$PATH"' >> ~/.zshrc
 ```
 
+### Claude Code is not an adapter target
+
+`plugin/adapters/claude/claude_adapter.py install` exits non-zero and writes nothing: use `claude plugin install` (above). Only `uninstall` still works, to clean up skills and the `SessionStart` hook entry an older adapter wrote.
+
 ### Codex CLI / GitHub Copilot
 
 These harnesses don't have a native plugin runtime yet. Use the python adapter,

@@ -156,7 +156,7 @@ Remove per-repo post-commit hooks with the `--uninstall` command above.
 
 ## Limitations
 
-- **Do not use `claude_adapter.py` as an install path.** It copies only each `SKILL.md` (no hook scripts) and merges one `SessionStart` entry that points at `~/.claude/skills/recall/hooks/session_start_recall.py`, a file it never deploys. In a sandboxed run the settings entry was written but the script was absent. It steps aside when `~/.claude/plugins/installed_plugins.json` lists any `reflect@*`. Use `claude plugin install`.
+- **`claude_adapter.py install` is refused.** Claude Code installs through `claude plugin install` only. The adapter's `install` exits non-zero with those commands and writes nothing. Older versions copied only each `SKILL.md` and merged a `SessionStart` entry pointing at `~/.claude/skills/recall/hooks/session_start_recall.py`, a script they never deployed, which left a dead hook. If you ran an old adapter, clean up with `python3 plugin/adapters/claude/claude_adapter.py uninstall` (removes its managed skill files and that one hook entry; foreign hooks and hand-written skills stay).
 - **Cold recall is slow.** The first recall after a reboot loads local embedding and cross-encoder models (about 11 to 16 s). Hooks pin `HF_HUB_OFFLINE=1` and use `REFLECT_RECALL_TIMEOUT` (default 30 s). Models must be cached once.
 - **Capture spends your Claude quota.** The drain runs `claude -p` on Sonnet under caps (16 turns, 300 s, 2M-token poison). Kill switch: `REFLECT_DISABLED=1`. Disable auto-queueing: `REFLECT_AUTO_REFLECT=0`.
 - **Hook environment needs `uv` on `PATH`.** Launchers with a trimmed `PATH` (some IDE integrations) can fail to find it.

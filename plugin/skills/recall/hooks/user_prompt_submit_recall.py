@@ -308,13 +308,23 @@ def query_recall(query: str, session_id: str = "") -> tuple[str, list[str]]:
     return output, ids
 
 
-def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[str]]:
+def filter_to_new(
+    markdown: str,
+    already_injected: set[str],
+    max_chars: int = USER_PROMPT_MAX_CHARS,
+) -> tuple[str, list[str]]:
     """Strip out blocks corresponding to already-injected learning IDs.
 
     The recall script emits markdown as a flat list of bullets (one per
-    learning). We split on top-level ``"- "`` lines and keep blocks whose
-    ``[lrn-...]`` ID is NOT in ``already_injected``. Returns
-    ``(filtered_markdown, new_ids)``.
+    learning) under a ``## ...`` header. We split on top-level ``"- "`` lines
+    and keep the header plus the first ``USER_PROMPT_LIMIT`` learning blocks
+    whose ``[lrn-...]`` ID is NOT in ``already_injected``, as long as the whole
+    output fits ``max_chars``. The budget is enforced at block boundaries: a
+    trailing block that does not fit is dropped whole (it stays eligible on the
+    next prompt), never cut mid-text. Only a single block that alone exceeds
+    the budget is hard-cut. Returns ``(filtered_markdown, new_ids)`` where
+    ``new_ids`` are exactly the learnings visible in the output; empty when no
+    new learning survives.
     """
     if not markdown:
         return "", []
@@ -330,18 +340,46 @@ def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[
     if current:
         blocks.append(current)
 
+    # The recall markdown opens with a ``## Prior learnings ...`` header
+    # block. It is framing, not a learning: keep it, but never count it
+    # against USER_PROMPT_LIMIT (it used to, so only LIMIT-1 learnings
+    # reached the model).
+    header = ""
+    if blocks and not blocks[0][0].startswith("- "):
+        header = "\n".join(blocks.pop(0))
+
     kept_blocks: list[str] = []
     kept_ids: list[str] = []
     for block in blocks:
         block_text = "\n".join(block)
         ids_in_block = re.findall(r"\[(lrn-[a-z0-9\-]+)\]", block_text)
+        # A bullet with no learning id is not a learning (in practice recall's
+        # "N more truncated" marker): it cannot be deduped or tracked, so it
+        # neither counts toward USER_PROMPT_LIMIT nor is injected.
+        if not ids_in_block:
+            continue
         if any(i in already_injected for i in ids_in_block):
-            continue  # already injected this session — skip
+            continue  # already injected this session: skip
+        candidate = "\n".join([header, *kept_blocks, block_text] if header else [*kept_blocks, block_text])
+        if len(candidate) > max_chars:
+            if kept_blocks:
+                break  # drop this and later blocks whole; they stay eligible
+            # A single block alone over budget: hard-cut it (otherwise it
+            # would be re-offered and re-cut on every prompt).
+            kept_blocks.append(block_text)
+            kept_ids.extend(ids_in_block)
+            break
         kept_blocks.append(block_text)
         kept_ids.extend(ids_in_block)
         if len(kept_blocks) >= USER_PROMPT_LIMIT:
             break
-    return "\n".join(kept_blocks), kept_ids[:USER_PROMPT_LIMIT]
+    if not kept_blocks:
+        return "", []  # nothing new: a lone header is noise, inject nothing
+    out = "\n".join([header, *kept_blocks] if header else kept_blocks)
+    if len(out) > max_chars:
+        out = out[: max_chars - 2].rstrip() + " …"
+    # Record only ids still visible after any hard cut.
+    return out, [i for i in kept_ids if f"[{i}]" in out]
 
 
 # --- Mini-learning capture (Phase 2 of PostToolUse arming) ---------------
@@ -585,15 +623,10 @@ def _main_body() -> NoReturn:
     if not filtered:
         emit("")
 
-    # Persist the new IDs so future prompts in this session don't
-    # re-inject the same learnings.
+    # Persist only the IDs actually emitted (filter_to_new enforces the char
+    # budget at block boundaries), so a dropped learning stays eligible.
     if session_id and new_ids:
         save_session_injected(session_id, already | set(new_ids))
-
-    # Truncate to the per-prompt char budget (filter_to_new uses block
-    # boundaries; this is a hard upper bound).
-    if len(filtered) > USER_PROMPT_MAX_CHARS:
-        filtered = filtered[:USER_PROMPT_MAX_CHARS].rstrip() + " …"
 
     emit(filtered)
 

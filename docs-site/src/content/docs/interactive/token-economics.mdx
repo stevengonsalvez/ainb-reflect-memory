@@ -64,7 +64,7 @@ Dollar savings here are tokens only. They do not count the wall-clock time or th
 
 | Default | Source |
 |---|---|
-| Recall limits (3 at SessionStart; per prompt 3 blocks including the header, so 2 learnings; 1500 chars) | [`plugin/skills/recall/hooks/session_start_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py), [`user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py) |
+| Recall limits (3 at SessionStart; per prompt 3 new learnings, header not counted; 1500 chars) | [`plugin/skills/recall/hooks/session_start_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py), [`user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py) |
 | Discovery-token averages, 4 chars per token, `D:` and `R:` accounting | [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py) |
 | Drain caps, model, writer default | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
 | Slice cap (60,000 chars) and cascade | [`plugin/scripts/reflect_cascade.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/reflect_cascade.py) |

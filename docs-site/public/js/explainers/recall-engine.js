@@ -551,20 +551,22 @@ function budget(P, ids, query, prof, maxTokensOverride) {
   if (truncatedFrom >= 0) block += '- _(…' + (afterTok.length - truncatedFrom) + ' more truncated)_\n';
   block = block.replace(/\s+$/, '') + '\n';
   const out = { tokRows, entries, header, block, markdownChars: block.length, droppedByTokens: tokRows.filter((r) => !r.kept).length, maxChars: prof.maxChars, maxTokens };
-  // UserPromptSubmit hook: filter_to_new keeps the first USER_PROMPT_LIMIT *blocks*
-  // (the header counts as block 1), then hard-cuts at USER_PROMPT_MAX_CHARS.
+  // UserPromptSubmit hook: filter_to_new keeps the header plus the first
+  // USER_PROMPT_LIMIT *learning* blocks (the header is not counted), then
+  // hard-cuts at USER_PROMPT_MAX_CHARS.
   if (prof.hook) {
     const keptEntries = entries.filter((e) => e.kept);
-    const blocks = [header, ...keptEntries.map((e) => e.entry.replace(/\n$/, ''))];
-    const kept = blocks.slice(0, C.USER_PROMPT_LIMIT);
+    const entryBlocks = keptEntries.map((e) => e.entry.replace(/\n$/, ''));
+    const keptEntryBlocks = entryBlocks.slice(0, C.USER_PROMPT_LIMIT);
+    const kept = keptEntryBlocks.length ? [header, ...keptEntryBlocks] : [];
     let text = kept.join('\n');
-    const hookDropped = blocks.slice(C.USER_PROMPT_LIMIT).length;
+    const hookDropped = entryBlocks.slice(C.USER_PROMPT_LIMIT).length;
     let cut = false;
     if (text.length > C.USER_PROMPT_MAX_CHARS) {
       text = text.slice(0, C.USER_PROMPT_MAX_CHARS).replace(/\s+$/, '') + ' …';
       cut = true;
     }
-    out.hook = { blocks: kept.length, injectedIds: keptEntries.slice(0, C.USER_PROMPT_LIMIT - 1).map((e) => e.id), droppedBlocks: hookDropped, text, cut };
+    out.hook = { blocks: kept.length, injectedIds: keptEntries.slice(0, C.USER_PROMPT_LIMIT).map((e) => e.id), droppedBlocks: hookDropped, text, cut };
   }
   return out;
 }

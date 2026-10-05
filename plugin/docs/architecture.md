@@ -29,7 +29,7 @@ flowchart TD
 
     subgraph Adapters["adapters/ (toolkit plugin)"]
         BA["base.py\nAdapterBase"]
-        CA["claude_adapter.py\n+ SessionStart hook merge"]
+        CA["claude_adapter.py\n(uninstall only)"]
         XA["codex_adapter.py\n+ hooks.json hook merge"]
         PA["copilot_adapter.py\n+ hooks/reflect.json drop-in"]
         BA --> CA
@@ -127,7 +127,7 @@ flowchart TD
 
 ### Opening a Claude session
 
-When you open Claude Code in any project directory, the `SessionStart` hook fires automatically (installed into `~/.claude/settings.json` by the Claude adapter). It runs `session_start_recall.py`, which:
+When you open Claude Code in any project directory, the `SessionStart` hook fires automatically (wired by the plugin runtime from `.claude-plugin/plugin.json`). It runs `session_start_recall.py`, which:
 
 1. Reads `CLAUDE_PROJECT_DIR` (or `cwd`) and calls `git remote get-url origin` to derive a project name.
 2. Reads the current branch and the last five commit subjects, extracting tokens (filtering stopwords) to assemble a focused query such as `"ai-coder-rules reflect retrieval-phase".`
@@ -567,7 +567,7 @@ sequenceDiagram
 | Module | Repo | Path | Purpose |
 |--------|------|------|---------|
 | `base.py` | toolkit | `adapters/base.py` | Shared `AdapterBase` — pointer write, sentinel guard, uninstall, argparse CLI skeleton |
-| `claude_adapter.py` | toolkit | `adapters/claude/` | Claude harness: extends base with `settings.json` SessionStart hook merge |
+| `claude_adapter.py` | toolkit | `adapters/claude/` | Claude harness: `install` refused (use `claude plugin install`); `uninstall` removes old adapter-written skills and SessionStart hook |
 | `codex_adapter.py` | toolkit | `adapters/codex/` | Codex harness: full skill deploy + 6-hook merge into `~/.codex/hooks.json` |
 | `copilot_adapter.py` | toolkit | `adapters/copilot/` | Copilot harness: full skill deploy + copilot-native drop-in `~/.copilot/hooks/reflect.json` |
 | `session_start_recall.py` | toolkit | `skills/recall/hooks/` | SessionStart hook: builds git-context query, calls recall.py, emits additionalContext JSON |
@@ -609,7 +609,7 @@ token    = "your-bearer-token"
 
 Without this section, all dashboard commands exit 0 with "dashboard not configured". The section is entirely opt-in — the rest of the system does not require it.
 
-### `~/.claude/settings.json` — hooks (managed by Claude adapter)
+### Claude Code hooks (wired by the plugin runtime)
 
 As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.json`; installing the plugin auto-wires the lifecycle hooks (no manual settings.json editing required). The core entries are:
 
@@ -774,7 +774,7 @@ Reflect keeps `/reflect` execution centralized: lookup hooks inject context only
 
 ### Upgrading pointer content
 
-When the canonical `SKILL.md` in the toolkit plugin changes, no reinstall is needed — the pointer files just contain the path to the source file; the harness reads it at skill-scan time. Only structural changes (new skills added to `PLUGIN_SKILLS`, hook command path changes) require a reinstall via `python claude_adapter.py install`.
+When the canonical `SKILL.md` in the toolkit plugin changes, no reinstall is needed — the pointer files just contain the path to the source file; the harness reads it at skill-scan time. Only structural changes (new skills added to `PLUGIN_SKILLS`, hook command path changes) require a reinstall via the Codex/Copilot adapter; Claude Code updates via `claude plugin update`.
 
 ---
 

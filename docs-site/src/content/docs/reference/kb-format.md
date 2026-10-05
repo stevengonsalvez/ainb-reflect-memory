@@ -145,7 +145,7 @@ The example is invented. The field set mirrors `plugin/assets/learning_template.
 | `causal_relations` | list of `{source, target, type}` | no | Cause to effect edges. The drain accepts the 14 relationship types below and collapses anything else to `relates_to`. |
 | `links` | list | no | The template writes `[]`. No reader found in the code. |
 | `source_episodes` | list of string | no | Episode ids that produced the note. The template writes it; no reader found in the code. |
-| `superseded_by` | string or null | no | Id of the replacing note. Informational, see [Supersession](#archive-forget-and-supersession). |
+| `superseded_by` | string or null | no | Id of the replacing note. Recall drops a note where this is set, see [Supersession](#archive-forget-and-supersession). |
 | `forget_after` | ISO timestamp or null | no | TTL. The hourly forget sweep archives the note after this instant. `null` is permanent. Unparseable values are treated as permanent. |
 | `provenance` | mapping | no | `source_tool` (`claude`, `codex`, `copilot`, `gemini`), `source_path`, `content_hash`, `detected_at`, `source_memory_ids` (unique), `proof_count` (starts at 1, update increments). Recall reads `provenance.proof_count` when the top-level field is absent. |
 | `language`, `framework` | string | no | Primary language or runtime. Written by the `/reflect` skill when known. |
@@ -290,9 +290,9 @@ Four mechanisms retire a note. They are separate and they do not share storage.
 
 Notes for each:
 
-- Archiving drops the note from the file-based recall corpus at once. The graph cache still returns it until `reflect reindex`, which `reflect serve` flags with `graph_index_stale: true`. `reflect search` warns when `documents/` is newer than the graph cache.
+- Archiving drops the note from the file-based recall corpus at once. The graph cache still returns it until `reflect reindex`, which `reflect serve` flags with `graph_index_stale: true`, but `recall.py` drops any candidate whose id matches a note in `archived/` or `documents/.forgotten/`, so a stale cache does not put it back in front of the model. `reflect search` warns when `documents/` is newer than the graph cache.
 - `archived/` (serve soft-delete) and `.forgotten/` (sweep) are deliberately separate; the sweep has its own DB accounting.
-- Supersession lives in the database (`is_latest`, `superseded_by_learning_id`, `supersedes_learning_id`). Frontmatter `superseded_by` is carried but nothing rewrites it (S9), and `recall.py` does not consult it for ranking (its only mention is in the edge-date filter comment).
+- Supersession is recorded in the database (`is_latest`, `superseded_by_learning_id`, `supersedes_learning_id`). Nothing rewrites frontmatter `superseded_by` (S9, notes stay immutable), but you can set it by hand or from a tool. `recall.py` drops a candidate that has `superseded_by` set, a `status` of `superseded` or `archived`, an id found in `archived/` or `.forgotten/`, or a matching ledger row with `is_latest = 0` (or status `superseded` or `archived`). The ledger match goes through the note at the row's `artifact_path` or a shared `content_hash`; a row with neither cannot be linked to a note file. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` disables the filter. See [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/).
 - Ledger statuses (`learnings.status`): `detected`, `pending`, `proposed`, `approved`, `materialized`, `indexed`, `recalled`, `superseded`, `reverted`, `rejected`, `archived`.
 - Updates to `/reflect` project notes keep the previous form in an append-only `<slug>.history.yaml` (`snapshot_at`, `reason`, `content_hash`, `previous` as a literal block), so a git diff shows one added entry per update. Database-side history goes to `learning_history`.
 

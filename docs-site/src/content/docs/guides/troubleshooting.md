@@ -213,7 +213,7 @@ The read-only maintenance watchdog (`reflect-maintenance-watch.sh`, run by the `
 | `REFLECT_DRAIN_TIMEOUT_RETRIES` | 1 | No-output retries before quarantine. |
 | `REFLECT_DRAIN_MAX` / `REFLECT_DRAIN_DAILY_MAX` | 3 / 20 | Entries per run / per UTC day. |
 
-To trial a change without spending tokens, set `REFLECT_DRAIN_DRY_RUN=1`; the drain only logs what it would call.
+To trial a change without spending tokens, set `REFLECT_DRAIN_DRY_RUN=1`; the drain only logs what it would do. It leaves the queue, the daily cap and the ledgers untouched, so it is safe to repeat.
 
 ## Recall returns nothing, or stale results
 

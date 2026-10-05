@@ -10,8 +10,8 @@ Pipeline (per conversation sample):
            ─▶ answer (sonnet) ─▶ judge vs gold (sonnet, J-score)
 
 Four configs (the ablation matrix):
-  arms_on      reflect 4.1.0 recall arms ON  (RECALL_* env knobs set)
-  arms_off     arms OFF (pre-4.1 / 4.0 default behavior)
+  arms_on      reflect 4.1.0 recall arms ON  (every arm knob exported =1)
+  arms_off     arms OFF (every arm knob exported =0, emulating pre-4.1 / 4.0)
   no_memory    answerer gets only the question (base-model floor)
   full_context full conversation stuffed into the prompt (upper bound)
 
@@ -31,17 +31,20 @@ Usage:
   python3 locomo_bench.py --samples 0 --limit-qa 6     # smoke: 6 QA
   python3 locomo_bench.py --samples all                # full locomo10
   python3 locomo_bench.py --samples 0 --configs arms_on,arms_off
+  python3 locomo_bench.py --print-config               # effective env per config; no data, no LLM
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import re
 import shutil
 import statistics
 import subprocess
+import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -74,18 +77,74 @@ RECALL_MAX_CHARS = 3000
 
 CATEGORY = {1: "multi_hop", 2: "temporal", 3: "open_domain", 4: "single_hop", 5: "adversarial"}
 
-# reflect 4.1.0 recall arms — set => ON (CHANGELOG: all gate OFF by default).
-ARMS_ON_ENV = {
-    "RECALL_GRAPH_ARM": "1",
-    "RECALL_CROSS_ENCODER": "1",
-    "RECALL_MMR": "1",
-    "RECALL_TEMPORAL": "1",
-    "RECALL_TEMPORAL_ARM": "1",
-    "RECALL_BITEMPORAL_EDGES": "1",
-    "RECALL_FUZZY_CACHE": "1",
-    "RECALL_FOLLOWUP": "1",
-    "REFLECT_TIERED_INJECT": "1",
-}
+# reflect 4.1.0 recall arms. In recall.py every one of these is read as
+# `os.environ.get(NAME, "1") != "0"`, i.e. ON unless explicitly "0" (the 4.1.0
+# CHANGELOG line "default off" does not describe the code). So "arms off" means
+# exporting "0", NOT removing the variable: deleting them leaves every arm on,
+# which made arms_on and arms_off run identical retrieval in the first pilot.
+#   R1 graph arm, R2 cross-encoder, R3 MMR, R6 date parsing, R5 temporal arm,
+#   A2 bitemporal edges, R9 fuzzy cache, A4 follow-up diagnostic.
+# REFLECT_TIERED_INJECT (R10) is read by the SessionStart hook only (opt-in,
+# default off), never by recall.py, so it is inert in this harness; it is kept
+# in the matrix for completeness. R9 is inert here too: recall runs --no-cache.
+ARM_KNOBS = (
+    "RECALL_GRAPH_ARM",
+    "RECALL_CROSS_ENCODER",
+    "RECALL_MMR",
+    "RECALL_TEMPORAL",
+    "RECALL_TEMPORAL_ARM",
+    "RECALL_BITEMPORAL_EDGES",
+    "RECALL_FUZZY_CACHE",
+    "RECALL_FOLLOWUP",
+    "REFLECT_TIERED_INJECT",
+)
+ARMS_ON_ENV = {k: "1" for k in ARM_KNOBS}
+ARMS_OFF_ENV = {k: "0" for k in ARM_KNOBS}
+RETRIEVAL_CONFIGS = ("arms_on", "arms_off")
+ALL_CONFIGS = ("arms_on", "arms_off", "no_memory", "full_context")
+
+
+def arm_env(config: str) -> dict[str, str]:
+    """Arm env a config exports to recall.py. {} for configs without retrieval."""
+    if config == "arms_on":
+        return dict(ARMS_ON_ENV)
+    if config == "arms_off":
+        return dict(ARMS_OFF_ENV)
+    return {}
+
+
+def knobs_missing_from_source() -> list[str]:
+    """Arm knobs that neither recall.py nor the SessionStart hook reads.
+    Guards against the harness silently toggling a renamed/removed variable."""
+    srcs = [RECALL_PY, RECALL_PY.parent.parent / "hooks" / "session_start_recall.py"]
+    text = "\n".join(p.read_text() for p in srcs if p.exists())
+    return [k for k in ARM_KNOBS if k not in text]
+
+
+def print_config(configs: list[str]) -> int:
+    """Dry check: print the effective arm env per config. No data, no recall, no LLM."""
+    print(f"recall.py: {RECALL_PY}")
+    for cfg in configs:
+        env = arm_env(cfg)
+        if not env:
+            print(f"\n[{cfg}] no retrieval (no recall.py call)")
+            continue
+        print(f"\n[{cfg}] recall.py env:")
+        for k in ARM_KNOBS:
+            print(f"  {k}={env[k]}")
+    on, off = arm_env("arms_on"), arm_env("arms_off")
+    differing = sorted(k for k in ARM_KNOBS if on[k] != off[k])
+    print(f"\nknobs that differ arms_on vs arms_off: {len(differing)}/{len(ARM_KNOBS)}")
+    missing = knobs_missing_from_source()
+    if missing:
+        print(f"ERROR: knobs not read by recall.py or the hook: {missing}")
+        return 1
+    if len(differing) != len(ARM_KNOBS):
+        print("ERROR: arms_on and arms_off must differ on every knob")
+        return 1
+    print("OK: every knob is read by the engine and differs between the two configs")
+    return 0
+
 
 ANSWER_SYS = (
     "You are a precise question-answering assistant for a long-term-memory benchmark. "
@@ -266,8 +325,9 @@ def base_env(kb: Path, state: Path) -> dict:
     if REFLECT_BIN_DIR.exists():
         env["PATH"] = f"{REFLECT_BIN_DIR}:{env.get('PATH', '')}"
         env["RECALL_EVAL_BIN_DIR"] = str(REFLECT_BIN_DIR)
-    # strip any inherited arm knobs so arms_off is truly off
-    for k in ARMS_ON_ENV:
+    # strip any inherited arm knobs; recall_context then sets every one explicitly
+    # (arms off = "0", NOT unset: recall.py treats unset as ON)
+    for k in ARM_KNOBS:
         env.pop(k, None)
     return env
 
@@ -295,31 +355,46 @@ RECALL_TIMEOUT = 90  # recall normally 20-45s; kill hangs past this
 async def recall_context(question: str, kb: Path, state: Path, arms_on: bool) -> tuple[str, float]:
     """Async recall via recall.py. Runs in its own process group so a hang
     (the engine occasionally wedges at 0% CPU on some queries) is killed with the
-    whole subtree, not just the direct child. Bounded by _RECALL_SEM."""
+    whole subtree, not just the direct child. Bounded by _RECALL_SEM.
+
+    A failed recall (spawn error, non-zero exit, timeout) raises RuntimeError: it
+    must never be recorded as an empty arm, which would score as "no memory" and
+    silently skew the ablation. An exit-0 run with empty output is a genuine
+    zero-hit result, so it is returned but warned about on stderr."""
     env = base_env(kb, state)
-    if arms_on:
-        env.update(ARMS_ON_ENV)
-    cmd = ["python3", str(RECALL_PY), question, "--limit", str(RECALL_LIMIT),
+    env.update(arm_env("arms_on" if arms_on else "arms_off"))
+    cmd = [sys.executable, str(RECALL_PY), question, "--limit", str(RECALL_LIMIT),
            "--format", "markdown", "--max-chars", str(RECALL_MAX_CHARS),
            "--no-cache", "--confidence", "ANY"]
+    arm = "arms_on" if arms_on else "arms_off"
     assert _RECALL_SEM is not None
     t0 = time.perf_counter()
     async with _RECALL_SEM:
         proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
-                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+                *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
                 env=env, start_new_session=True)
             try:
-                out, _ = await asyncio.wait_for(proc.communicate(), timeout=RECALL_TIMEOUT)
-                ctx = out.decode().strip() if proc.returncode == 0 else ""
+                out, err = await asyncio.wait_for(proc.communicate(), timeout=RECALL_TIMEOUT)
             except asyncio.TimeoutError:
                 _kill_tree(proc)
-                ctx = ""
-        except Exception:  # noqa: BLE001
+                raise RuntimeError(
+                    f"recall ({arm}) timed out after {RECALL_TIMEOUT}s: {question[:80]!r}")
+        except RuntimeError:
+            raise
+        except Exception as e:  # noqa: BLE001
             if proc:
                 _kill_tree(proc)
-            ctx = ""
+            raise RuntimeError(f"recall ({arm}) could not run: {e!r}") from e
+    if proc.returncode != 0:
+        raise RuntimeError(
+            f"recall ({arm}) exited {proc.returncode}: {question[:80]!r}\n"
+            f"{err.decode(errors='replace')[-600:]}")
+    ctx = out.decode().strip()
+    if not ctx:
+        print(f"WARNING: recall ({arm}) returned an empty context: {question[:80]!r}",
+              file=sys.stderr, flush=True)
     return ctx, time.perf_counter() - t0
 
 
@@ -375,7 +450,13 @@ async def run_qa(sample_id: str, config: str, idx: int, qa: dict, kb: Path, stat
                  conv_full: str, sem: asyncio.Semaphore) -> Verdict:
     cat = qa.get("category", 0)
     catname = CATEGORY.get(cat, str(cat))
-    cdir = CACHE / "qa" / _RUN_TAG / sample_id / config
+    # Retrieval configs key the verdict cache on their effective arm env, so a
+    # cache written before arms_off really disabled the arms (identical retrieval)
+    # can never be reused for the fixed config.
+    ckey = config
+    if arm_env(config):
+        ckey += "-" + hashlib.sha1(json.dumps(arm_env(config), sort_keys=True).encode()).hexdigest()[:8]
+    cdir = CACHE / "qa" / _RUN_TAG / sample_id / ckey
     cdir.mkdir(parents=True, exist_ok=True)
     cf = cdir / f"{idx:04d}.json"
     if cf.exists():
@@ -503,6 +584,12 @@ async def main_async(args) -> None:
         idxs = [int(x) for x in args.samples.split(",")]
         samples = [data[i] for i in idxs]
     configs = args.configs.split(",")
+    bad = [c for c in configs if c not in ALL_CONFIGS]
+    if bad:
+        raise SystemExit(f"unknown config(s) {bad}; choose from {list(ALL_CONFIGS)}")
+    missing = knobs_missing_from_source()
+    if missing:
+        raise SystemExit(f"arm knobs not read by the engine: {missing}")
     sem = asyncio.Semaphore(args.concurrency)
     global _RECALL_SEM, RECALL_LIMIT, RECALL_MAX_CHARS, _RUN_TAG, ANSWER_MODEL, JUDGE_MODEL
     _RECALL_SEM = asyncio.Semaphore(args.recall_concurrency)
@@ -515,7 +602,8 @@ async def main_async(args) -> None:
     RESULTS.mkdir(parents=True, exist_ok=True)
     print(f"recall: limit={RECALL_LIMIT} max_chars={RECALL_MAX_CHARS}", flush=True)
 
-    report: dict = {"model": MODEL, "samples": [], "configs": configs}
+    report: dict = {"model": MODEL, "samples": [], "configs": configs,
+                    "arm_env": {c: arm_env(c) for c in configs if arm_env(c)}}
     for sample in samples:
         sid = sample["sample_id"]
         print(f"== sample {sid}: {len(sample['qa'])} QA ==", flush=True)
@@ -573,7 +661,9 @@ def print_summary(report: dict) -> None:
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument("--samples", default="0", help="comma idx (0..9) or 'all'")
-    ap.add_argument("--configs", default="arms_on,arms_off,no_memory,full_context")
+    ap.add_argument("--configs", default=",".join(ALL_CONFIGS))
+    ap.add_argument("--print-config", action="store_true",
+                    help="print the effective recall env per config and exit (no data, no LLM)")
     ap.add_argument("--limit-qa", type=int, default=None, help="first-N QA per sample (smoke)")
     ap.add_argument("--per-cat", type=int, default=None, help="first-N QA of EACH category (balanced strata)")
     ap.add_argument("--concurrency", type=int, default=CONCURRENCY, help="claude answer/judge concurrency")
@@ -587,8 +677,11 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    _args = parse_args()
+    if _args.print_config:
+        raise SystemExit(print_config(_args.configs.split(",")))
     if not DATA.exists():
         raise SystemExit(f"dataset missing: {DATA}")
     if not RECALL_PY.exists():
         raise SystemExit(f"recall.py missing: {RECALL_PY}")
-    asyncio.run(main_async(parse_args()))
+    asyncio.run(main_async(_args))
