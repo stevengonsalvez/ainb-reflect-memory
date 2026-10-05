@@ -122,7 +122,9 @@ def test_drainer_cascade_skip_is_free(tmp_path):
     env = dict(os.environ)
     env.update({
         "REFLECT_STATE_DIR": str(state),
-        "REFLECT_DRAIN_DRY_RUN": "1",
+        # A skip never reaches claude, so a live run is safe here. (A dry run
+        # deliberately leaves the queue and the cost ledger untouched.)
+        "REFLECT_DRAIN_DRY_RUN": "0",
         "REFLECT_DRAIN_SKIP_REINDEX": "1",
         "REFLECT_DRAIN_DEBOUNCE_SEC": "0",
     })

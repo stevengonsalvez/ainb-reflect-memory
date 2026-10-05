@@ -36,7 +36,8 @@
 # REFLECT_DRAIN_DAILY_MAX     Max entries per UTC day.                Default: 20
 # REFLECT_DRAIN_MAX_RETRIES   Per-entry retry cap before poison.      Default: 3
 # REFLECT_DRAIN_LOG_MAX_BYTES Drain.log rotation threshold.           Default: 10485760
-# REFLECT_DRAIN_DRY_RUN       If "1", don't call claude -p; just log. Default: 0
+# REFLECT_DRAIN_DRY_RUN       If "1", don't call claude -p; just log. Writes no durable
+#                             state (queue, cost ledger, markers all untouched). Default: 0
 # REFLECT_STATE_DIR           State dir.                               Default: ~/.reflect
 # REFLECT_DRAIN_CLAUDE_BIN    Path to claude binary.                  Default: claude (PATH)
 # REFLECT_DRAIN_TIMEOUT       Per-entry claude -p wall-clock cap (s). Default: 300
@@ -211,6 +212,11 @@ _reflect_errors_run() {
 emit_error() {
     # emit_error <severity> <kind> <message> [transcript_path]
     local severity="$1" kind="$2" message="$3" transcript="${4:-}"
+    # DRY_RUN: the errors ledger is durable state; log what would be raised.
+    if [[ "$DRY_RUN" == "1" ]]; then
+        log "    DRY_RUN=1 → would have raised $severity/$kind: $message"
+        return 0
+    fi
     # Build the context JSON with json.dumps so a transcript path containing a
     # quote or backslash can't produce a malformed --context argument.
     # (Pure stdlib json — does NOT need reflect_kb.)
@@ -278,7 +284,9 @@ debounce_ok() {
             return 1
         fi
     fi
-    echo "$now" > "$DEBOUNCE_FILE"
+    # DRY_RUN reads the window but never stamps it: a dry run must not make the
+    # next real drain look like a burst duplicate and skip.
+    [[ "$DRY_RUN" == "1" ]] || echo "$now" > "$DEBOUNCE_FILE"
     return 0
 }
 
@@ -335,6 +343,12 @@ record_cost_event() {
     # output classifier's verdict so `reflect cost --by writer` shows
     # writer-health; empty for pre-run outcomes that never spawned a writer.
     local entry_count="$1" transcript="$2" outcome="$3"
+    # DRY_RUN: the cost ledger feeds the daily cap, so a dry run must not write
+    # to it (a "dry_run" row used to count toward the cap).
+    if [[ "$DRY_RUN" == "1" ]]; then
+        log "    DRY_RUN=1 → would have recorded cost event: outcome=$outcome entries=$entry_count"
+        return 0
+    fi
     local tokens="${4:-0}" cost="${5:-0}" turns="${6:-0}" model="${7:-}"
     local cache_read="${8:-0}" cache_creation="${9:-0}" input_tok="${10:-0}" output_tok="${11:-0}"
     local writer_class="${12:-}"
@@ -405,6 +419,8 @@ quota_gate_closed() {
 # burns daily-cap budget.
 defer_queue_for_quota() {
     log "quota gate CLOSED (${QUOTA_REASON:-unknown}): deferring queue (reason=quota_near_limit); entries stay queued for replay"
+    # DRY_RUN: the deferral marker is durable state; the log line above is enough.
+    [[ "$DRY_RUN" == "1" ]] && return 0
     python3 "$QUOTA_SCRIPT" defer --state-dir "$STATE_DIR" \
         --reason quota_near_limit --detail "${QUOTA_REASON:-}" >/dev/null 2>&1 || true
     emit_error warn drain_quota_deferred "quota_near_limit: ${QUOTA_REASON:-}" ""
@@ -548,7 +564,11 @@ process_entry() {
     if [[ "$retry" -ge "$MAX_RETRIES" ]]; then
         log "  poison: $transcript (retries=$retry >= $MAX_RETRIES); archiving"
         emit_error error drain_poison "poison after $retry retries: $transcript" "$transcript"
-        printf '%s\n' "$entry_json" >> "$POISON_FILE"
+        if [[ "$DRY_RUN" == "1" ]]; then
+            log "    DRY_RUN=1 → would have archived to the poison file"
+        else
+            printf '%s\n' "$entry_json" >> "$POISON_FILE"
+        fi
         record_cost_event 0 "$transcript" "poison"
         return 2
     fi
@@ -568,7 +588,11 @@ process_entry() {
         # stdout. Capture stdout directly — do NOT `|| echo {}`, which would
         # append a second object and corrupt the parse. Empty (true crash)
         # falls through to the "reflect" default below (fail-open).
-        prep_json=$(python3 "$CASCADE_SCRIPT" prepare "$transcript" 2>>"$LOG_FILE")
+        # DRY_RUN passes --dry-run: prepare otherwise records chunk hashes and
+        # bumps proof counts, so the real run would then skip the same chunks.
+        local prep_flags=()
+        [[ "$DRY_RUN" == "1" ]] && prep_flags=(--dry-run)
+        prep_json=$(python3 "$CASCADE_SCRIPT" prepare "$transcript" ${prep_flags[@]+"${prep_flags[@]}"} 2>>"$LOG_FILE")
         [[ -z "$prep_json" ]] && prep_json='{}'
         prep_action=$(printf '%s' "$prep_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("action","reflect"))' 2>/dev/null || echo "reflect")
         prep_reason=$(printf '%s' "$prep_json" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("reason",""))' 2>/dev/null || echo "")
@@ -619,7 +643,6 @@ process_entry() {
             log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect $reflect_target"
         fi
         [[ -n "$slice_path" ]] && rm -f "$slice_path"
-        record_cost_event 1 "$transcript" "dry_run"
         return 0
     fi
 
@@ -1088,7 +1111,13 @@ main() {
         esac
     done < "$QUEUE_FILE"
 
-    if [[ -s "$processed_list_file" ]]; then
+    if [[ "$DRY_RUN" == "1" ]]; then
+        # A dry run must leave the queue exactly as found, whatever each entry
+        # would have done (consume, skip, poison, retry-tail).
+        if [[ -s "$processed_list_file" ]]; then
+            log "DRY_RUN=1 → queue left untouched ($(wc -l < "$processed_list_file" | tr -d '[:space:]') entries would have been removed)"
+        fi
+    elif [[ -s "$processed_list_file" ]]; then
         local kept
         kept=$(rewrite_queue "$processed_list_file")
         if [[ -s "$failed_queue_file" ]]; then

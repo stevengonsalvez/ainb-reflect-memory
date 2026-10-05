@@ -256,6 +256,7 @@ Read by `plugin/skills/recall/scripts/recall.py`. These tune ranking and are saf
 | `RECALL_EMBED_TIMEOUT` | `60` | Seconds for the embedding call used by MMR. |
 | `RECALL_TEMPORAL` | on | `0` disables query date-phrase extraction. |
 | `RECALL_TEMPORAL_ARM` | on | `0` disables the temporal retrieval arm. |
+| `REFLECT_RECALL_INCLUDE_SUPERSEDED` | unset | `1` keeps superseded and archived notes (frontmatter `superseded_by` or status, `archived/` and `.forgotten/` ids, ledger `is_latest = 0`) in recall results, for debugging. |
 | `RECALL_BITEMPORAL_EDGES` | on | `0` disables the supersession filter on graph edges for dated queries. |
 | `RECALL_FUZZY_CACHE` | on | `0` disables the fuzzy (Jaccard) cache tier. |
 | `RECALL_FUZZY_THRESHOLD` | `0.85` | Minimum token-set similarity for a fuzzy cache hit (0 to 1). |
@@ -298,7 +299,7 @@ Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain]
 | `REFLECT_DRAIN_MAINTAIN_EVERY` | `10` | Run the graph-maintenance sweep (orphan and stale prune, relink) once per N reindexing drains. `0` disables. |
 | `REFLECT_DRAIN_SKIP_REINDEX` | `0` | `1` skips the incremental reindex after a drain. |
 | `REFLECT_DRAIN_LOG_MAX_BYTES` | `10485760` | `drain.log` rotation threshold. |
-| `REFLECT_DRAIN_DRY_RUN` | `0` | `1` logs what would run and never calls `claude -p`. |
+| `REFLECT_DRAIN_DRY_RUN` | `0` | `1` logs what would run and never calls `claude -p`. Side-effect free: the queue, daily cap, ledgers and dedup hashes are left untouched. Only `drain.log` is written. |
 | `REFLECT_DRAIN_NO_DELEGATE` | `0` | Internal. `1` stops a Codex-installed copy of the drain from delegating to the newest Claude plugin-cache copy. |
 | `REFLECT_QUOTA_GATE` | `1` | Any value other than `1` skips the subscription-quota gate. When the gate is on, the queue is deferred (`quota_near_limit`) near a limit and replays later. |
 | `REFLECT_QUOTA_TTL_SEC` | `3600` | Freshness window for a quota snapshot; a stale snapshot opens the gate. |

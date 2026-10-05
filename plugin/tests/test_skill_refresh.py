@@ -341,8 +341,8 @@ def test_drain_processes_skill_refresh_task(tmp_path):
     # by the cascade ("cascade skip") or dropped as malformed.
     assert "skill-refresh publish" in log
     assert "cascade skip" not in log
-    # Processed entries leave the queue.
-    assert queue.read_text().strip() == ""
+    # Dry run: the entry is previewed, never consumed.
+    assert queue.read_text().strip() == json.dumps(entry)
 
 
 def test_drain_skill_refresh_missing_skill_md_is_permanent_skip(tmp_path):
@@ -359,7 +359,7 @@ def test_drain_skill_refresh_missing_skill_md_is_permanent_skip(tmp_path):
     queue.write_text(json.dumps(entry) + "\n")
 
     subprocess.run(
-        ["bash", str(DRAIN)], env=_drain_env(state),
+        ["bash", str(DRAIN)], env=_drain_env(state, REFLECT_DRAIN_DRY_RUN="0"),
         capture_output=True, text=True, timeout=60,
     )
     assert "skip-stale" in (state / "drain.log").read_text()

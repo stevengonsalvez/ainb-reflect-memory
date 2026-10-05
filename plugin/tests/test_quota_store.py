@@ -295,21 +295,23 @@ def test_deferred_queue_replays_once_quota_recovers(tmp_path):
     quota reopens the gate, the queue drains, and the marker clears."""
     state = tmp_path / "state"
     _make_queue(state, n=1)
+    fake = _fake_claude(tmp_path, json.dumps({
+        "type": "result", "is_error": False, "result": "captured", "num_turns": 1,
+        "total_cost_usd": 0.01, "usage": {"input_tokens": 10, "output_tokens": 10},
+    }))
     # 1) Quota near the wall: drain defers.
     _seed_state(state, {"status": "allowed_warning", "surpassedThreshold": 0.8,
                         "isUsingOverage": False})
-    _run_drain(state, REFLECT_DRAIN_DRY_RUN="1")
+    _run_drain(state, REFLECT_DRAIN_CLAUDE_BIN=fake, REFLECT_DRAIN_DRY_RUN="0")
     assert (state / "quota-deferred.json").exists()
     assert (state / "pending_reflections.jsonl").read_text().strip()
     # 2) Quota recovered (fresh allowed snapshot): the same queue replays.
     _seed_state(state, {"status": "allowed", "utilization": 0.1,
                         "isUsingOverage": False})
-    _run_drain(state, REFLECT_DRAIN_DRY_RUN="1")
+    _run_drain(state, REFLECT_DRAIN_CLAUDE_BIN=fake, REFLECT_DRAIN_DRY_RUN="0")
     assert (state / "pending_reflections.jsonl").read_text().strip() == ""
     # Gate-open check cleared the marker — its presence means "deferred now".
     assert not (state / "quota-deferred.json").exists()
-    log = (state / "drain.log").read_text()
-    assert "DRY_RUN=1" in log
 
 
 def test_drain_ingests_telemetry_and_gates_next_entry(tmp_path):
@@ -347,7 +349,12 @@ def test_gate_disabled_env_skips_quota_entirely(tmp_path):
     state = tmp_path / "state"
     _make_queue(state, n=1)
     _seed_state(state, {"status": "rejected"})
-    _run_drain(state, REFLECT_DRAIN_DRY_RUN="1", REFLECT_QUOTA_GATE="0")
+    fake = _fake_claude(tmp_path, json.dumps({
+        "type": "result", "is_error": False, "result": "captured", "num_turns": 1,
+        "total_cost_usd": 0.01, "usage": {"input_tokens": 10, "output_tokens": 10},
+    }))
+    _run_drain(state, REFLECT_DRAIN_CLAUDE_BIN=fake, REFLECT_DRAIN_DRY_RUN="0",
+               REFLECT_QUOTA_GATE="0")
     # Gate off: the entry processed despite the rejected snapshot.
     assert (state / "pending_reflections.jsonl").read_text().strip() == ""
     assert not (state / "quota-deferred.json").exists()

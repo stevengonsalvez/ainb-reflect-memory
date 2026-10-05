@@ -291,7 +291,8 @@ def _record_proof_for_hash(signal_hash: str, source_memory_id: str) -> int:
         return 0
 
 
-def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, int]:
+def _delta_retain_chunks(sliced: str, source_memory_id: str,
+                         dry_run: bool = False) -> tuple[str, int, int]:
     """S7 delta retain: drop slice chunks already reflected on a prior drain.
 
     Hashes each signal-window chunk (Hindsight ``_classify_chunk_diff`` /
@@ -312,7 +313,8 @@ def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, 
         return sliced, 0, 0
     try:
         import reflect_db
-        reflect_db.prune_chunk_hashes()
+        if not dry_run:
+            reflect_db.prune_chunk_hashes()
         hashes = [reflect_db.compute_chunk_hash(c) for c in chunks]
         seen = reflect_db.get_seen_chunk_hashes(hashes)
         kept: list[str] = []
@@ -323,7 +325,7 @@ def _delta_retain_chunks(sliced: str, source_memory_id: str) -> tuple[str, int, 
             kept.append(chunk)
             fresh.append(h)
         skipped = total - len(kept)
-        if fresh:
+        if fresh and not dry_run:
             reflect_db.record_chunk_hashes(fresh, source_memory_id=source_memory_id)
         filtered = "\n…\n".join(kept) if kept else ""
         return filtered, total, skipped
@@ -1598,8 +1600,13 @@ def bound_transcript(transcript: str | Path, *, out_path: Optional[str | Path] =
 
 
 def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LINES,
-            out_path: Optional[str | Path] = None) -> Prep:
-    """Gate + slice + hash-dedup. No LLM. Writes the slice file when reflecting."""
+            out_path: Optional[str | Path] = None, dry_run: bool = False) -> Prep:
+    """Gate + slice + hash-dedup. No LLM. Writes the slice file when reflecting.
+
+    ``dry_run`` makes the pass read-only against durable state: no proof bump,
+    no chunk-hash prune/record, no lifecycle event. Without it a dry-run drain
+    would mark the chunks as seen and the real drain would then skip them.
+    The returned verdict is the same one a live pass would reach."""
     p = Path(transcript)
     verdict = reflect_gate.evaluate(p)
     dialogue = reflect_gate.extract_dialogue(p) if p.exists() else ""
@@ -1615,10 +1622,11 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
     signals = detect_signals(dialogue)
     signal_hash = _signal_set_hash(signals)
     if _signal_hash_seen(signal_hash):
-        bumped = _record_proof_for_hash(signal_hash, str(p))
+        bumped = 0 if dry_run else _record_proof_for_hash(signal_hash, str(p))
         dup = Prep("skip", "dup-signal-hash", len(signals), orig_tokens, 0,
                    signal_hash=signal_hash, proof_bumped=bumped)
-        _emit_consolidation_completed(dup)
+        if not dry_run:
+            _emit_consolidation_completed(dup)
         return dup
 
     sliced = slice_dialogue(dialogue, signals, context_lines)
@@ -1629,7 +1637,8 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
     # drain (re-running drain on an identical transcript yields 0 new chunks ->
     # 0 new learnings). When every chunk is a known re-run, skip the whole
     # transcript instead of handing the drain an empty slice.
-    sliced, chunks_total, chunks_skipped = _delta_retain_chunks(sliced, str(p))
+    sliced, chunks_total, chunks_skipped = _delta_retain_chunks(
+        sliced, str(p), dry_run=dry_run)
     if chunks_total and chunks_skipped == chunks_total:
         return Prep("skip", "dup-chunk-hash", len(signals), orig_tokens, 0,
                     signal_hash=signal_hash, chunks_total=chunks_total,
@@ -1690,7 +1699,8 @@ def prepare(transcript: str | Path, *, context_lines: int = _DEFAULT_CONTEXT_LIN
     body += _build_observation_block(observations, str(p))
     Path(out_path).write_text(body, encoding="utf-8")
     prep.slice_path = str(out_path)
-    _emit_consolidation_completed(prep)
+    if not dry_run:
+        _emit_consolidation_completed(prep)
     return prep
 
 
@@ -1793,6 +1803,8 @@ def main() -> None:
     pp.add_argument("transcript")
     pp.add_argument("--out", default=None)
     pp.add_argument("--context", type=int, default=_DEFAULT_CONTEXT_LINES)
+    pp.add_argument("--dry-run", action="store_true",
+                    help="decide only: no chunk-hash/proof/event writes")
     rv = sub.add_parser("revise")
     rv.add_argument(
         "--actions", default="-",
@@ -1844,7 +1856,8 @@ def main() -> None:
         sys.exit(0 if summary.get("recorded") else 1)
 
     if args.cmd == "prepare":
-        prep = prepare(args.transcript, context_lines=args.context, out_path=args.out)
+        prep = prepare(args.transcript, context_lines=args.context, out_path=args.out,
+                       dry_run=args.dry_run)
         print(json.dumps(asdict(prep)))
         # exit 0 = reflect (slice ready), 1 = skip
         sys.exit(0 if prep.action == "reflect" else 1)
