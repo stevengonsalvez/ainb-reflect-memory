@@ -32,6 +32,7 @@ from typing import Any, Iterable, Optional
 
 import yaml
 
+from reflect_kb import okf
 from reflect_kb.cli.learnings_cli import (
     DOCUMENTS_DIR,
     generate_document_id,
@@ -153,6 +154,8 @@ class _Doc:
         }
         if self.supersedes:
             fm["supersedes"] = self.supersedes
+        fm = okf.to_okf(fm, self.body, actor=okf.writer_actor("reflect-fleet-import"),
+                        now=okf.file_mtime(Path(self.source_path)))
         front = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
         return f"---\n{front}\n---\n\n{self.body.strip()}\n"
 

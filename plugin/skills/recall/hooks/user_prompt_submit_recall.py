@@ -91,6 +91,14 @@ except ImportError:
                 return data[k]
         return default
 
+# OKF v0.2 note profile (stdlib-only). Same import-or-fallback convention: in
+# layouts where scripts/ does not resolve, notes still carry OKF's one
+# required key (`type`) via the inline renderer in _note_frontmatter.
+try:
+    import okf_profile
+except ImportError:
+    okf_profile = None  # type: ignore[assignment]
+
 
 # --- Tunables ------------------------------------------------------------
 
@@ -346,6 +354,30 @@ def filter_to_new(markdown: str, already_injected: set[str]) -> tuple[str, list[
 
 # --- Mini-learning capture (Phase 2 of PostToolUse arming) ---------------
 
+def _note_frontmatter(fields: dict, body: str) -> str:
+    """OKF-conformant frontmatter block for a hook-captured learning."""
+    if okf_profile is not None:
+        actor = okf_profile.actor("reflect-mini", okf_profile.manifest_version(_PLUGIN_ROOT))
+        # User text: single line, capped, no `---` run that could read as a fence.
+        fields = {**fields, "description": okf_profile.one_line(fields.get("description", ""))}
+        return okf_profile.render_frontmatter(okf_profile.to_okf(fields, body, actor=actor))
+    lines = ["type: learning"] + [f"{k}: {_fallback_scalar(v)}" for k, v in fields.items()]
+    return "---\n" + "\n".join(lines) + "\n---\n"
+
+
+def _fallback_scalar(value) -> str:
+    """Minimal okf_profile.one_line + safe quoting for layouts without scripts/.
+
+    One line, printable characters only (no lone surrogates, BOMs or C1
+    controls that YAML or UTF-8 would reject), runs of 3+ hyphens collapsed so
+    nothing reads as a `---` fence, capped at 200 chars. ensure_ascii=False
+    keeps astral characters (emoji) whole instead of as surrogate escapes.
+    """
+    text = "".join(ch for ch in " ".join(str(value).split()) if ch.isprintable())
+    text = re.sub(r"-{3,}", "-", text)[:200]
+    return json.dumps(text, ensure_ascii=False)
+
+
 def maybe_capture_minilearning(session_id: str, prompt: str) -> bool:
     """If PostToolUse armed a watcher for this session and the current
     prompt looks like a correction, write a low-confidence learning to
@@ -391,23 +423,27 @@ def maybe_capture_minilearning(session_id: str, prompt: str) -> bool:
         tool = armed_data.get("tool", "unknown")
         tool_input = scrub_secrets(str(armed_data.get("tool_input", ""))[:200])
         tool_response = scrub_secrets(str(armed_data.get("tool_response", ""))[:200])
+        correction = scrub_secrets(prompt[:500])
+        title = f"Mini-learning: {tool} correction"
         body = (
-            f"---\n"
-            f"id: {slug}\n"
-            f"confidence: low\n"
-            f"source: posttooluse-minilearning\n"
-            f"session_id: {session_id}\n"
-            f"captured_at: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
-            f"---\n\n"
-            f"# Mini-learning: {tool} correction\n\n"
+            f"# {title}\n\n"
             f"**Failed tool call**: `{tool}`\n\n"
             f"Input (truncated): `{tool_input}`\n\n"
             f"Response (truncated): `{tool_response}`\n\n"
-            f"**User correction**: {scrub_secrets(prompt[:500])}\n\n"
+            f"**User correction**: {correction}\n\n"
             f"_Auto-captured by the PostToolUse + UserPromptSubmit watcher. "
             f"Confidence is `low` — review before relying on it._\n"
         )
-        path.write_text(body, encoding="utf-8")
+        frontmatter = _note_frontmatter({
+            "id": slug,
+            "title": title,
+            "description": f"User correction after a failed {tool} call: {correction}",
+            "confidence": "low",
+            "source": "posttooluse-minilearning",
+            "session_id": session_id,
+            "captured_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }, body)
+        path.write_text(frontmatter + "\n" + body, encoding="utf-8")
         forensics_log(_HOOK_NAME, f"mini-learning captured: {slug}")
     except Exception:
         return False
@@ -475,15 +511,9 @@ def maybe_capture_permission_reply(session_id: str, prompt: str) -> bool:
         path = ld / f"{slug}.md"
         tool = str(armed_data.get("tool", "unknown") or "unknown")
         message = scrub_secrets(str(armed_data.get("message", ""))[:300])
+        title = f"Permission decision: {decision} for {tool}"
         body = (
-            f"---\n"
-            f"id: {slug}\n"
-            f"confidence: {confidence}\n"
-            f"source: permission-pattern\n"
-            f"session_id: {session_id}\n"
-            f"captured_at: {time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n"
-            f"---\n\n"
-            f"# Permission decision: {decision} for {tool}\n\n"
+            f"# {title}\n\n"
             f"**Permission prompt**: {message}\n\n"
             f"**Tool**: `{tool}`\n\n"
             f"**User reply**: {scrub_secrets(prompt[:300])}\n\n"
@@ -492,7 +522,16 @@ def maybe_capture_permission_reply(session_id: str, prompt: str) -> bool:
             f"watcher. Durable replies ('always'/'never'/'only for X') are "
             f"`high` confidence — they state project policy._\n"
         )
-        path.write_text(body, encoding="utf-8")
+        frontmatter = _note_frontmatter({
+            "id": slug,
+            "title": title,
+            "description": f"User answered {decision} to a {tool} permission prompt.",
+            "confidence": confidence,
+            "source": "permission-pattern",
+            "session_id": session_id,
+            "captured_at": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }, body)
+        path.write_text(frontmatter + "\n" + body, encoding="utf-8")
         forensics_log(_HOOK_NAME, f"permission-pattern captured: {slug} ({decision})")
     except Exception:
         return False

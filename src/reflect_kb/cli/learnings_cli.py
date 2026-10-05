@@ -466,7 +466,25 @@ def add(file_path: str, entities: Optional[str], force: bool):
             if not click.confirm(f"Document {dest.name} exists. Overwrite?"):
                 return
 
-    shutil.copy(source, dest)
+    # OKF v0.2 profile: store the note with the OKF keys it is missing. Only
+    # frontmatter lines are added; body bytes (and so the doc id) never change.
+    # An already-conformant note is copied byte-for-byte, mode included.
+    raw = source.read_bytes()
+    stored = raw
+    try:
+        text = raw.decode("utf-8")
+        normalized = okf.normalize_note(
+            text, actor=okf.writer_actor("reflect-cli"), now=okf.file_mtime(source))
+        if normalized != text:
+            stored = normalized.encode("utf-8")
+    except (UnicodeDecodeError, ValueError) as e:
+        console.print(f"[yellow]Warning: stored verbatim, could not add OKF keys: {e}[/yellow]")
+    if stored is not raw:
+        dest.write_bytes(stored)  # bytes: no newline translation, CRLF survives
+        shutil.copymode(source, dest)
+        content = stored.decode("utf-8")
+    elif source.resolve() != dest.resolve():
+        shutil.copy(source, dest)
 
     # Load or auto-generate entity sidecar
     entities_formatted = None

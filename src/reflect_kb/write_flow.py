@@ -119,7 +119,17 @@ def _copy_into_team(doc: Path, team_root: Path) -> list[Path]:
     docs_dir = team_root / "documents"
     docs_dir.mkdir(parents=True, exist_ok=True)
     dest_doc = docs_dir / doc.name
-    dest_doc.write_bytes(doc.read_bytes())
+    # The team copy is an OKF v0.2 concept even when the local source predates
+    # the profile; the source itself is never rewritten. Unsafe-to-edit
+    # frontmatter falls back to a verbatim copy (no data loss).
+    raw = doc.read_bytes()
+    try:
+        raw = okf.normalize_note(
+            raw.decode("utf-8"), actor=okf.writer_actor("reflect-share"),
+            now=okf.file_mtime(doc)).encode("utf-8")
+    except (UnicodeDecodeError, ValueError):
+        pass
+    dest_doc.write_bytes(raw)
     staged = [dest_doc]
     sidecar = _find_sidecar(doc)
     if sidecar is not None:
