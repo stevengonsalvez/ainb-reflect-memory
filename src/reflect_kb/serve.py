@@ -41,6 +41,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import yaml
 
+from reflect_kb import errors as _err
+from reflect_kb import okf
 from reflect_kb.cli.learnings_cli import (
     CACHE_DIR,
     DOCUMENTS_DIR,
@@ -429,6 +431,57 @@ class KnowledgeBase:
                 md_dst.replace(md_src)
                 raise
 
+    @staticmethod
+    def _status_marker(archive_dir: Path, stem: str) -> Path:
+        """Archive-side record that archive set `status: deprecated`.
+
+        Holds the note's prior OKF status ("" when it had none), so restore
+        undoes exactly what archive did and nothing else. Lives in archived/
+        only (not *.md, so archive listings ignore it).
+        """
+        return archive_dir / f"{stem}.okf-prior-status"
+
+    @classmethod
+    def _stamp_archived(cls, md: Path, marker: Path, *, archived: bool) -> None:
+        """Mirror archive state into OKF `status` via the Rule S9 carve-out.
+
+        Archive sets `status: deprecated` and records the prior value in
+        `marker`; restore puts that prior value back and drops the marker. A
+        note that was already deprecated, or carries a status outside OKF's
+        vocabulary (observations use `active|retired`), is left untouched and
+        gets no marker, so restore leaves it untouched too.
+
+        Runs AFTER the move, so nothing may escape: the move is the archive,
+        and a stamp failure is logged to the reflect error sink instead.
+        """
+        try:
+            text = md.read_bytes().decode("utf-8")  # bytes: keep CRLF intact
+            if archived:
+                status = okf.parse_note(text)[0].get("status")
+                if status is not None and status not in okf.STATUSES:
+                    return
+                if status == "deprecated":
+                    return
+                updated = okf.set_lifecycle_fields(text, status="deprecated")
+                # Marker before the note: if the note write fails, restore
+                # still resets to the prior value (a no-op on disk).
+                marker.write_text(status or "")
+                cls._atomic_write(md, updated)
+                return
+            if not marker.exists():
+                return
+            prior = marker.read_text().strip() or None
+            updated = okf.set_lifecycle_fields(text, status=prior)
+            if updated != text:
+                cls._atomic_write(md, updated)
+            marker.unlink()
+        except Exception as exc:  # noqa: BLE001 (post-move: must not fail the mutation)
+            try:
+                _err.append("warn", "serve", "okf_status_stamp_failed",
+                            f"{md.name}: {exc}", {"archived": archived})
+            except Exception:  # noqa: BLE001, S110 (the error sink is best-effort)
+                pass
+
     def archive(self, doc_id: str) -> Dict[str, Any]:
         """Soft-archive: move note + sidecar out of documents/ into archived/.
 
@@ -450,6 +503,8 @@ class KnowledgeBase:
                 raise MutationError(f"archive already contains {md.name}")
             self._move_pair(md, dest_dir / md.name,
                             sidecar, dest_dir / (md.stem + ".entities.yaml"))
+            self._stamp_archived(dest_dir / md.name,
+                                 self._status_marker(dest_dir, md.stem), archived=True)
             self._dequeue_from_compress(doc_id)
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": True, "graph_index_stale": True}
@@ -476,6 +531,8 @@ class KnowledgeBase:
             sidecar = adir / (src.stem + ".entities.yaml")
             self._move_pair(src, docs_dir / src.name,
                             sidecar, docs_dir / (src.stem + ".entities.yaml"))
+            self._stamp_archived(docs_dir / src.name,
+                                 self._status_marker(adir, src.stem), archived=False)
             self._invalidate()
         return {"ok": True, "id": doc_id, "archived": False, "graph_index_stale": True}
 
