@@ -16,6 +16,8 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import yaml
 
+from reflect_kb import okf
+
 ENTITY_TYPES = {"technology", "error", "pattern", "function", "concept", "tool",
                 "artifact", "code", "config", "service", "platform", "framework", "library"}
 # S2: typed causal links (Hindsight memory_links shape — causes/caused_by/
@@ -354,8 +356,12 @@ def auto_extract_entities(content: str, frontmatter: Dict) -> DocumentEntities:
     fm_entities, seen_names = _extract_from_frontmatter(frontmatter)
 
     # Extract backtick terms from body
-    body_start = content.find("---", 3)
-    body = content[body_start + 3:] if body_start > 0 else content
+    # Delimiter LINES only: a `---` inside a frontmatter value must not make
+    # the rest of the frontmatter look like body text.
+    try:
+        body = okf.parse_note(content)[1]
+    except ValueError:
+        body = content
     backtick_terms = _extract_backtick_terms(body)
 
     # Extract known technology names from body text

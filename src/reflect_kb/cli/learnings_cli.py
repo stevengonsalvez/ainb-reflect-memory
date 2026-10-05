@@ -19,12 +19,12 @@ from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 import click
-import yaml
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
 from reflect_kb import __version__
+from reflect_kb import okf
 from reflect_kb.metrics import write_metric
 from reflect_kb import errors as _err
 
@@ -88,19 +88,19 @@ def index_is_stale() -> bool:
 
 
 def parse_frontmatter(content: str) -> tuple[Dict[str, Any], str]:
-    if not content.startswith("---"):
-        return {}, content
+    """(frontmatter, stripped body); ({}, content) when absent or unparseable.
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
+    Splits only on `---` delimiter LINES (okf.parse_note): splitting on the
+    text `---` let a value such as `title: cost --- benefit` truncate the
+    block, and every reader (add, serve, importer) lost the note's metadata.
+    """
+    if not okf.has_frontmatter(content):
         return {}, content
-
     try:
-        frontmatter = yaml.safe_load(parts[1])
-        body = parts[2].strip()
-        return frontmatter or {}, body
-    except yaml.YAMLError:
+        frontmatter, body = okf.parse_note(content)
+    except ValueError:
         return {}, content
+    return frontmatter, body.strip()
 
 
 def generate_document_id(title: str, body: str = "") -> str:
