@@ -179,11 +179,11 @@ Learnings leave circulation through several separate mechanisms. Full mechanics,
 Recall enforces retirement. After the arms are fetched and before ranking and final selection, `recall.py` drops a candidate when any of these hold:
 
 - its frontmatter has `superseded_by` set, or `status` is `superseded` or `archived`;
-- a note with the same id sits in `archived/` or `documents/.forgotten/`, which covers the graph cache and the temporal arm still returning a note until `reflect reindex`;
+- a note with the same id sits in `archived/` or `documents/.forgotten/` (a `.N` collision suffix is stripped only where the sweep writes one, in `.forgotten/` next to its base file, so `python-3.12` stays `python-3.12`), which covers the graph cache and the temporal arm still returning a note until `reflect reindex`;
 - the ledger (`reflect.db`, opened read-only) has a row with `is_latest = 0` or status `superseded` or `archived` for it.
 
 :::note
-Ledger rows carry their own generated ids, so recall links a row to a note through the note at the row's `artifact_path` (its file stem or frontmatter id) or a matching `content_hash`. The TTL sweep and anything else that records `artifact_path` link reliably. A row with neither (the cascade's CREATE writes no `artifact_path`) cannot be matched to a note file, so a contradiction demotion on such a row stays ledger-only until the note is archived or carries `superseded_by`. With no ledger file, recall skips that signal and nothing fails. Set `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` to bypass the filter when debugging.
+Ledger rows carry their own generated ids, so recall links a row to a note through the note at the row's `artifact_path` (its file stem or frontmatter id) or a matching `content_hash`. The TTL sweep and anything else that records `artifact_path` link reliably. A row with neither (the cascade's CREATE writes no `artifact_path`) cannot be matched to a note file, so a contradiction demotion on such a row stays ledger-only until the note is archived or carries `superseded_by`. With no ledger file, recall skips that signal and nothing fails. Recall checks only the candidates: retired notes are opened only when their file name or ledger row links to a candidate. Set `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` to bypass the filter when debugging.
 :::
 
 ## Team routing

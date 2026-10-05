@@ -260,7 +260,7 @@ Alphas are clamped to 0..2; a malformed value falls back to the default. Recency
 
 ### 7. Filters, gate, MMR, budget
 
-Before any of this (after fusion, before rerank), `filter_superseded()` drops notes retired by frontmatter (`superseded_by` set, `status` superseded or archived), notes whose id sits in `archived/` or `documents/.forgotten/`, and notes whose ledger row has `is_latest = 0`. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off. A missing ledger is fine; ledger ids differ from note ids, so a ledger-only retirement with no `artifact_path` cannot always be linked to a file.
+Before any of this (after fusion, before rerank), `filter_superseded()` drops notes retired by frontmatter (`superseded_by` set, `status` superseded or archived), notes whose id sits in `archived/` or `documents/.forgotten/`, and notes whose ledger row has `is_latest = 0`. Matching is on note id (never name) and content hash, and only retired notes whose file name or ledger row links to a candidate are opened, so the cost does not grow with the retired backlog. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off. A missing ledger is fine; ledger ids differ from note ids, so a ledger-only retirement with no `artifact_path` cannot always be linked to a file.
 
 Applied in this order after scoring:
 

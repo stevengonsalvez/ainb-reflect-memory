@@ -2160,8 +2160,10 @@ def _retire_key(raw: Any) -> str:
 
 
 def _note_keys(lrn: Learning) -> set[str]:
+    """Identity keys of a note: its id (its name only when it has no id, as in
+    ``Learning.id``) and content hashes. A name never matches another note's id."""
     fm = lrn.frontmatter
-    keys = {_retire_key(fm.get("id")), _retire_key(fm.get("name"))}
+    keys = {_retire_key(fm.get("id") or fm.get("name"))}
     prov = fm.get("provenance")
     for h in (fm.get("content_hash"), prov.get("content_hash") if isinstance(prov, dict) else None):
         if h:
@@ -2177,21 +2179,55 @@ def is_superseded_in_frontmatter(lrn: Learning) -> bool:
     return str(fm.get("status") or "").strip().lower() in RETIRED_STATUSES
 
 
-def _archived_dir_keys(docs_root: Path) -> set[str]:
+# Retired-note files are named <slug>-<hash6>.md and the drain's note id is
+# lrn-<slug>-<hash6>, so the trailing hash6 links a file name to a candidate id
+# without opening the file. Only files that link to a candidate are read.
+_HASH_TAIL_RE = re.compile(r"[0-9a-f]{6}")
+# reflect_forget_sweep.archive_artifact_file suffixes a name collision in
+# .forgotten/ as <stem>.<i><suffix> with i in 1..999. archived/ never suffixes.
+_COLLISION_SUFFIX_RE = re.compile(r"\.[1-9]\d{0,2}$")
+
+
+def _hash_tail(key: str) -> str:
+    tail = key.rsplit("-", 1)[-1]
+    return tail if _HASH_TAIL_RE.fullmatch(tail) else ""
+
+
+def _may_be_candidate(stem_key: str, want: set[str], tails: set[str]) -> bool:
+    return stem_key in want or _hash_tail(stem_key) in tails
+
+
+def _fm_id_key(fm: dict[str, Any]) -> str:
+    return _retire_key(fm.get("id") or fm.get("name"))
+
+
+def _archived_dir_keys(docs_root: Path, want: set[str], tails: set[str]) -> set[str]:
+    """Retired keys from archived/ and .forgotten/. Lists names only; opens a
+    file only when its name could belong to a candidate (``want`` ids / hash6
+    ``tails``), so cost does not grow with the number of retired notes."""
     keys: set[str] = set()
-    for d in (docs_root.parent / "archived", docs_root / ".forgotten"):
+    for d, sweep_dir in ((docs_root.parent / "archived", False), (docs_root / ".forgotten", True)):
         try:
             paths = sorted(d.glob("*.md")) if d.is_dir() else []
         except OSError:
             continue
+        names = {p.name for p in paths}
         for path in paths:
-            # the sweep suffixes name collisions as <stem>.1.md, <stem>.2.md
-            keys.add(_retire_key(re.sub(r"\.\d+$", "", path.stem)))
+            stems = {_retire_key(path.stem)}
+            m = _COLLISION_SUFFIX_RE.search(path.stem) if sweep_dir else None
+            if m:
+                base = path.stem[: m.start()]
+                stems.add(_retire_key(base))
+                if f"{base}.md" in names:  # a real collision: the base file is still there
+                    keys.add(_retire_key(base))
+            keys.add(_retire_key(path.stem))
+            if not any(_may_be_candidate(k, want, tails) for k in stems):
+                continue
             try:
                 fm, _ = parse_frontmatter(path.read_text())
             except (OSError, UnicodeDecodeError):
                 continue
-            keys.update({_retire_key(fm.get("id")), _retire_key(fm.get("name"))})
+            keys.add(_fm_id_key(fm))
     keys.discard("")
     return keys
 
@@ -2208,9 +2244,10 @@ def _ledger_db_path() -> Path | None:
         return None  # stripped deploy: no ledger signal
 
 
-def _ledger_retired_keys() -> set[str]:
+def _ledger_retired_keys(want: set[str], tails: set[str]) -> set[str]:
     """Keys of ledger rows retired by supersession, revert or archive. Opens the
-    DB read-only (never creates it); a missing or unreadable ledger is empty."""
+    DB read-only (never creates it); a missing or unreadable ledger is empty.
+    Retired notes are only read when their file name could belong to a candidate."""
     db = _ledger_db_path()
     if db is None or not db.is_file():
         return set()
@@ -2232,12 +2269,14 @@ def _ledger_retired_keys() -> set[str]:
             note = Path(str(artifact_path)).expanduser()
             keys.add(_retire_key(note.stem))
             # File names (slug-hash6) are not frontmatter ids (lrn-...), so read
-            # the retired note itself for the id recall will see on candidates.
-            try:
-                fm, _ = parse_frontmatter(note.read_text())
-            except (OSError, UnicodeDecodeError):
-                fm = {}
-            keys.update({_retire_key(fm.get("id")), _retire_key(fm.get("name"))})
+            # the retired note for the id recall will see on candidates, but
+            # only when its name links to one.
+            if _may_be_candidate(_retire_key(note.stem), want, tails):
+                try:
+                    fm, _ = parse_frontmatter(note.read_text())
+                except (OSError, UnicodeDecodeError):
+                    fm = {}
+                keys.add(_fm_id_key(fm))
         if content_hash:
             keys.add(f"hash:{content_hash}")
     keys.discard("")
@@ -2255,19 +2294,19 @@ def filter_superseded(
     """
     if not learnings or include_superseded():
         return learnings
-    retired: set[str] | None = None
-    kept: list[Learning] = []
-    for lrn in learnings:
-        if is_superseded_in_frontmatter(lrn):
-            continue
-        if retired is None:  # lazy: skip all IO when nothing to check
-            retired = _ledger_retired_keys()
-            if docs_root is not None:
-                retired |= _archived_dir_keys(docs_root)
-        if retired & _note_keys(lrn):
-            continue
-        kept.append(lrn)
-    return kept
+    live = [lrn for lrn in learnings if not is_superseded_in_frontmatter(lrn)]
+    if not live:
+        return []
+    # Work is scoped to the candidates: only retired notes whose name or hash
+    # links to one are opened, so a KB with thousands of retired notes costs
+    # the same per prompt as one with none.
+    cand_keys = [_note_keys(lrn) for lrn in live]
+    want = set().union(*cand_keys)
+    tails = {t for k in want if (t := _hash_tail(k))}
+    retired = _ledger_retired_keys(want, tails)
+    if docs_root is not None:
+        retired |= _archived_dir_keys(docs_root, want, tails)
+    return [lrn for lrn, keys in zip(live, cand_keys) if not retired & keys]
 
 
 def _content_terms(text: str) -> set[str]:

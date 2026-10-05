@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import stat
 import subprocess
 import sys
@@ -243,6 +244,111 @@ def test_filter_superseded_unit_empty_and_opt_out(monkeypatch):
     assert recall_mod.filter_superseded([lrn]) == [lrn]
     monkeypatch.setenv("REFLECT_RECALL_INCLUDE_SUPERSEDED", "0")
     assert recall_mod.filter_superseded([lrn]) == []
+
+
+def _seed_retired_noise(kb, n: int) -> None:
+    """n retired notes unrelated to any candidate: n archived/ files, n
+    .forgotten/ files and n retired ledger rows each pointing at a note file."""
+    archived = kb.root / "archived"
+    forgotten = kb.docs / ".forgotten"
+    noise = kb.root / "noise"
+    for d in (archived, forgotten, noise):
+        d.mkdir(exist_ok=True)
+    rows = []
+    for i in range(n):
+        stem = f"unrelated-topic-{i}-{i % 4096 + 0x10000:x}"[:60]
+        body = _note(f"lrn-unrelated-topic-{i}-{i:06x}", f"Unrelated {i}", body="kubernetes ingress")
+        (archived / f"{stem}.md").write_text(body)
+        (forgotten / f"{stem}.md").write_text(body)
+        (noise / f"{stem}.md").write_text(body)
+        rows.append((f"lrn-ledger-noise-{i}", str(noise / f"{stem}.md"), f"noisehash{i}"))
+    conn = reflect_db.init_db(kb.db)
+    try:
+        with conn:
+            tid = reflect_db.add_learning("template", conn=conn)
+            conn.row_factory = sqlite3.Row
+            tpl = dict(conn.execute("SELECT * FROM learnings WHERE id = ?", (tid,)).fetchone())
+            conn.row_factory = None
+            conn.execute(
+                "UPDATE learnings SET is_latest = 0, status = 'superseded' WHERE id = ?", (tid,)
+            )
+            cols = list(tpl)
+            conn.executemany(
+                f"INSERT INTO learnings ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})",
+                [
+                    tuple(
+                        {**tpl, "id": lid, "artifact_path": path, "content_hash": h,
+                         "is_latest": 0, "status": "superseded"}[c]
+                        for c in cols
+                    )
+                    for lid, path, h in rows
+                ],
+            )
+    finally:
+        reflect_db.close_all()
+
+
+def test_unrelated_retired_notes_are_not_read(kb, monkeypatch):
+    """Cost must not scale with the retired backlog: 2000 retired notes in the
+    ledger, archived/ and .forgotten/ that match no candidate are never opened,
+    while a retired note that does match a candidate is still dropped."""
+    n = 2000
+    _seed_retired_noise(kb, n)
+    (kb.root / "archived" / "redis-pool-exhaustion-old-advice-aaaaaa.md").write_text(OLD)
+
+    monkeypatch.setenv("REFLECT_DB_PATH", str(kb.db))
+    reads: list[Path] = []
+    real_read_text = Path.read_text
+
+    def counting_read_text(self, *a, **kw):
+        reads.append(self)
+        return real_read_text(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+    lo = recall_mod.Learning(chunk_text="old", frontmatter=recall_mod.parse_frontmatter(OLD)[0])
+    ln = recall_mod.Learning(chunk_text="new", frontmatter=recall_mod.parse_frontmatter(NEW)[0])
+    kept = recall_mod.filter_superseded([lo, ln], kb.docs)
+
+    assert [x.id for x in kept] == ["lrn-pool-new-bbbbbb"]
+    assert len(reads) <= 2, f"read {len(reads)} retired notes for 2 candidates"
+
+
+def test_archived_note_named_like_live_id_does_not_drop_live_note(kb):
+    """Matching is on id, not name: an archived note whose *name* equals a live
+    note's id (and whose file name links to it, so it is opened) must not drop it."""
+    archived = kb.root / "archived"
+    archived.mkdir()
+    (archived / "something-else-bbbbbb.md").write_text(
+        "---\nid: lrn-something-else-bbbbbb\nname: lrn-pool-new-bbbbbb\n"
+        "title: Other\nconfidence: high\n---\nother note\n"
+    )
+    kb.serve(OLD, NEW)
+    assert sorted(kb.run("--no-cache")) == ["lrn-pool-new-bbbbbb", "lrn-pool-old-aaaaaa"]
+
+
+def test_dotted_stem_is_not_mistaken_for_a_collision_suffix(kb):
+    """python-3.12 is a name, not python-3 plus a collision counter."""
+    forgotten = kb.docs / ".forgotten"
+    forgotten.mkdir()
+    (forgotten / "python-3.12.md").write_text(
+        _note("lrn-python-312-dddddd", "Python 3.12 retired advice")
+    )
+    py3 = _note("python-3", "Python 3 pool advice")
+    kb.serve(py3, NEW)
+    assert sorted(kb.run("--no-cache")) == ["lrn-pool-new-bbbbbb", "python-3"]
+
+
+def test_sweep_collision_suffix_maps_to_base_stem_only_when_base_exists(tmp_path):
+    """The sweep writes <stem>.<i>.md only when <stem>.md is already there."""
+    docs = tmp_path / "kb" / "documents"
+    forgotten = docs / ".forgotten"
+    forgotten.mkdir(parents=True)
+    for name in ("dup-note.md", "dup-note.1.md", "dup-note.2.md", "lone.1.md", "python-3.12.md"):
+        (forgotten / name).write_text("---\nid: x\n---\nbody\n")
+    keys = recall_mod._archived_dir_keys(docs, set(), set())
+    assert "dup-note" in keys
+    assert "lone" not in keys and "python-3" not in keys
+    assert {"dup-note.1", "lone.1", "python-3.12"} <= keys
 
 
 if __name__ == "__main__":
