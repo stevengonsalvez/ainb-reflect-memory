@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 734" width="680" height="734" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="rp-t rp-d">
+<title id="rp-t">reflect recall pipeline</title>
+<desc id="rp-d">Stages of a recall from hook trigger to injected context: persona lookup, scope, cache, four parallel arms (vector, BM25, graph, temporal), RRF fusion, cross-encoder and embeddings, bounded-boost scoring, filters, OOD gate, MMR, token budget, injection.</desc>
+<style>
+svg{color:#55544e;--rp-text:#1b1b24;--rp-muted:#55544e;--rp-line:#b9b6aa;--rp-accent:#3e68c2;--rp-arm:#3f8a5a;--rp-gate:#a8841a;--rp-ok:#3f8a5a;--rp-box-bg:#ffffff;--rp-core-bg:#f0eee6;--rp-hook-bg:#e7eefb;--rp-arm-bg:#e8f3ec;--rp-gate-bg:#faf3dc;--rp-out-bg:#e3f1e8}
+@media (prefers-color-scheme:dark){svg{color:#b4b4c6;--rp-text:#f2f2f8;--rp-muted:#b4b4c6;--rp-line:#5e5e74;--rp-accent:#8fb3f7;--rp-arm:#64c864;--rp-gate:#ffd700;--rp-ok:#64c864;--rp-box-bg:#252535;--rp-core-bg:#3a3a4e;--rp-hook-bg:#1b2a47;--rp-arm-bg:#1f3326;--rp-gate-bg:#3a3516;--rp-out-bg:#1f3a2a}}
+.rp-box{stroke-width:1.4}
+.rp-hook{fill:var(--rp-hook-bg);stroke:var(--rp-accent)}
+.rp-core{fill:var(--rp-core-bg);stroke:var(--rp-line)}
+.rp-step{fill:var(--rp-box-bg);stroke:var(--rp-line)}
+.rp-arm{fill:var(--rp-arm-bg);stroke:var(--rp-arm)}
+.rp-gate{fill:var(--rp-gate-bg);stroke:var(--rp-gate)}
+.rp-out{fill:var(--rp-out-bg);stroke:var(--rp-ok)}
+.rp-group{fill:none;stroke:var(--rp-line);stroke-width:1.2;stroke-dasharray:6 4}
+.rp-arrow{stroke:currentColor;stroke-width:1.6;opacity:.75}
+.rp-head{fill:currentColor;opacity:.75}
+.rp-title{fill:var(--rp-text);font-size:13px;font-weight:700}
+.rp-sub{fill:var(--rp-muted);font-size:11.5px}
+.rp-glabel{fill:var(--rp-muted);font-size:11.5px;font-style:italic}
+</style>
+<defs><marker id="rp-ah" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto"><path d="M0,0 L9,3.5 L0,7 Z" class="rp-head"/></marker></defs>
+<rect x="2" y="228" width="676" height="112" rx="10" class="rp-group"/>
+<text x="16" y="247" class="rp-glabel">4 arms in parallel (4 threads); a failed arm returns []</text>
+<line x1="112" y1="70" x2="112" y2="90" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="70" x2="340" y2="90" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="568" y1="70" x2="568" y2="90" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="124" x2="340" y2="146" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="218" y1="175" x2="234" y2="175" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="446" y1="175" x2="462" y2="175" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="204" x2="340" y2="228" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="340" x2="340" y2="360" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="170" y1="394" x2="170" y2="416" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="510" y1="394" x2="510" y2="416" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="170" y1="474" x2="170" y2="496" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="510" y1="474" x2="510" y2="496" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="554" x2="340" y2="574" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="167" y1="603" x2="175" y2="603" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="336" y1="603" x2="344" y2="603" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="505" y1="603" x2="513" y2="603" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<line x1="340" y1="632" x2="340" y2="654" class="rp-arrow" marker-end="url(#rp-ah)"/>
+<rect x="6" y="8" width="212" height="62" rx="8" class="rp-box rp-hook"/>
+<text x="112.0" y="28.0" class="rp-title" text-anchor="middle">SessionStart hook</text>
+<text x="112.0" y="43.0" class="rp-sub" text-anchor="middle">query: project, branch, commits</text>
+<text x="112.0" y="58.0" class="rp-sub" text-anchor="middle">limit 3, 1500 chars, overlap 0.2</text>
+<rect x="234" y="8" width="212" height="62" rx="8" class="rp-box rp-hook"/>
+<text x="340.0" y="28.0" class="rp-title" text-anchor="middle">UserPromptSubmit hook</text>
+<text x="340.0" y="43.0" class="rp-sub" text-anchor="middle">query: the prompt (min 12 chars)</text>
+<text x="340.0" y="58.0" class="rp-sub" text-anchor="middle">fetch 9, keep 3 new, 1500 chars</text>
+<rect x="462" y="8" width="212" height="62" rx="8" class="rp-box rp-hook"/>
+<text x="568.0" y="28.0" class="rp-title" text-anchor="middle">SubagentStart hook</text>
+<text x="568.0" y="43.0" class="rp-sub" text-anchor="middle">query: agent type, cwd, task</text>
+<text x="568.0" y="58.0" class="rp-sub" text-anchor="middle">limit 3, 1500 chars, 5 s cap</text>
+<rect x="6" y="90" width="668" height="34" rx="8" class="rp-box rp-core"/>
+<text x="340.0" y="111.0" class="rp-title" text-anchor="middle">recall.py QUERY  (hook subprocess timeout 30 s)</text>
+<rect x="6" y="146" width="212" height="58" rx="8" class="rp-box rp-step"/>
+<text x="112.0" y="164.0" class="rp-title" text-anchor="middle">0. persona lookup (O3)</text>
+<text x="112.0" y="179.0" class="rp-sub" text-anchor="middle">aggregate question: answer from</text>
+<text x="112.0" y="194.0" class="rp-sub" text-anchor="middle">project_persona, then stop</text>
+<rect x="234" y="146" width="212" height="58" rx="8" class="rp-box rp-step"/>
+<text x="340.0" y="164.0" class="rp-title" text-anchor="middle">1. scope (R15, A6)</text>
+<text x="340.0" y="179.0" class="rp-sub" text-anchor="middle">branch or project shard,</text>
+<text x="340.0" y="194.0" class="rp-sub" text-anchor="middle">else pooled ~/.learnings</text>
+<rect x="462" y="146" width="212" height="58" rx="8" class="rp-box rp-step"/>
+<text x="568.0" y="164.0" class="rp-title" text-anchor="middle">2. cache (R9)</text>
+<text x="568.0" y="179.0" class="rp-sub" text-anchor="middle">exact sha1, fuzzy Jaccard 0.85</text>
+<text x="568.0" y="194.0" class="rp-sub" text-anchor="middle">1 h TTL; hit skips arms + CE</text>
+<rect x="6" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
+<text x="86.5" y="280.0" class="rp-title" text-anchor="middle">vector</text>
+<text x="86.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="86.5" y="310.0" class="rp-sub" text-anchor="middle">--mode naive</text>
+<rect x="175" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
+<text x="255.5" y="280.0" class="rp-title" text-anchor="middle">BM25</text>
+<text x="255.5" y="295.0" class="rp-sub" text-anchor="middle">qmd search</text>
+<text x="255.5" y="310.0" class="rp-sub" text-anchor="middle">-c learnings</text>
+<rect x="344" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
+<text x="424.5" y="280.0" class="rp-title" text-anchor="middle">graph (R1)</text>
+<text x="424.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="424.5" y="310.0" class="rp-sub" text-anchor="middle">--mode local</text>
+<rect x="513" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
+<text x="593.5" y="280.0" class="rp-title" text-anchor="middle">temporal (R5)</text>
+<text x="593.5" y="295.0" class="rp-sub" text-anchor="middle">date-window scan,</text>
+<text x="593.5" y="310.0" class="rp-sub" text-anchor="middle">only on a date phrase</text>
+<rect x="6" y="360" width="668" height="34" rx="8" class="rp-box rp-core"/>
+<text x="340.0" y="381.0" class="rp-title" text-anchor="middle">3. RRF fusion, k = 60  (per-arm floors first, off by default)</text>
+<rect x="6" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
+<text x="169.0" y="434.0" class="rp-title" text-anchor="middle">4a. cross-encoder (R2)</text>
+<text x="169.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect rerank</text>
+<text x="169.0" y="464.0" class="rp-sub" text-anchor="middle">MiniLM-L-6-v2 logits</text>
+<rect x="348" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
+<text x="511.0" y="434.0" class="rp-title" text-anchor="middle">4b. embeddings (R3)</text>
+<text x="511.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect embed</text>
+<text x="511.0" y="464.0" class="rp-sub" text-anchor="middle">all-mpnet-base-v2 vectors</text>
+<rect x="6" y="496" width="668" height="58" rx="8" class="rp-box rp-core"/>
+<text x="340.0" y="514.0" class="rp-title" text-anchor="middle">5. score = sigmoid(CE logit) x bounded boosts</text>
+<text x="340.0" y="529.0" class="rp-sub" text-anchor="middle">confidence, recency, tags, proof,</text>
+<text x="340.0" y="544.0" class="rp-sub" text-anchor="middle">project, domain, authority, speculative</text>
+<rect x="6" y="574" width="161" height="58" rx="8" class="rp-box rp-gate"/>
+<text x="86.5" y="592.0" class="rp-title" text-anchor="middle">6. filters</text>
+<text x="86.5" y="607.0" class="rp-sub" text-anchor="middle">quarantine,</text>
+<text x="86.5" y="622.0" class="rp-sub" text-anchor="middle">--confidence</text>
+<rect x="175" y="574" width="161" height="58" rx="8" class="rp-box rp-gate"/>
+<text x="255.5" y="592.0" class="rp-title" text-anchor="middle">7. OOD gate (R7)</text>
+<text x="255.5" y="607.0" class="rp-sub" text-anchor="middle">best of top 5 below</text>
+<text x="255.5" y="622.0" class="rp-sub" text-anchor="middle">min-overlap: nothing</text>
+<rect x="344" y="574" width="161" height="58" rx="8" class="rp-box rp-gate"/>
+<text x="424.5" y="592.0" class="rp-title" text-anchor="middle">8. MMR (R3)</text>
+<text x="424.5" y="607.0" class="rp-sub" text-anchor="middle">lambda 0.7,</text>
+<text x="424.5" y="622.0" class="rp-sub" text-anchor="middle">top LIMIT</text>
+<rect x="513" y="574" width="161" height="58" rx="8" class="rp-box rp-gate"/>
+<text x="593.5" y="592.0" class="rp-title" text-anchor="middle">9. budget (R4)</text>
+<text x="593.5" y="607.0" class="rp-sub" text-anchor="middle">--max-tokens (0 = off),</text>
+<text x="593.5" y="622.0" class="rp-sub" text-anchor="middle">then --max-chars</text>
+<rect x="6" y="654" width="668" height="72" rx="8" class="rp-box rp-out"/>
+<text x="340.0" y="671.5" class="rp-title" text-anchor="middle">10. inject as additionalContext</text>
+<text x="340.0" y="686.5" class="rp-sub" text-anchor="middle">SessionStart adds a token-economics footer</text>
+<text x="340.0" y="701.5" class="rp-sub" text-anchor="middle">UserPromptSubmit dedupes per session</text>
+<text x="340.0" y="716.5" class="rp-sub" text-anchor="middle">any failure or empty result: empty context, exit 0</text>
+</svg>
