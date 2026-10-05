@@ -4,6 +4,34 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [Unreleased] - Learning notes are Open Knowledge Format (OKF) v0.2 concepts
+
+Every writer (drain extract, mini and permission hooks, `reflect add`, fleet
+import, team share, `/reflect` project notes) now emits OKF v0.2 frontmatter:
+lowercase `type` (legacy `LEARNING` is normalized on write), `title`,
+`description` (from `key_insight`), `generated {by, at}` with the writer actor
+(e.g. `reflect-drain/<version>`), `sources[]` from `source_path`/`session_id`,
+and `stale_after` mirrored from `forget_after` (kept for back-compat). All
+reflect keys stay as OKF extension keys. Shared code: `reflect_kb.okf` plus the
+stdlib-only `okf_profile.py`, vendored byte-identically into `plugin/scripts/`
+(Python 3.9 compatible, since the drain runs under the system `python3`).
+
+**Rule S9 reworded.** Frontmatter stays immutable after write, with one narrow
+carve-out: only `status`, `verified` and `stale_after` may be rewritten in
+place, through `reflect_kb.okf.set_lifecycle_fields`. `reflect serve` archive
+now sets `status: deprecated` and restore puts back the prior value;
+observation notes keep their own `status: active|retired` untouched.
+
+**Parser change, check your KB.** Note readers (`reflect add`, `reflect serve`,
+fleet import, team share) now split frontmatter on `---` delimiter LINES
+instead of any `---` text. A note with `---` inside a frontmatter value (e.g.
+`title: cost --- benefit`) was previously misread or rejected; it now parses
+correctly, so its generated doc id can differ on re-add and leave a duplicate
+next to the old copy. After upgrading, run `reflect reindex` and dedupe any
+such pairs. Notes whose closing fence is glued to the last value (written by
+`/reflect` without PyYAML before this release) are still read, but are not
+rewritten in place.
+
 ## [5.2.5] - 2026-08-11 - Single-shot extract is the default writer
 
 Patch, but it changes which writer the drain runs. `REFLECT_DRAIN_WRITER` now
