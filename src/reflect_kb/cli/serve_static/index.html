@@ -355,7 +355,7 @@ function renderFacets() {
 function setFilter(key, val) {
   FILTER[key] = FILTER[key] === val ? null : val;
   LIST_LIMIT = 200;
-  renderFacets(); renderList();
+  renderFacets(); renderList(); syncGraph();
 }
 
 /* ---------- list ---------- */
@@ -402,6 +402,7 @@ function renderList() {
     : `<div class="empty">No memories match.</div>`;
 }
 $("#sort").onchange = () => { LIST_LIMIT = 200; renderList(); };
+function syncGraph() { if (GRAPH && $("#graphwrap").style.display==="block") drawGraph(); }
 
 /* ---------- select mode + compression queue ---------- */
 function cardClick(el, ev) {
@@ -441,7 +442,8 @@ $("#search").oninput = e => {
   const q = e.target.value.trim();
   searchTimer = setTimeout(async () => {
     LIST_LIMIT = 200; SEARCH_RESULTS = q ? await api("/api/search?q="+encodeURIComponent(q)) : null;
-    showTab("list"); renderList();
+    if ($("#graphwrap").style.display!=="block") showTab("list");   // stay on Graph so search filters it
+    renderList(); syncGraph();
   }, 180);
 };
 
@@ -645,7 +647,7 @@ async function loadGraph() {
   const g = prepGraph(await api("/api/graph"));
   GRAPH = g;
   await simulate(g, 200);
-  $("#gcount").textContent = `${g.nodes.filter(n=>n.kind==="memory").length} memories · ${g.nodes.filter(n=>n.kind==="entity").length} entities`;
+  g.counts = `${g.nodes.filter(n=>n.kind==="memory").length} memories · ${g.nodes.filter(n=>n.kind==="entity").length} entities`;
   sizeCanvas(); fitView(g); drawGraph();
 }
 function prepGraph(g) {
@@ -732,9 +734,26 @@ function drawGraph() {
   const accent = cssVar("--accent"), muted="#7f8fa6", ink=cssVar("--ink");
   const mutedEdge = cssVar("--muted");
   ctx.clearRect(0,0,canvas.width,canvas.height);
+  // Same filters as the list: facets + search. Memories outside the set are hidden,
+  // entities stay only if they touch a visible memory.
+  const filtered = SEARCH_RESULTS || FILTER.confidence || FILTER.type || FILTER.scope || FILTER.tag;
+  let visMem = null, visEnt = null;
+  if (filtered) {
+    const ids = new Set(visibleMems().map(m => m.id));
+    visMem = n => ids.has(n.doc);
+    const ents = new Set();
+    GRAPH.edges.forEach(e => {
+      if (e.a.kind==="memory" && ids.has(e.a.doc)) ents.add(e.b);
+      else if (e.b.kind==="memory" && ids.has(e.b.doc)) ents.add(e.a);
+    });
+    visEnt = n => ents.has(n);
+  }
+  const shown = n => !visMem || (n.kind==="memory" ? visMem(n) : visEnt(n));
+  let nShown = 0;
   ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.k,view.k);
   GRAPH.edges.forEach(e => {
     if (!showEnts && (e.a.kind==="entity"||e.b.kind==="entity")) return;
+    if (!shown(e.a) || !shown(e.b)) return;
     ctx.strokeStyle = e.kind==="relation" ? accent : mutedEdge;
     ctx.globalAlpha = e.kind==="relation" ? 0.55 : 0.3;
     ctx.lineWidth = e.kind==="relation" ? Math.min(0.8+e.w*0.6, 4.5) : 0.8;
@@ -743,6 +762,8 @@ function drawGraph() {
   ctx.globalAlpha = 1;
   GRAPH.nodes.forEach(n => {
     if (!showEnts && n.kind==="entity") return;
+    if (!shown(n)) return;
+    if (n.kind==="memory") nShown++;
     ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7);
     ctx.fillStyle = n.kind==="memory" ? accent : muted;
     if (n===hoverNode) ctx.fillStyle = cssVar("--accent-ink");
@@ -756,6 +777,8 @@ function drawGraph() {
     }
   });
   ctx.restore();
+  if (filtered) $("#gcount").textContent = `${nShown} of ${GRAPH.nodes.filter(n=>n.kind==="memory").length} memories (filtered)`;
+  else $("#gcount").textContent = GRAPH.counts;
 }
 $("#showents").onchange = drawGraph;
 $("#showlabels").onchange = drawGraph;
