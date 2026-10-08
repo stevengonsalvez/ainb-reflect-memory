@@ -402,7 +402,7 @@ function renderList() {
     : `<div class="empty">No memories match.</div>`;
 }
 $("#sort").onchange = () => { LIST_LIMIT = 200; renderList(); };
-function syncGraph() { if (GRAPH && $("#graphwrap").style.display==="block") drawGraph(); }
+function syncGraph() { if (GRAPH && $("#graphwrap").style.display==="block") drawGraph(true); }
 
 /* ---------- select mode + compression queue ---------- */
 function cardClick(el, ev) {
@@ -728,7 +728,7 @@ function sizeCanvas() {
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
 }
 function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-function drawGraph() {
+function drawGraph(fit) {
   if (!GRAPH) return;
   const showEnts = $("#showents").checked, showLabels = $("#showlabels").checked;
   const accent = cssVar("--accent"), muted="#7f8fa6", ink=cssVar("--ink");
@@ -750,6 +750,19 @@ function drawGraph() {
   }
   const shown = n => !visMem || (n.kind==="memory" ? visMem(n) : visEnt(n));
   let nShown = 0;
+  if (fit === true) {                       // re-frame on filter/search change
+    const w=canvas.width/devicePixelRatio, h=canvas.height/devicePixelRatio, pad=60;
+    let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+    GRAPH.nodes.forEach(n => {
+      if ((!showEnts && n.kind==="entity") || !shown(n)) return;
+      minx=Math.min(minx,n.x); maxx=Math.max(maxx,n.x); miny=Math.min(miny,n.y); maxy=Math.max(maxy,n.y);
+    });
+    if (minx <= maxx) {
+      view.k = Math.min(w/(maxx-minx+pad*2), h/(maxy-miny+pad*2), 1.4);
+      view.x = w/2 - (minx+maxx)/2*view.k;
+      view.y = h/2 - (miny+maxy)/2*view.k;
+    }
+  }
   ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.k,view.k);
   GRAPH.edges.forEach(e => {
     if (!showEnts && (e.a.kind==="entity"||e.b.kind==="entity")) return;
