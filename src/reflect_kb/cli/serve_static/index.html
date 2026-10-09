@@ -123,11 +123,22 @@
     border-radius:99px; border:1px solid var(--border); color:var(--muted); }
   .ent b { color:var(--ink); font-weight:600; }
 
+  /* active filters */
+  .activebar { display:none; flex-wrap:wrap; gap:6px; align-items:center; }
+  #activebar.on { display:flex; padding:10px 20px 0; }
+  #gchips.on { display:flex; }
+  .fchip { display:inline-flex; align-items:center; gap:6px; padding:2px 4px 2px 10px; border-radius:999px;
+    background:var(--accent-soft); color:var(--accent-ink); font-size:12px; border:1px solid var(--border); }
+  .fchip button { border:0; background:transparent; color:inherit; cursor:pointer; font-size:12px; padding:0 4px; }
+  .fclear { border:0; background:transparent; color:var(--muted); font-size:12px; cursor:pointer; text-decoration:underline; }
+  .ent[data-q] { cursor:pointer; } .ent[data-q]:hover { background:var(--accent-soft); }
+  .graph-hud button.hb { border:1px solid var(--border); background:var(--surface2); color:var(--ink);
+    border-radius:7px; padding:2px 8px; font-size:12px; cursor:pointer; }
   /* graph */
   #graphwrap { position:absolute; inset:0; display:none; }
   #graph { width:100%; height:100%; display:block; cursor:grab; }
   #graph.dragging { cursor:grabbing; }
-  .graph-hud { position:absolute; top:12px; left:16px; display:flex; gap:10px;
+  .graph-hud { position:absolute; top:12px; left:16px; display:flex; flex-wrap:wrap; max-width:calc(100% - 32px); gap:10px;
     align-items:center; background:var(--surface); border:1px solid var(--border);
     border-radius:10px; padding:7px 12px; font-size:12.5px; box-shadow:var(--shadow); }
   .graph-hud label { display:flex; gap:5px; align-items:center; cursor:pointer; color:var(--muted); }
@@ -232,6 +243,7 @@
 <main>
   <aside id="facets"></aside>
   <div id="content">
+    <div class="activebar" id="activebar" data-testid="active-filters"></div>
     <div class="toolbar" id="toolbar">
       <span id="count" data-testid="count"></span>
       <button class="seltoggle" id="seltoggle" data-testid="select-toggle">select</button>
@@ -252,6 +264,9 @@
         <label><input type="checkbox" id="showents" data-testid="toggle-entities" checked> entities</label>
         <label><input type="checkbox" id="showlabels" data-testid="toggle-labels" checked> labels</label>
         <span id="gcount" data-testid="graph-count" style="color:var(--muted)"></span>
+        <button class="hb" id="gfit" data-testid="graph-fit" title="re-frame the visible nodes">fit</button>
+        <button class="hb" id="grefresh" data-testid="graph-refresh" style="display:none" title="KB changed since the graph was built">↻ refresh graph</button>
+        <span class="activebar" id="gchips" data-testid="graph-filters"></span>
       </div>
       <div class="legend">
         <div><i style="background:var(--accent)"></i>memory &nbsp; <i style="background:#7f8fa6"></i>entity</div>
@@ -283,8 +298,9 @@
 const $ = s => document.querySelector(s);
 const CONF_COLOR = {high:"var(--high)", medium:"var(--medium)", low:"var(--low)", unknown:"var(--unknown)"};
 
-let MEMS = [], FILTER = {confidence:null, type:null, scope:null, tag:null};
-let SEARCH_RESULTS = null, GRAPH = null;
+let MEMS = [], FILTER = {confidence:null, type:null, scope:null, tag:null, entity:null};
+let SEARCH_RESULTS = null, GRAPH = null, TAB = "list";
+let FILTER_GEN = 0;                 // bumped whenever the visible set changes; memoises the graph filter
 let SELECT_MODE = false; const SELECTED = new Set();
 
 /* ---------- theme ---------- */
@@ -313,10 +329,26 @@ function toast(msg) {
   const t = $("#toast"); t.textContent = msg; t.classList.add("show");
   clearTimeout(TOAST_T); TOAST_T = setTimeout(()=>t.classList.remove("show"), 2600);
 }
-async function reloadMems() {
+async function reloadMems(structural) {
   MEMS = await api("/api/memories");
+  FILTER_GEN++;
   renderFacets(); renderList();
+  if (TAB==="timeline") renderTimeline();
+  if (TAB==="graph" && GRAPH) drawGraph();
+  if (structural && GRAPH) loadGraph(true);   // archive/restore changes the node set; old layout stays until the new one is ready
 }
+// The KB is written to continuously by hooks. On tab focus, quietly pick up new memories.
+document.addEventListener("visibilitychange", async () => {
+  if (document.hidden || !MEMS.length) return;
+  try {
+    const st = await api("/api/stats");
+    if (st.documents !== MEMS.length) {
+      await reloadMems();
+      if (GRAPH) $("#grefresh").style.display = "";
+      toast("KB changed · list refreshed");
+    }
+  } catch (e) { /* offline: keep what we have */ }
+});
 
 async function boot() {
   MEMS = await api("/api/memories");
@@ -338,9 +370,9 @@ function renderFacets() {
   };
   const group = (title, key, entries, dotColor) => `
     <h4>${title}</h4>` + entries.map(([v,n]) => `
-    <button class="facet ${FILTER[key]===v?"on":""}"
+    <button class="facet ${FILTER[key]===String(v)?"on":""}"
       data-testid="facet-${key}-${String(v).replace(/[^a-z0-9]+/gi,'-')}"
-      onclick="setFilter('${key}',${JSON.stringify(v).replace(/"/g,"&quot;")})">
+      data-key="${key}" data-v="${esc(v)}" onclick="setFilter(this.dataset.key, this.dataset.v)">
       <span style="display:flex;align-items:center;min-width:0">
         ${dotColor?`<i class="dot" style="background:${dotColor(v)}"></i>`:""}
         <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(v)}</span>
@@ -351,22 +383,61 @@ function renderFacets() {
     group("Type","type",counts("type").slice(0,12)) +
     group("Scope","scope",counts("scope")) +
     group("Tags · projects","tag",counts("tag").slice(0,18));
+  renderActive();
+}
+// Everything that changes which memories are visible funnels through here so
+// list, timeline and graph can never disagree.
+function filtersChanged() {
+  FILTER_GEN++; LIST_LIMIT = 200;
+  hoverNode = null; $("#tooltip").style.display = "none";
+  renderFacets(); renderList();
+  if (TAB==="timeline") renderTimeline();
+  syncGraph();
+}
+function filterActive() {
+  return !!(SEARCH_RESULTS || FILTER.confidence || FILTER.type || FILTER.scope || FILTER.tag || FILTER.entity);
+}
+function renderActive() {
+  const chips = [];
+  const q = $("#search").value.trim();
+  if (SEARCH_RESULTS && q) chips.push(["search", `search: ${q}`]);
+  ["confidence","type","scope","tag"].forEach(k => { if (FILTER[k]) chips.push([k, `${k}: ${FILTER[k]}`]); });
+  if (FILTER.entity) chips.push(["entity", `entity: ${FILTER.entity.label}`]);
+  [["#activebar",""],["#gchips","graph-"]].forEach(([sel,pre]) => {
+    const el = $(sel);
+    el.innerHTML = chips.length
+      ? chips.map(([k,t]) => `<span class="fchip" data-testid="${pre}fchip-${k}">${esc(t)}<button title="remove" data-k="${k}" onclick="dropFilter(this.dataset.k)">✕</button></span>`).join("")
+        + `<button class="fclear" data-testid="${pre}clear-filters" onclick="clearFilters()">clear all</button>`
+      : "";
+    el.classList.toggle("on", !!chips.length);
+  });
+}
+function dropFilter(k) {
+  if (k === "search") { $("#search").value = ""; SEARCH_RESULTS = null; SEARCH_SEQ++; }
+  else FILTER[k] = null;
+  filtersChanged();
+}
+function clearFilters() {
+  Object.keys(FILTER).forEach(k => FILTER[k] = null);
+  $("#search").value = ""; SEARCH_RESULTS = null; SEARCH_SEQ++;
+  filtersChanged();
 }
 function setFilter(key, val) {
   FILTER[key] = FILTER[key] === val ? null : val;
-  LIST_LIMIT = 200;
-  renderFacets(); renderList(); syncGraph();
+  filtersChanged();
 }
 
 /* ---------- list ---------- */
 function visibleMems() {
   let src = SEARCH_RESULTS ?? MEMS;
   return src.filter(m =>
-    (!FILTER.confidence || m.confidence===FILTER.confidence) &&
-    (!FILTER.type || m.type===FILTER.type) &&
-    (!FILTER.scope || m.scope===FILTER.scope) &&
-    (!FILTER.tag || m.tags.includes(FILTER.tag)));
+    (!FILTER.confidence || String(m.confidence)===FILTER.confidence) &&
+    (!FILTER.type || String(m.type)===FILTER.type) &&
+    (!FILTER.scope || String(m.scope)===FILTER.scope) &&
+    (!FILTER.tag || m.tags.some(t => String(t)===FILTER.tag)) &&
+    (!FILTER.entity || FILTER.entity.docs.has(m.id)));
 }
+let SEARCH_SEQ = 0;
 let LIST_LIMIT = 200;                  // render in chunks; 4k cards at once is slow
 function showMore() { LIST_LIMIT += 200; renderList(); }
 function renderList() {
@@ -402,7 +473,7 @@ function renderList() {
     : `<div class="empty">No memories match.</div>`;
 }
 $("#sort").onchange = () => { LIST_LIMIT = 200; renderList(); };
-function syncGraph() { if (GRAPH && $("#graphwrap").style.display==="block") drawGraph(true); }
+function syncGraph() { if (GRAPH && TAB==="graph") { fitView(); drawGraph(); } }
 
 /* ---------- select mode + compression queue ---------- */
 function cardClick(el, ev) {
@@ -415,7 +486,9 @@ function toggleSelect(id) {
   renderList(); updateActionBar();
 }
 function updateActionBar() {
-  $("#ab-count").textContent = SELECTED.size;
+  const vis = new Set(visibleMems().map(m => m.id));
+  const hidden = [...SELECTED].filter(id => !vis.has(id)).length;
+  $("#ab-count").textContent = SELECTED.size + (hidden ? ` (${hidden} hidden by filter)` : "");
   $("#actionbar").classList.toggle("show", SELECT_MODE && SELECTED.size > 0);
   $("#ab-compress").disabled = SELECTED.size < 2;
 }
@@ -437,19 +510,33 @@ $("#ab-compress").onclick = async () => {
 
 /* ---------- search ---------- */
 let searchTimer = null;
+function searchFor(q) {                      // entity chips in the drawer jump to a search
+  $("#search").value = q;
+  $("#search").dispatchEvent(new Event("input"));
+  closeDrawer();
+}
+addEventListener("keydown", e => {
+  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+    e.preventDefault(); $("#search").focus();
+  }
+});
 $("#search").oninput = e => {
   clearTimeout(searchTimer);
   const q = e.target.value.trim();
   searchTimer = setTimeout(async () => {
-    LIST_LIMIT = 200; SEARCH_RESULTS = q ? await api("/api/search?q="+encodeURIComponent(q)) : null;
-    if ($("#graphwrap").style.display!=="block") showTab("list");   // stay on Graph so search filters it
-    renderList(); syncGraph();
+    const my = ++SEARCH_SEQ;                       // drop out-of-order responses
+    const res = q ? await api("/api/search?q="+encodeURIComponent(q)) : null;
+    if (my !== SEARCH_SEQ) return;
+    SEARCH_RESULTS = res;
+    if (TAB!=="graph" && TAB!=="timeline") showTab("list");   // those two views are filtered in place
+    filtersChanged();
   }, 180);
 };
 
 /* ---------- tabs ---------- */
 document.querySelectorAll("nav.tabs button").forEach(b => b.onclick = () => showTab(b.dataset.tab));
 function showTab(tab) {
+  TAB = tab;
   history.replaceState(null, "", tab==="list" ? location.pathname : "#"+tab);
   document.querySelectorAll("nav.tabs button").forEach(b=>b.classList.toggle("active",b.dataset.tab===tab));
   $("#list").style.display = tab==="list" ? "grid":"none";
@@ -462,7 +549,7 @@ function showTab(tab) {
   if (tab==="graph" && !GRAPH) loadGraph();
   else if (tab==="graph") {
     sizeCanvas();
-    if (!view.fitted) fitView(GRAPH);
+    if (!view.fitted || view.fitGen !== FILTER_GEN) fitView();   // filter changed while on another tab
     drawGraph();
   }
   if (tab==="timeline") renderTimeline();
@@ -472,7 +559,7 @@ function showTab(tab) {
 
 /* ---------- timeline view ---------- */
 function renderTimeline() {
-  const items = MEMS.slice().sort((a,b)=>b.date.localeCompare(a.date));
+  const items = visibleMems().slice().sort((a,b)=>b.date.localeCompare(a.date));
   let html = "", year = null;
   items.forEach(m => {
     const y = m.date.slice(0,4);
@@ -533,7 +620,7 @@ async function restoreMemory(id) {
   const res = await post(`/api/memories/${encodeURIComponent(id)}/restore`);
   if (res.error) { toast("Restore failed: " + res.error); return; }
   toast("Restored");
-  await reloadMems(); renderArchived();
+  await reloadMems(true); renderArchived();
 }
 
 /* ---------- detail drawer ---------- */
@@ -560,7 +647,7 @@ async function openDetail(id) {
       <dt>id</dt><dd>${esc(m.id)}</dd>
       <dt>file</dt><dd>${esc(m.file)}</dd>
       <dt>date</dt><dd>${esc(m.date)}</dd>
-      ${m.provenance?`<dt>provenance</dt><dd>${esc(String(m.provenance))}</dd>`:""}
+      ${m.provenance?`<dt>provenance</dt><dd>${fmtProv(m.provenance)}</dd>`:""}
       ${m.superseded_by?`<dt>superseded by</dt><dd>${esc(String(m.superseded_by))}</dd>`:""}
       ${m.agent?`<dt>agent</dt><dd>${esc(String(m.agent))}</dd>`:""}
     </dl>
@@ -568,10 +655,15 @@ async function openDetail(id) {
       m.related.map(r=>`<button class="rel" data-id="${esc(r.id)}" onclick="openDetail(this.dataset.id)">${esc(r.title)}
         <span class="shared">${r.shared} shared</span></button>`).join(""):""}
     ${m.entities.length?`<div class="section-label">Entities</div>`+
-      m.entities.map(e=>`<span class="ent"><b>${esc(e.name)}</b> · ${esc(e.type||"concept")}</span>`).join(""):""}
+      m.entities.map(e=>`<span class="ent" data-q="${esc(e.name)}" title="search for this entity" onclick="searchFor(this.dataset.q)"><b>${esc(e.name)}</b> · ${esc(e.type||"concept")}</span>`).join(""):""}
     <div class="section-label">Note</div>
     <div class="md">${md(m.body)}</div>`;
   $("#drawer").classList.add("open");
+}
+// drain-stamped notes carry provenance as a mapping, not a string
+function fmtProv(p) {
+  if (typeof p !== "object") return esc(String(p));
+  return Object.entries(p).map(([k,v]) => `<b>${esc(k)}</b>: ${esc(typeof v === "object" ? JSON.stringify(v) : v)}`).join("<br>");
 }
 function closeDrawer(){ $("#drawer").classList.remove("open"); DETAIL_ID = null; }
 addEventListener("keydown", e => { if (e.key==="Escape") closeDrawer(); });
@@ -591,7 +683,7 @@ async function archiveMemory() {
   if (res.error) { toast("Archive failed: " + res.error); return; }
   toast("Archived · find it in the Archived tab to restore");
   closeDrawer();
-  await reloadMems();
+  await reloadMems(true);
 }
 
 /* ---------- tiny markdown ---------- */
@@ -638,17 +730,30 @@ function md(src) {
 /* ---------- graph ---------- */
 const canvas = $("#graph"), ctx = canvas.getContext("2d");
 let view = {x:0, y:0, k:1}, hoverNode = null, dragNode = null, panning = false, last = null;
+let GRAPH_P = null, rafId = 0;
 
-let GRAPH_LOADING = false;
-async function loadGraph() {
-  if (GRAPH_LOADING) return;
-  GRAPH_LOADING = true;
-  $("#gcount").textContent = "loading graph…";
-  const g = prepGraph(await api("/api/graph"));
-  GRAPH = g;
-  await simulate(g, 200);
-  g.counts = `${g.nodes.filter(n=>n.kind==="memory").length} memories · ${g.nodes.filter(n=>n.kind==="entity").length} entities`;
-  sizeCanvas(); fitView(g); drawGraph();
+// One in-flight load at a time. A failed load clears itself so reopening the tab retries;
+// `force` rebuilds in the background and swaps in when ready (the old layout stays visible).
+function loadGraph(force) {
+  if (GRAPH_P && !force) return GRAPH_P;
+  const p = GRAPH_P = (async () => {
+    $("#gcount").textContent = "loading graph…";
+    const raw = await api("/api/graph");
+    if (!Array.isArray(raw?.nodes)) throw new Error(raw?.error || "bad graph payload");
+    const g = prepGraph(raw);
+    await simulate(g, 200);
+    if (p !== GRAPH_P) return;                       // a newer load superseded this one
+    g.memCount = g.nodes.filter(n => n.kind==="memory").length;
+    g.counts = `${g.memCount} memories · ${g.nodes.length - g.memCount} entities`;
+    GRAPH = g;
+    $("#grefresh").style.display = "none";
+    view.fitted = false;
+    if (TAB==="graph") { fitView(); drawGraph(); }
+  })().catch(e => {
+    if (p === GRAPH_P) GRAPH_P = null;
+    $("#gcount").textContent = `graph failed: ${e.message} (reopen the tab to retry)`;
+  });
+  return p;
 }
 function prepGraph(g) {
   const W = 1600, H = 1100;
@@ -656,17 +761,19 @@ function prepGraph(g) {
     const a = i * 2.399963;             // golden-angle spiral seed
     const r = 30 * Math.sqrt(i);
     n.x = W/2 + r*Math.cos(a); n.y = H/2 + r*Math.sin(a);
-    n.vx = 0; n.vy = 0;
+    n.vx = 0; n.vy = 0; n.nbrs = [];
     n.r = n.kind==="memory" ? 7 + Math.min(n.degree,14)*0.6 : 3.5 + Math.min(n.degree,20)*0.35;
   });
   const byId = Object.fromEntries(g.nodes.map(n=>[n.id,n]));
   g.edges.forEach(e => { e.a = byId[e.s]; e.b = byId[e.t]; });
   g.edges = g.edges.filter(e => e.a && e.b);
+  g.edges.forEach(e => { e.a.nbrs.push(e.b); e.b.nbrs.push(e.a); });
   return g;
 }
 // Force layout. Repulsion only acts within 300px, so bucket nodes into 300px
 // cells and compare against the 3x3 neighbourhood (~O(n)) instead of all pairs.
 // Time-sliced per frame so the page never freezes on large KBs.
+// (rAF pauses in a backgrounded browser tab, so layout simply resumes when it is focused again.)
 async function simulate(g, iters) {
   const nodes = g.nodes, C = 300;
   let sliceStart = performance.now();
@@ -710,16 +817,45 @@ async function simulate(g, iters) {
     }
   }
 }
-function fitView(g) {
+
+// Which nodes pass the current facet/search/entity filter. Memoised per FILTER_GEN so hover and
+// pan redraws do not rescan 20k edges. null = no filter active (everything shown).
+let GVIS = null;
+function graphVis() {
+  if (!GRAPH || !filterActive()) return null;
+  if (GVIS && GVIS.g === GRAPH && GVIS.gen === FILTER_GEN) return GVIS;
+  const ids = new Set(visibleMems().map(m => m.id)), ents = new Set();
+  let count = 0;
+  GRAPH.nodes.forEach(n => { if (n.kind==="memory" && ids.has(n.doc)) count++; });
+  GRAPH.edges.forEach(e => {
+    if (e.a.kind==="memory" && ids.has(e.a.doc)) { if (e.b.kind==="entity") ents.add(e.b); }
+    else if (e.b.kind==="memory" && ids.has(e.b.doc)) { if (e.a.kind==="entity") ents.add(e.a); }
+  });
+  return GVIS = {g:GRAPH, gen:FILTER_GEN, ids, ents, count};
+}
+function shownFn() {
+  const v = graphVis();
+  return v ? (n => n.kind==="memory" ? v.ids.has(n.doc) : v.ents.has(n)) : (() => true);
+}
+// Frame the currently visible nodes (all of them when no filter is active).
+function fitView() {
+  if (!GRAPH) return;
   sizeCanvas();
   const pad=60, w=canvas.width/devicePixelRatio, h=canvas.height/devicePixelRatio;
-  if (w < 50 || h < 50) return;            // tab hidden — retry when shown
-  const xs=g.nodes.map(n=>n.x), ys=g.nodes.map(n=>n.y);
-  const minx=Math.min(...xs), maxx=Math.max(...xs), miny=Math.min(...ys), maxy=Math.max(...ys);
+  if (w < 50 || h < 50) return;            // tab hidden: retried when shown
+  const showEnts = $("#showents").checked, shown = shownFn(), v = graphVis();
+  // With a filter on, frame the matching memories: their entities sprawl across the whole layout.
+  const memOnly = !!v && v.count > 0;
+  let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
+  for (const n of GRAPH.nodes) {
+    if ((!showEnts && n.kind==="entity") || (memOnly && n.kind==="entity") || !shown(n)) continue;
+    if (n.x<minx) minx=n.x; if (n.x>maxx) maxx=n.x; if (n.y<miny) miny=n.y; if (n.y>maxy) maxy=n.y;
+  }
+  if (minx > maxx) return;
   view.k = Math.min(w/(maxx-minx+pad*2), h/(maxy-miny+pad*2), 1.4);
   view.x = w/2 - (minx+maxx)/2*view.k;
   view.y = h/2 - (miny+maxy)/2*view.k;
-  view.fitted = true;
+  view.fitted = true; view.fitGen = FILTER_GEN;
 }
 function sizeCanvas() {
   const r = $("#graphwrap").getBoundingClientRect();
@@ -728,73 +864,65 @@ function sizeCanvas() {
   ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
 }
 function cssVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
-function drawGraph(fit) {
+function scheduleDraw() {             // coalesce mousemove/wheel bursts into one paint per frame
+  if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; drawGraph(); });
+}
+function drawGraph() {
   if (!GRAPH) return;
   const showEnts = $("#showents").checked, showLabels = $("#showlabels").checked;
   const accent = cssVar("--accent"), muted="#7f8fa6", ink=cssVar("--ink");
-  const mutedEdge = cssVar("--muted");
+  const mutedEdge = cssVar("--muted"), hoverInk = cssVar("--accent-ink");
+  const v = graphVis(), shown = shownFn();
+  // hovering a node spotlights it and its neighbours and fades the rest
+  const hl = hoverNode ? (hoverNode.hl ??= new Set([hoverNode, ...hoverNode.nbrs])) : null;
   ctx.clearRect(0,0,canvas.width,canvas.height);
-  // Same filters as the list: facets + search. Memories outside the set are hidden,
-  // entities stay only if they touch a visible memory.
-  const filtered = SEARCH_RESULTS || FILTER.confidence || FILTER.type || FILTER.scope || FILTER.tag;
-  let visMem = null, visEnt = null;
-  if (filtered) {
-    const ids = new Set(visibleMems().map(m => m.id));
-    visMem = n => ids.has(n.doc);
-    const ents = new Set();
-    GRAPH.edges.forEach(e => {
-      if (e.a.kind==="memory" && ids.has(e.a.doc)) ents.add(e.b);
-      else if (e.b.kind==="memory" && ids.has(e.b.doc)) ents.add(e.a);
-    });
-    visEnt = n => ents.has(n);
-  }
-  const shown = n => !visMem || (n.kind==="memory" ? visMem(n) : visEnt(n));
-  let nShown = 0;
-  if (fit === true) {                       // re-frame on filter/search change
-    const w=canvas.width/devicePixelRatio, h=canvas.height/devicePixelRatio, pad=60;
-    let minx=Infinity, maxx=-Infinity, miny=Infinity, maxy=-Infinity;
-    GRAPH.nodes.forEach(n => {
-      if ((!showEnts && n.kind==="entity") || !shown(n)) return;
-      minx=Math.min(minx,n.x); maxx=Math.max(maxx,n.x); miny=Math.min(miny,n.y); maxy=Math.max(maxy,n.y);
-    });
-    if (minx <= maxx) {
-      view.k = Math.min(w/(maxx-minx+pad*2), h/(maxy-miny+pad*2), 1.4);
-      view.x = w/2 - (minx+maxx)/2*view.k;
-      view.y = h/2 - (miny+maxy)/2*view.k;
-    }
-  }
   ctx.save(); ctx.translate(view.x,view.y); ctx.scale(view.k,view.k);
+  // One stroke() per (kind, width, spotlight) bucket instead of one per edge: ~10 strokes, not 20k.
+  const buckets = new Map();
   GRAPH.edges.forEach(e => {
     if (!showEnts && (e.a.kind==="entity"||e.b.kind==="entity")) return;
     if (!shown(e.a) || !shown(e.b)) return;
-    ctx.strokeStyle = e.kind==="relation" ? accent : mutedEdge;
-    ctx.globalAlpha = e.kind==="relation" ? 0.55 : 0.3;
-    ctx.lineWidth = e.kind==="relation" ? Math.min(0.8+e.w*0.6, 4.5) : 0.8;
-    ctx.beginPath(); ctx.moveTo(e.a.x,e.a.y); ctx.lineTo(e.b.x,e.b.y); ctx.stroke();
+    const rel = e.kind==="relation", inc = !!hl && (e.a===hoverNode || e.b===hoverNode);
+    const w = Math.round((rel ? Math.min(0.8+e.w*0.6, 4.5) : 0.8) * 2) / 2 + (inc ? 1 : 0);
+    const key = (rel?1:0) + (inc?2:0) + w*10;
+    let b = buckets.get(key); if (!b) buckets.set(key, b = {rel, inc, w, pts:[]});
+    b.pts.push(e.a.x, e.a.y, e.b.x, e.b.y);
   });
-  ctx.globalAlpha = 1;
+  buckets.forEach(b => {
+    ctx.strokeStyle = b.rel ? accent : mutedEdge;
+    ctx.globalAlpha = hl ? (b.inc ? 0.9 : 0.04) : (b.rel ? 0.55 : 0.3);
+    ctx.lineWidth = b.w;
+    ctx.beginPath();
+    for (let i=0;i<b.pts.length;i+=4) { ctx.moveTo(b.pts[i],b.pts[i+1]); ctx.lineTo(b.pts[i+2],b.pts[i+3]); }
+    ctx.stroke();
+  });
+  let nShown = 0;
   GRAPH.nodes.forEach(n => {
     if (!showEnts && n.kind==="entity") return;
     if (!shown(n)) return;
     if (n.kind==="memory") nShown++;
+    const faded = hl && !hl.has(n);
+    ctx.globalAlpha = faded ? 0.15 : 1;
     ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7);
-    ctx.fillStyle = n.kind==="memory" ? accent : muted;
-    if (n===hoverNode) ctx.fillStyle = cssVar("--accent-ink");
+    ctx.fillStyle = n===hoverNode ? hoverInk : (n.kind==="memory" ? accent : muted);
     ctx.fill();
-    if (showLabels && (n.kind==="memory" ? view.k>0.9 || n.degree>8 : view.k>1.1 || n.degree>12)) {   // 4k+ labels at fit-zoom is an unreadable, slow hairball
+    const label = showLabels && !faded && (hl
+      ? (hl.size <= 60 || n.kind==="memory")
+      : (n.kind==="memory" ? view.k>0.9 || n.degree>8 : view.k>1.1 || n.degree>12));  // 4k+ labels at fit-zoom is an unreadable hairball
+    if (label) {
       ctx.fillStyle = ink; ctx.globalAlpha = n.kind==="memory"?0.95:0.65;
       ctx.font = (n.kind==="memory"?"600 ":"") + Math.max(9,11/Math.sqrt(view.k)) + "px sans-serif";
-      const label = n.label.length>34 ? n.label.slice(0,32)+"…" : n.label;
-      ctx.fillText(label, n.x+n.r+3, n.y+3);
-      ctx.globalAlpha = 1;
+      const text = n.label.length>34 ? n.label.slice(0,32)+"…" : n.label;
+      ctx.fillText(text, n.x+n.r+3, n.y+3);
     }
   });
   ctx.restore();
-  if (filtered) $("#gcount").textContent = `${nShown} of ${GRAPH.nodes.filter(n=>n.kind==="memory").length} memories (filtered)`;
-  else $("#gcount").textContent = GRAPH.counts;
+  $("#gcount").textContent = v ? `${v.count} of ${GRAPH.memCount} memories (filtered)` : GRAPH.counts;
 }
-$("#showents").onchange = drawGraph;
-$("#showlabels").onchange = drawGraph;
+$("#showents").onchange = () => drawGraph();
+$("#showlabels").onchange = () => drawGraph();
+$("#gfit").onclick = () => { fitView(); drawGraph(); };
+$("#grefresh").onclick = () => loadGraph(true);
 
 function graphPoint(ev) {
   const r = canvas.getBoundingClientRect();
@@ -802,13 +930,21 @@ function graphPoint(ev) {
 }
 function nodeAt(p) {
   if (!GRAPH) return null;
-  const showEnts = $("#showents").checked;
+  const showEnts = $("#showents").checked, shown = shownFn();
   for (let i=GRAPH.nodes.length-1;i>=0;i--) {
     const n = GRAPH.nodes[i];
     if (!showEnts && n.kind==="entity") continue;
+    if (!shown(n)) continue;                       // filtered-out nodes are invisible, so not hoverable/clickable either
     if ((p.x-n.x)**2 + (p.y-n.y)**2 < (n.r+3)**2) return n;
   }
   return null;
+}
+// Clicking an entity filters every view (list, timeline, graph) to the memories that mention it.
+function pickEntity(n) {
+  if (FILTER.entity && FILTER.entity.id === n.id) FILTER.entity = null;
+  else FILTER.entity = {id:n.id, label:n.label,
+    docs:new Set(n.nbrs.filter(x => x.kind==="memory").map(x => x.doc))};
+  filtersChanged();
 }
 canvas.addEventListener("mousedown", ev => {
   const n = nodeAt(graphPoint(ev));
@@ -817,29 +953,30 @@ canvas.addEventListener("mousedown", ev => {
 });
 addEventListener("mousemove", ev => {
   if (dragNode) {
-    const p = graphPoint(ev); dragNode.x=p.x; dragNode.y=p.y; drawGraph(); return;
+    const p = graphPoint(ev); dragNode.x=p.x; dragNode.y=p.y; scheduleDraw(); return;
   }
   if (panning) {
     view.x += ev.clientX-last.x; view.y += ev.clientY-last.y;
-    last = {x:ev.clientX,y:ev.clientY}; drawGraph(); return;
+    last = {x:ev.clientX,y:ev.clientY}; scheduleDraw(); return;
   }
   if (ev.target===canvas) {
     const n = nodeAt(graphPoint(ev));
-    if (n!==hoverNode) { hoverNode=n; drawGraph(); }
+    if (n!==hoverNode) { hoverNode=n; scheduleDraw(); }
     const tip = $("#tooltip");
     if (n) {
       tip.style.display="block";
       const r = $("#graphwrap").getBoundingClientRect();
       tip.style.left = (ev.clientX-r.left+14)+"px"; tip.style.top = (ev.clientY-r.top+10)+"px";
       tip.innerHTML = n.kind==="memory"
-        ? `<b>${esc(n.label)}</b><br>${n.confidence} · ${esc(n.type)} · ${n.degree} links`
-        : `<b>${esc(n.label)}</b><br>entity · ${esc(n.type)} · ${n.degree} links`;
+        ? `<b>${esc(n.label)}</b><br>${esc(n.confidence)} · ${esc(n.type)} · ${n.degree} links<br><i>click to open</i>`
+        : `<b>${esc(n.label)}</b><br>entity · ${esc(n.type)} · ${n.degree} links<br><i>click to filter by this entity</i>`;
     } else tip.style.display="none";
   }
 });
 addEventListener("mouseup", ev => {
-  if (dragNode && Math.hypot(ev.clientX-last.x, ev.clientY-last.y)<4 && dragNode.kind==="memory")
-    openDetail(dragNode.doc);
+  if (dragNode && Math.hypot(ev.clientX-last.x, ev.clientY-last.y)<4) {
+    if (dragNode.kind==="memory") openDetail(dragNode.doc); else pickEntity(dragNode);
+  }
   dragNode=null; panning=false; canvas.classList.remove("dragging");
 });
 canvas.addEventListener("wheel", ev => {
@@ -848,9 +985,9 @@ canvas.addEventListener("wheel", ev => {
   const r = canvas.getBoundingClientRect();
   const mx = ev.clientX-r.left, my = ev.clientY-r.top;
   view.x = mx - (mx-view.x)*f; view.y = my - (my-view.y)*f; view.k *= f;
-  drawGraph();
+  scheduleDraw();
 }, {passive:false});
-addEventListener("resize", () => { if ($("#graphwrap").style.display==="block"){ sizeCanvas(); drawGraph(); }});
+addEventListener("resize", () => { if (TAB==="graph"){ sizeCanvas(); drawGraph(); }});
 
 /* ---------- stats ---------- */
 function renderStats(s) {
