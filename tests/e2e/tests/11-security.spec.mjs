@@ -24,6 +24,21 @@ test('facet values are HTML-escaped and do not execute', async ({ page }) => {
   expect(await page.evaluate(() => window.__xss === 1)).toBe(false);
 });
 
+test('facet buttons survive an entity-encoded quote payload', async ({ page }) => {
+  // `&quot;` in a tag used to survive the old onclick escaping and run on click.
+  await page.goto('/');
+  await page.evaluate(() => {
+    for (let i = 0; i < 50; i++) MEMS.push({
+      id: 'xss2-' + i, title: 'probe', confidence: 'high', type: 't', scope: 's',
+      tags: ['&quot;);window.__xss2=1;//'], date: '2026-01-01', superseded_by: null,
+      entity_names: [], entity_count: 0, word_count: 0, browse_score: 0,
+    });
+    renderFacets();
+  });
+  await page.locator('[data-testid*="quot"]').first().click();
+  expect(await page.evaluate(() => window.__xss2 === 1)).toBe(false);
+});
+
 test('mutation POST without X-Reflect header is rejected', async ({ page }) => {
   // page.request does NOT send the SPA's X-Reflect header, standing in for a
   // cross-origin drive-by POST. The server must refuse it.

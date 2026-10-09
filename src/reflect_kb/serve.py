@@ -367,6 +367,7 @@ class KnowledgeBase:
                     errors += 1
         return {
             "documents": len(docs),
+            "version": self._dir_mtime(),   # lets the UI notice edits that leave the count unchanged
             "repo": str(self._repo),
             "confidence": dict(conf),
             "types": dict(types.most_common()),

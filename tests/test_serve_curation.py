@@ -208,3 +208,15 @@ def test_post_with_csrf_header_allowed(server):
     status = _request(server, "POST", "/api/memories/orphan-untagged-note/archive",
                       host=f"127.0.0.1:{server}", headers={"X-Reflect": "1"})
     assert status == 200
+
+
+def test_stats_version_changes_when_a_note_is_added(kb: KnowledgeBase):
+    # The UI polls this on tab focus to spot edits that leave the count alone.
+    before = kb.stats()["version"]
+    assert isinstance(before, float) and before > 0
+    import os
+    import time
+    time.sleep(0.01)
+    _write_note(kb, "fresh", '---\nid: fresh\ntitle: "fresh"\nconfidence: high\n---\nbody\n')
+    os.utime(kb.repo / "documents" / "fresh.md", (time.time() + 5, time.time() + 5))
+    assert kb.stats()["version"] > before

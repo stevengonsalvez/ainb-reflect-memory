@@ -8,8 +8,6 @@
  * at build time, so the demo always tracks the shipped UI, and:
  *   - injects demo/mock-api.js (fetch interceptor) BEFORE the app script,
  *   - injects a slim "demo mode" banner and an iframe theme-sync snippet,
- *   - injects demo/demo-patches.js AFTER the app script (refreshes stats and the
- *     graph after each mutation, which the stock UI only loads at boot),
  *   - copies the mock and src/data/api-snapshot.json next to index.html
  *     (fetched relatively, so the demo works under any base path).
  *
@@ -27,7 +25,6 @@ const repo = path.resolve(site, '..');
 
 const SPA = path.join(repo, 'src/reflect_kb/cli/serve_static/index.html');
 const MOCK = path.join(site, 'demo/mock-api.js');
-const PATCHES = path.join(site, 'demo/demo-patches.js');
 const SNAPSHOT = path.join(site, 'src/data/api-snapshot.json');
 const OUT = path.join(site, 'public/demo');
 
@@ -35,7 +32,7 @@ function fail(msg) {
   console.error(`build-demo: ${msg}`);
   process.exit(1);
 }
-for (const [label, p] of [['frontend', SPA], ['mock', MOCK], ['patches', PATCHES], ['snapshot', SNAPSHOT]]) {
+for (const [label, p] of [['frontend', SPA], ['mock', MOCK], ['snapshot', SNAPSHOT]]) {
   if (!fs.existsSync(p)) {
     fail(`${label} missing: ${path.relative(repo, p)}` +
       (label === 'snapshot' ? ' (run: uv run docs-site/scripts/snapshot-api.py)' : ''));
@@ -96,10 +93,6 @@ if (bodyAt === -1) fail('no <body> found in the frontend; update build-demo.mjs'
 const bodyEnd = bodyAt + html.slice(bodyAt).match(/<body[^>]*>/)[0].length;
 html = html.slice(0, bodyEnd) + '\n' + BANNER + html.slice(bodyEnd);
 
-const closeAt = html.lastIndexOf('</body>');
-if (closeAt === -1) fail('no </body> found in the frontend; update build-demo.mjs');
-html = html.slice(0, closeAt) + '<script src="demo-patches.js"></script>\n' + html.slice(closeAt);
-
 html = html.replace(/<title>([^<]*)<\/title>/, (_, t) => `<title>${t} (demo)</title>`);
 
 function writeIfChanged(file, content) {
@@ -113,7 +106,6 @@ function writeIfChanged(file, content) {
 const changed = [
   writeIfChanged(path.join(OUT, 'index.html'), html),
   writeIfChanged(path.join(OUT, 'mock-api.js'), fs.readFileSync(MOCK)),
-  writeIfChanged(path.join(OUT, 'demo-patches.js'), fs.readFileSync(PATCHES)),
   writeIfChanged(path.join(OUT, 'api-snapshot.json'), fs.readFileSync(SNAPSHOT)),
 ].filter(Boolean).length;
 
