@@ -86,3 +86,29 @@ test('provenance mapping renders as fields, not [object Object]', async ({ page 
   expect(html).toContain('source_tool');
   expect(html).not.toContain('object Object');
 });
+
+test('a failed search does not poison the list or the graph', async ({ page }) => {
+  await page.route('**/api/search*', route =>
+    route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"boom"}' }));
+  await page.goto('/');
+  await page.getByTestId('search').fill('alpha');
+  await expect(page.getByTestId('toast')).toContainText('Search failed');
+  // views keep working: facets still filter, and the graph still draws
+  await page.getByTestId('facet-tag-project-alpha').click();
+  await expect(page.getByTestId('card')).toHaveCount(3);
+  await page.getByTestId('tab-graph').click();
+  await expect(page.getByTestId('graph-count')).toContainText(`3 of ${FIXTURE_SIZE} memories (filtered)`);
+});
+
+test('stats refresh after archiving and restoring', async ({ page }) => {
+  await page.goto('/');
+  await page.getByTestId('card').first().click();
+  await page.getByTestId('archive-btn').click();
+  await page.getByTestId('tab-stats').click();
+  await expect(page.getByTestId('stat-count')).toHaveText(String(FIXTURE_SIZE - 1));
+
+  await page.getByTestId('tab-archived').click();
+  await page.getByTestId('restore-btn').first().click();
+  await page.getByTestId('tab-stats').click();
+  await expect(page.getByTestId('stat-count')).toHaveText(String(FIXTURE_SIZE));
+});

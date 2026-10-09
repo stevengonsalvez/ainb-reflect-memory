@@ -306,7 +306,9 @@ const CONF_COLOR = {high:"var(--high)", medium:"var(--medium)", low:"var(--low)"
 
 let MEMS = [], FILTER = {confidence:null, type:null, scope:null, tag:null, entity:null};
 let SEARCH_RESULTS = null, GRAPH = null, TAB = "list";
-let FILTER_GEN = 0;                 // bumped whenever the visible set changes; memoises the graph filter
+let FILTER_GEN = 0;                 // bumped when the user changes a filter (re-fit trigger)
+let VIS_GEN = 0;                    // bumped when the visible set may differ for any reason (filter OR data reload)
+let KB_VERSION = null;              // server-reported documents/ mtime, to detect changes made behind our back
 let SELECT_MODE = false; const SELECTED = new Set();
 
 /* ---------- theme ---------- */
@@ -337,8 +339,9 @@ function toast(msg) {
 }
 async function reloadMems(structural) {
   MEMS = await api("/api/memories");
-  FILTER_GEN++;
-  renderFacets(); renderList();
+  VIS_GEN++;
+  renderFacets(); renderList(); updateActionBar();
+  api("/api/stats").then(renderStats);              // counts and bars shown on the Stats tab
   if (TAB==="timeline") renderTimeline();
   if (TAB==="graph" && GRAPH) drawGraph();
   if (structural && GRAPH) loadGraph(true);   // archive/restore changes the node set; old layout stays until the new one is ready
@@ -348,7 +351,8 @@ document.addEventListener("visibilitychange", async () => {
   if (document.hidden || !MEMS.length) return;
   try {
     const st = await api("/api/stats");
-    if (st.documents !== MEMS.length) {
+    // `version` is the documents/ mtime: catches edits that leave the count unchanged
+    if (st.version !== undefined ? st.version !== KB_VERSION : st.documents !== MEMS.length) {
       await reloadMems();
       if (GRAPH) $("#grefresh").style.display = "";
       toast("KB changed · list refreshed");
@@ -394,9 +398,9 @@ function renderFacets() {
 // Everything that changes which memories are visible funnels through here so
 // list, timeline and graph can never disagree.
 function filtersChanged() {
-  FILTER_GEN++; LIST_LIMIT = 200;
+  FILTER_GEN++; VIS_GEN++; LIST_LIMIT = 200;
   hoverNode = null; $("#tooltip").style.display = "none";
-  renderFacets(); renderList();
+  renderFacets(); renderList(); updateActionBar();
   if (TAB==="timeline") renderTimeline();
   syncGraph();
 }
@@ -441,7 +445,7 @@ function visibleMems() {
     (!FILTER.type || String(m.type)===FILTER.type) &&
     (!FILTER.scope || String(m.scope)===FILTER.scope) &&
     (!FILTER.tag || m.tags.some(t => String(t)===FILTER.tag)) &&
-    (!FILTER.entity || FILTER.entity.docs.has(m.id)));
+    (!FILTER.entity || entityDocs(FILTER.entity).has(m.id)));
 }
 let SEARCH_SEQ = 0;
 let LIST_LIMIT = 200;                  // render in chunks; 4k cards at once is slow
@@ -522,7 +526,8 @@ function searchFor(q) {                      // entity chips in the drawer jump 
   closeDrawer();
 }
 addEventListener("keydown", e => {
-  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
+  if (e.key === "/" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && !document.activeElement.isContentEditable
+      && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) {
     e.preventDefault(); $("#search").focus();
   }
 });
@@ -531,8 +536,12 @@ $("#search").oninput = e => {
   const q = e.target.value.trim();
   searchTimer = setTimeout(async () => {
     const my = ++SEARCH_SEQ;                       // drop out-of-order responses
-    const res = q ? await api("/api/search?q="+encodeURIComponent(q)) : null;
-    if (my !== SEARCH_SEQ) return;
+    let res = null;
+    if (q) {
+      res = await api("/api/search?q="+encodeURIComponent(q));
+      if (my !== SEARCH_SEQ) return;
+      if (!Array.isArray(res)) { toast("Search failed" + (res && res.error ? ": " + res.error : "")); return; }
+    } else if (my !== SEARCH_SEQ) return;
     SEARCH_RESULTS = res;
     if (TAB!=="graph" && TAB!=="timeline") showTab("list");   // those two views are filtered in place
     filtersChanged();
@@ -752,7 +761,7 @@ function loadGraph(force) {
     g.memCount = g.nodes.filter(n => n.kind==="memory").length;
     g.counts = `${g.memCount} memories · ${g.nodes.length - g.memCount} entities`;
     g.byDeg = g.nodes.slice().sort((a,b) => (a.kind===b.kind ? 0 : a.kind==="memory" ? -1 : 1) || b.degree - a.degree);  // label priority
-    GRAPH = g;
+    GRAPH = g; hoverNode = null;                    // hover/spotlight state belongs to the old graph
     $("#grefresh").style.display = "none";
     view.fitted = false;
     if (TAB==="graph") { fitView(); drawGraph(); }
@@ -771,7 +780,7 @@ function prepGraph(g) {
     n.vx = 0; n.vy = 0; n.nbrs = [];
     n.r = n.kind==="memory" ? 7 + Math.min(n.degree,14)*0.6 : 3.5 + Math.min(n.degree,20)*0.35;
   });
-  const byId = Object.fromEntries(g.nodes.map(n=>[n.id,n]));
+  const byId = g.byId = Object.fromEntries(g.nodes.map(n=>[n.id,n]));
   g.edges.forEach(e => { e.a = byId[e.s]; e.b = byId[e.t]; });
   g.edges = g.edges.filter(e => e.a && e.b);
   g.edges.forEach(e => { e.a.nbrs.push(e.b); e.b.nbrs.push(e.a); });
@@ -825,12 +834,12 @@ async function simulate(g, iters) {
   }
 }
 
-// Which nodes pass the current facet/search/entity filter. Memoised per FILTER_GEN so hover and
+// Which nodes pass the current facet/search/entity filter. Memoised per VIS_GEN so hover and
 // pan redraws do not rescan 20k edges. null = no filter active (everything shown).
 let GVIS = null;
 function graphVis() {
   if (!GRAPH || !filterActive()) return null;
-  if (GVIS && GVIS.g === GRAPH && GVIS.gen === FILTER_GEN) return GVIS;
+  if (GVIS && GVIS.g === GRAPH && GVIS.gen === VIS_GEN) return GVIS;
   const ids = new Set(visibleMems().map(m => m.id)), ents = new Set();
   let count = 0;
   GRAPH.nodes.forEach(n => { if (n.kind==="memory" && ids.has(n.doc)) count++; });
@@ -838,7 +847,7 @@ function graphVis() {
     if (e.a.kind==="memory" && ids.has(e.a.doc)) { if (e.b.kind==="entity") ents.add(e.b); }
     else if (e.b.kind==="memory" && ids.has(e.b.doc)) { if (e.a.kind==="entity") ents.add(e.a); }
   });
-  return GVIS = {g:GRAPH, gen:FILTER_GEN, ids, ents, count};
+  return GVIS = {g:GRAPH, gen:VIS_GEN, ids, ents, count};
 }
 function shownFn() {
   const v = graphVis();
@@ -887,7 +896,7 @@ function drawLabels(shown, showEnts, hl) {
     if (budget <= 0) break;
     if (n.kind==="entity" && (!showEnts || (!hl && view.k <= 1.1))) continue;
     if (!shown(n)) continue;
-    const sx = n.x*view.k + view.x, sy = n.y*view.k + view.y;
+    const sx = (n.x + n.r + 3)*view.k + view.x, sy = n.y*view.k + view.y;   // where the text is actually drawn
     if (sx < -50 || sy < 0 || sx > W || sy > H+sh) continue;
     const text = n.label.length > 34 ? n.label.slice(0,32)+"…" : n.label;
     const sw = text.length * sh * 0.55;
@@ -932,11 +941,9 @@ function drawGraph() {
     for (let i=0;i<b.pts.length;i+=4) { ctx.moveTo(b.pts[i],b.pts[i+1]); ctx.lineTo(b.pts[i+2],b.pts[i+3]); }
     ctx.stroke();
   });
-  let nShown = 0;
   GRAPH.nodes.forEach(n => {
     if (!showEnts && n.kind==="entity") return;
     if (!shown(n)) return;
-    if (n.kind==="memory") nShown++;
     const faded = hl && !hl.has(n);
     ctx.globalAlpha = faded ? 0.15 : 1;
     ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7);
@@ -967,11 +974,16 @@ function nodeAt(p) {
   }
   return null;
 }
+const memDocs = n => new Set(n.nbrs.filter(x => x.kind==="memory").map(x => x.doc));
+// The entity's memory set is re-derived when the graph has been rebuilt, so it never goes stale.
+function entityDocs(e) {
+  if (GRAPH && e.g !== GRAPH) { const n = GRAPH.byId[e.id]; if (n) e.docs = memDocs(n); e.g = GRAPH; }
+  return e.docs;
+}
 // Clicking an entity filters every view (list, timeline, graph) to the memories that mention it.
 function pickEntity(n) {
   if (FILTER.entity && FILTER.entity.id === n.id) FILTER.entity = null;
-  else FILTER.entity = {id:n.id, label:n.label,
-    docs:new Set(n.nbrs.filter(x => x.kind==="memory").map(x => x.doc))};
+  else FILTER.entity = {id:n.id, label:n.label, docs:memDocs(n), g:GRAPH};
   filtersChanged();
 }
 canvas.addEventListener("mousedown", ev => {
@@ -1019,6 +1031,7 @@ addEventListener("resize", () => { if (TAB==="graph"){ sizeCanvas(); drawGraph()
 
 /* ---------- stats ---------- */
 function renderStats(s) {
+  KB_VERSION = s.version;
   const bars = obj => {
     const max = Math.max(...Object.values(obj), 1);
     return Object.entries(obj).map(([k,v]) => `
