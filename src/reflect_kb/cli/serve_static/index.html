@@ -123,6 +123,12 @@
     border-radius:99px; border:1px solid var(--border); color:var(--muted); }
   .ent b { color:var(--ink); font-weight:600; }
 
+  @media (max-width:900px) {
+    header { flex-wrap:wrap; gap:8px 12px; }
+    header #search { order:3; flex:1 0 100%; max-width:none; }
+    nav.tabs { overflow-x:auto; max-width:100%; }
+    nav.tabs button { white-space:nowrap; }
+  }
   /* active filters */
   .activebar { display:none; flex-wrap:wrap; gap:6px; align-items:center; }
   #activebar.on { display:flex; padding:10px 20px 0; }
@@ -745,6 +751,7 @@ function loadGraph(force) {
     if (p !== GRAPH_P) return;                       // a newer load superseded this one
     g.memCount = g.nodes.filter(n => n.kind==="memory").length;
     g.counts = `${g.memCount} memories · ${g.nodes.length - g.memCount} entities`;
+    g.byDeg = g.nodes.slice().sort((a,b) => (a.kind===b.kind ? 0 : a.kind==="memory" ? -1 : 1) || b.degree - a.degree);  // label priority
     GRAPH = g;
     $("#grefresh").style.display = "none";
     view.fitted = false;
@@ -867,6 +874,35 @@ function cssVar(name){ return getComputedStyle(document.documentElement).getProp
 function scheduleDraw() {             // coalesce mousemove/wheel bursts into one paint per frame
   if (!rafId) rafId = requestAnimationFrame(() => { rafId = 0; drawGraph(); });
 }
+// Labels: highest-degree first, each skipped if it would overlap one already placed, capped per
+// frame. Thousands of overprinted labels were an unreadable blob; this keeps the hubs legible and
+// reveals more as you zoom. Entities only label when zoomed in or when spotlighted.
+function drawLabels(shown, showEnts, hl) {
+  const W = canvas.width/devicePixelRatio, H = canvas.height/devicePixelRatio;
+  const ink = cssVar("--ink"), CW = 28, CH = 13;
+  const fs = Math.max(9, 11/Math.sqrt(view.k)), sh = fs*view.k, placed = new Set();
+  const order = hl ? [hoverNode, ...[...hl].filter(n => n!==hoverNode).sort((a,b) => b.degree-a.degree)] : GRAPH.byDeg;
+  let budget = hl ? 60 : 350;
+  for (const n of order) {
+    if (budget <= 0) break;
+    if (n.kind==="entity" && (!showEnts || (!hl && view.k <= 1.1))) continue;
+    if (!shown(n)) continue;
+    const sx = n.x*view.k + view.x, sy = n.y*view.k + view.y;
+    if (sx < -50 || sy < 0 || sx > W || sy > H+sh) continue;
+    const text = n.label.length > 34 ? n.label.slice(0,32)+"…" : n.label;
+    const sw = text.length * sh * 0.55;
+    const x0 = Math.floor(sx/CW), x1 = Math.floor((sx+sw)/CW), y0 = Math.floor((sy-sh)/CH), y1 = Math.floor(sy/CH);
+    let clash = false;
+    for (let x=x0; x<=x1 && !clash; x++) for (let y=y0; y<=y1; y++) if (placed.has(x*100003+y)) { clash = true; break; }
+    if (clash) continue;
+    for (let x=x0; x<=x1; x++) for (let y=y0; y<=y1; y++) placed.add(x*100003+y);
+    budget--;
+    ctx.fillStyle = ink; ctx.globalAlpha = n.kind==="memory" ? 0.95 : 0.7;
+    ctx.font = (n.kind==="memory" ? "600 " : "") + fs + "px sans-serif";
+    ctx.fillText(text, n.x+n.r+3, n.y+3);
+  }
+  ctx.globalAlpha = 1;
+}
 function drawGraph() {
   if (!GRAPH) return;
   const showEnts = $("#showents").checked, showLabels = $("#showlabels").checked;
@@ -906,16 +942,8 @@ function drawGraph() {
     ctx.beginPath(); ctx.arc(n.x,n.y,n.r,0,7);
     ctx.fillStyle = n===hoverNode ? hoverInk : (n.kind==="memory" ? accent : muted);
     ctx.fill();
-    const label = showLabels && !faded && (hl
-      ? (hl.size <= 60 || n.kind==="memory")
-      : (n.kind==="memory" ? view.k>0.9 || n.degree>8 : view.k>1.1 || n.degree>12));  // 4k+ labels at fit-zoom is an unreadable hairball
-    if (label) {
-      ctx.fillStyle = ink; ctx.globalAlpha = n.kind==="memory"?0.95:0.65;
-      ctx.font = (n.kind==="memory"?"600 ":"") + Math.max(9,11/Math.sqrt(view.k)) + "px sans-serif";
-      const text = n.label.length>34 ? n.label.slice(0,32)+"…" : n.label;
-      ctx.fillText(text, n.x+n.r+3, n.y+3);
-    }
   });
+  if (showLabels) drawLabels(shown, showEnts, hl);
   ctx.restore();
   $("#gcount").textContent = v ? `${v.count} of ${GRAPH.memCount} memories (filtered)` : GRAPH.counts;
 }
