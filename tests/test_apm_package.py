@@ -18,6 +18,7 @@ Claude/Codex/Copilot/Cursor, and no collateral damage to a user's own hooks.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -49,6 +50,24 @@ CURSOR_EVENTS = {
     "preCompact",
     "stop",
 }
+# Parent-env vars the sandbox may inherit. Everything else (notably every *_HOME and
+# *_CONFIG_DIR that moves where an agent keeps its config) is dropped.
+ENV_ALLOWLIST = ("PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "SYSTEMROOT")
+# Vars that relocate agent/APM config or state; the leak test sets them all to bogus dirs.
+LEAKY_ENV_VARS = (
+    "CLAUDE_CONFIG_DIR",
+    "CODEX_HOME",
+    "COPILOT_HOME",
+    "CURSOR_CONFIG_DIR",
+    "HERMES_HOME",
+    "APM_HOME",
+    "APM_CACHE_DIR",
+    "APM_TEMP_DIR",
+    "XDG_CONFIG_HOME",
+    "XDG_CACHE_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+)
 RUNTIME_MARK = "reflect/.apm/hooks/rt/"  # every reflect hook command contains this
 USER_STOP = "echo user-stop-hook"
 
@@ -143,8 +162,11 @@ class Sandbox:
                 {"version": 1, "hooks": {"agentStop": [{"type": "command", "command": USER_STOP}]}}
             )
         )
+        # Built from an allowlist, never from **os.environ: apm honours
+        # CLAUDE_CONFIG_DIR, CODEX_HOME, COPILOT_HOME, APM_HOME, XDG_*, etc., and any of
+        # them set in the developer's or CI's shell would send writes to real config dirs.
         self.env = {
-            **os.environ,
+            **{k: os.environ[k] for k in ENV_ALLOWLIST if k in os.environ},
             "HOME": str(self.home),
             "USERPROFILE": str(self.home),
             "XDG_CACHE_HOME": str(self.home / ".cache"),
@@ -215,6 +237,8 @@ def test_generator_refuses_to_wipe_an_unrelated_directory(tmp_path):
     victim = tmp_path / "not-a-build"
     victim.mkdir()
     (victim / "precious.txt").write_text("keep me")
+    # An apm.yml alone must not be taken as proof the directory is ours.
+    (victim / "apm.yml").write_text("name: someone-elses-package\n")
     res = subprocess.run(
         [sys.executable, str(GENERATOR), "--out", str(victim)],
         capture_output=True,
@@ -223,6 +247,65 @@ def test_generator_refuses_to_wipe_an_unrelated_directory(tmp_path):
     )
     assert res.returncode != 0
     assert (victim / "precious.txt").read_text() == "keep me"
+
+
+def test_generator_wipes_only_what_it_marked(tmp_path):
+    out = tmp_path / "reflect"
+    _build(out)
+    assert (out / ".reflect-apm-build").is_file()
+    (out / "stale.txt").write_text("x")
+    (out / ".reflect-apm-build").unlink()  # no marker: no longer provably ours
+    res = subprocess.run(
+        [sys.executable, str(GENERATOR), "--out", str(out)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert (out / "stale.txt").exists(), "unmarked directory must not be deleted"
+    # An existing empty dir and a plain file are handled without deleting anything.
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    _build(empty)
+    assert (empty / "apm.yml").is_file()
+    a_file = tmp_path / "a-file"
+    a_file.write_text("keep")
+    res = subprocess.run(
+        [sys.executable, str(GENERATOR), "--out", str(a_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert res.returncode != 0
+    assert a_file.read_text() == "keep"
+
+
+def _load_generator():
+    spec = importlib.util.spec_from_file_location("build_apm_package", GENERATOR)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_cursor_mapping_fails_loudly_on_an_unmapped_event():
+    gen = _load_generator()
+    hook = {"matcher": "", "hooks": [{"type": "command", "command": "x"}]}
+    # Known events (mapped or deliberately dropped) are fine.
+    ok = {"hooks": {"Stop": [hook], "Notification": [hook]}}
+    assert set(gen.to_cursor(ok)["hooks"]) == {"stop"}
+    # A brand-new Claude event must not be silently dropped for Cursor.
+    with pytest.raises(SystemExit, match="BrandNewEvent"):
+        gen.to_cursor({"hooks": {"BrandNewEvent": [hook]}})
+    assert gen.CURSOR_DROPPED_EVENTS.isdisjoint(gen.CURSOR_EVENT_MAP)
+
+
+def test_generator_honours_the_plugin_dir_argument(package, tmp_path):
+    """Exclusions are relative to the plugin dir passed in, not the repo's own."""
+    gen = _load_generator()
+    copy = tmp_path / "plugin-copy"
+    shutil.copytree(REPO_ROOT / "plugin", copy, ignore=shutil.ignore_patterns("__pycache__"))
+    out = gen.build(tmp_path / "out" / "reflect", plugin_dir=copy)
+    assert _tree_digest(out) == _tree_digest(package)
 
 
 def test_package_layout(package):
@@ -366,3 +449,26 @@ def test_uninstall_is_clean(package, tmp_path):
     for target in (".claude", ".codex", ".cursor"):
         assert not (box.home / target / "hooks" / "reflect").exists()
     assert not [f for f in (box.home / ".copilot" / "hooks").iterdir() if f.name != "user.json"]
+
+
+@pytest.mark.skipif(shutil.which("apm") is None, reason=NO_APM)
+def test_sandbox_ignores_config_relocating_env_vars(package, tmp_path, monkeypatch):
+    """Even with every config-relocating var set in the parent env, apm writes only
+    under the fake HOME and never to the paths those vars point at."""
+    bogus_root = tmp_path / "bogus-real-config"
+    for var in LEAKY_ENV_VARS:
+        monkeypatch.setenv(var, str(bogus_root / var))
+    box = Sandbox(tmp_path / "box", package)
+    for var in LEAKY_ENV_VARS:
+        if var.startswith("XDG_"):  # redirected into the fake HOME, not dropped
+            assert str(box.env.get(var, box.home)).startswith(str(box.home)), var
+        else:
+            assert var not in box.env, f"{var} leaked into the sandbox env"
+    box.install()
+    box.uninstall()
+    assert not bogus_root.exists(), (
+        f"apm wrote outside the fake HOME: {list(bogus_root.rglob('*'))}"
+    )
+    assert _all_reflect_commands(box.home) == []
+    # The install itself did land in the fake HOME (not vacuous).
+    assert (box.home / ".apm").is_dir()
