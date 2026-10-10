@@ -1,0 +1,57 @@
+name: apm
+
+# The APM distribution channel is generated from plugin/ (scripts/build_apm_package.py).
+# This job builds the package and installs it with the real, pinned `apm` CLI into a
+# fake HOME, so a plugin/ change that breaks the APM layout (hooks not wired, runtime
+# dropped, user hooks clobbered) fails the PR instead of failing silently for users.
+on:
+  pull_request:
+    paths:
+      - "plugin/**"
+      - "scripts/build_apm_package.py"
+      - "tests/test_apm_package.py"
+      - ".github/workflows/apm.yml"
+  push:
+    branches: [main]
+    paths:
+      - "plugin/**"
+      - "scripts/build_apm_package.py"
+      - "tests/test_apm_package.py"
+      - ".github/workflows/apm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: apm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with APM_PIN in tests/test_apm_package.py and the docs install page.
+  APM_VERSION: "0.33.0"
+
+jobs:
+  apm-install:
+    name: apm install (pinned apm-cli)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: install apm-cli (pinned)
+        run: |
+          uv tool install "apm-cli==${APM_VERSION}"
+          apm --version
+
+      - name: build package and run the install tests against the real apm
+        # The test module skips when apm is missing. Here a skip would be a silent
+        # pass, so fail the job if anything was skipped.
+        run: |
+          uv run --no-project --with pytest pytest -q -rs tests/test_apm_package.py | tee pytest.log
+          if grep -qi "skipped" pytest.log; then
+            echo "::error::apm tests were skipped; apm is not on PATH"
+            exit 1
+          fi
