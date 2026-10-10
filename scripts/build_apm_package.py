@@ -1,0 +1,256 @@
+#!/usr/bin/env python3
+"""Generate the APM (Agent Package Manager) package for reflect from plugin/.
+
+APM cannot consume plugin/ as-is: pointed straight at it, APM either wires zero
+hooks (the Copilot root manifest wins and carries none) or wires them but drops
+scripts/ (the hook runtime is only copied when it sits under .apm/hooks/). So
+this script lays the package out the way APM needs it:
+
+    <out>/
+      apm.yml                       package manifest (name/version from plugin)
+      README.md                     what the package is and is not
+      .apm/skills/<skill>/          the 10 skills, copied from plugin/skills/
+      .apm/hooks/claude-hooks.json  one hook file per agent (APM routes by
+      .apm/hooks/codex-hooks.json   filename), commands rewritten to point at
+      .apm/hooks/copilot-hooks.json the bundled runtime
+      .apm/hooks/cursor-hooks.json  camelCase events, derived from the Claude set
+      .apm/hooks/rt/                the whole runtime (scripts/, hooks/,
+                                    skills/, assets/, references/, data/,
+                                    reflect.toml)
+
+Hook sources are the plugin's own manifests, so the event set never drifts from
+what the native install ships:
+
+    claude   plugin/.claude-plugin/plugin.json  ("hooks", ${CLAUDE_PLUGIN_ROOT})
+    codex    plugin/codex-hooks.json            (${PLUGIN_ROOT})
+    copilot  plugin/copilot-hooks.json          (${PLUGIN_ROOT}, REFLECT_HARNESS kept)
+    cursor   derived from the Claude hooks, event names mapped to the camelCase
+             names Cursor documents. APM writes PascalCase to .cursor/hooks.json
+             for a universal hook file, but passes a cursor-hooks.json through
+             untouched (it only warns), so the camelCase file is authored here.
+
+The output is a build artifact (default build/apm/reflect, under the gitignored build/). The
+script is stdlib only, offline and idempotent: the output directory is rebuilt
+from scratch on every run and the result is byte-identical for the same input.
+
+Usage:
+    python scripts/build_apm_package.py [--out DIR]
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import sys
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+PLUGIN_DIR = REPO_ROOT / "plugin"
+# The last path component becomes the package name APM uses for its install dir
+# (e.g. ~/.claude/hooks/reflect/), so keep it "reflect".
+DEFAULT_OUT = REPO_ROOT / "build" / "apm" / "reflect"
+
+# Where the runtime lives inside the package, relative to the package root.
+# Anything APM copies for a hook script comes from the hooks source root
+# (.apm/hooks/), so the runtime has to live below it.
+RUNTIME_REL = ".apm/hooks/rt"
+APM_ROOT = "${PLUGIN_ROOT}"
+
+# Entries of plugin/ that are not runtime: other-harness manifests, docs, the
+# adapters (an alternative install route), launchd plists, and tests.
+RUNTIME_EXCLUDE_TOP = {
+    ".claude-plugin",
+    ".codex-plugin",
+    "CHANGELOG.md",
+    "README.md",
+    "adapters",
+    "docs",
+    "launchd",
+    "plugin.json",
+    "tests",
+    "codex-hooks.json",
+    "copilot-hooks.json",
+}
+# Excluded by path relative to plugin/.
+RUNTIME_EXCLUDE_PATHS = {
+    "hooks/settings-snippet.json",
+    "scripts/tests",
+}
+# Claude event -> Cursor event (cursor.com/docs/agent/hooks). Claude events with
+# no Cursor equivalent (Notification, PermissionRequest, PostCompact) are dropped.
+CURSOR_EVENT_MAP = {
+    "SessionStart": "sessionStart",
+    "SessionEnd": "sessionEnd",
+    "UserPromptSubmit": "beforeSubmitPrompt",
+    "PreToolUse": "preToolUse",
+    "PostToolUse": "postToolUse",
+    "PostToolUseFailure": "postToolUseFailure",
+    "SubagentStart": "subagentStart",
+    "SubagentStop": "subagentStop",
+    "PreCompact": "preCompact",
+    "Stop": "stop",
+}
+IGNORE_NAMES = {"__pycache__", ".DS_Store"}
+IGNORE_SUFFIXES = {".pyc", ".pyo"}
+
+
+def _read_json(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _write_json(path: Path, data: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _rewrite(node, old_roots: tuple[str, ...]):
+    """Point every ``${<old>}/x`` hook path at the bundled runtime."""
+    new_prefix = f"{APM_ROOT}/{RUNTIME_REL}/"
+    if isinstance(node, str):
+        for old in old_roots:
+            node = node.replace(f"{old}/", new_prefix)
+        return node
+    if isinstance(node, list):
+        return [_rewrite(v, old_roots) for v in node]
+    if isinstance(node, dict):
+        return {k: _rewrite(v, old_roots) for k, v in node.items()}
+    return node
+
+
+def _runtime_ignore(src_dir: str, names: list[str]) -> set[str]:
+    base = Path(src_dir)
+    skipped: set[str] = set()
+    for name in names:
+        rel = (base / name).relative_to(PLUGIN_DIR).as_posix()
+        if (
+            name in IGNORE_NAMES
+            or Path(name).suffix in IGNORE_SUFFIXES
+            or rel in RUNTIME_EXCLUDE_PATHS
+            or (base == PLUGIN_DIR and name in RUNTIME_EXCLUDE_TOP)
+        ):
+            skipped.add(name)
+    return skipped
+
+
+def _copy_tree(src: Path, dst: Path, ignore=None) -> None:
+    shutil.copytree(src, dst, ignore=ignore, copy_function=shutil.copy2)
+
+
+def _hook_events(hooks_doc: dict) -> int:
+    return len(hooks_doc.get("hooks", {}))
+
+
+def to_cursor(claude_doc: dict) -> dict:
+    """Flatten Claude's matcher groups into Cursor's camelCase hooks.json shape."""
+    hooks: dict[str, list[dict]] = {}
+    for event, groups in claude_doc["hooks"].items():
+        target = CURSOR_EVENT_MAP.get(event)
+        if target is None:
+            continue
+        entries = [dict(h) for group in groups for h in group["hooks"]]
+        for entry in entries:
+            entry.pop("type", None)  # Cursor defaults to "command"
+        hooks[target] = entries
+    return {"version": 1, "hooks": hooks}
+
+
+def build_hook_files(plugin_dir: Path) -> dict[str, dict]:
+    """Return {filename: document} for every per-agent hook file."""
+    claude_manifest = _read_json(plugin_dir / ".claude-plugin" / "plugin.json")
+    codex = _read_json(plugin_dir / "codex-hooks.json")
+    copilot = _read_json(plugin_dir / "copilot-hooks.json")
+    claude = _rewrite({"hooks": claude_manifest["hooks"]}, ("${CLAUDE_PLUGIN_ROOT}",))
+    docs = {
+        "claude-hooks.json": claude,
+        "codex-hooks.json": _rewrite(codex, ("${PLUGIN_ROOT}",)),
+        "copilot-hooks.json": _rewrite(copilot, ("${PLUGIN_ROOT}",)),
+        "cursor-hooks.json": to_cursor(claude),
+    }
+    for name, doc in docs.items():
+        if not _hook_events(doc):
+            raise SystemExit(f"error: {name} has no hook events; plugin source changed shape?")
+    return docs
+
+
+def render_apm_yml(meta: dict) -> str:
+    # Single-line scalars only, quoted via json.dumps (valid YAML), so the output
+    # does not depend on a YAML library.
+    desc = "Self-improving memory for coding agents: capture, drain, index, recall."
+    lines = [
+        f"name: {meta['name']}",
+        f"version: {meta['version']}",
+        f"description: {json.dumps(desc)}",
+        f"author: {json.dumps(meta.get('author', {}).get('name', ''))}",
+        f"license: {json.dumps(meta.get('license', 'MIT'))}",
+        "dependencies:",
+        "  apm: []",
+        "  mcp: []",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+PACKAGE_README = """\
+# reflect (APM package)
+
+Generated from `plugin/` by `scripts/build_apm_package.py`. Do not edit by hand;
+rebuild instead.
+
+What this installs, per agent harness: the 10 reflect skills and the lifecycle
+hooks (Claude 13 events, Codex 10, Copilot 13, Cursor 10), plus the Python runtime the
+hooks call, bundled under `.apm/hooks/rt/`.
+
+What it does NOT do (APM has no primitive for these): install the `reflect-kb`
+CLI, install the launchd timers or the git post-commit hook, or bootstrap the
+knowledge base. Run `ainb reflect bootstrap` for that machine layer. Hooks fail
+open without the CLI, so a bare APM install records and recalls nothing useful
+until the CLI is present.
+
+Claude Code users should keep `claude plugin install`; APM is an extra channel
+aimed at Codex, Copilot and Cursor.
+"""
+
+
+def build(out: Path, plugin_dir: Path = PLUGIN_DIR) -> Path:
+    out = out.resolve()
+    if out.exists():
+        if any(out.iterdir()) and not (out / "apm.yml").is_file():
+            raise SystemExit(
+                f"error: {out} exists, is not empty and is not a previous build; refusing"
+            )
+        shutil.rmtree(out)
+    out.mkdir(parents=True)
+
+    meta = _read_json(plugin_dir / ".claude-plugin" / "plugin.json")
+    meta.setdefault("license", "MIT")
+
+    (out / "apm.yml").write_text(render_apm_yml(meta), encoding="utf-8")
+    (out / "README.md").write_text(PACKAGE_README, encoding="utf-8")
+
+    _copy_tree(
+        plugin_dir / "skills",
+        out / ".apm" / "skills",
+        ignore=shutil.ignore_patterns(*IGNORE_NAMES, "*.pyc"),
+    )
+
+    for name, doc in build_hook_files(plugin_dir).items():
+        _write_json(out / ".apm" / "hooks" / name, doc)
+
+    _copy_tree(plugin_dir, out / RUNTIME_REL, ignore=_runtime_ignore)
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument(
+        "--out", type=Path, default=DEFAULT_OUT, help=f"output dir (default: {DEFAULT_OUT})"
+    )
+    args = parser.parse_args(argv)
+    out = build(args.out)
+    print(f"built APM package: {out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
