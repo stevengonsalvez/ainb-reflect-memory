@@ -1,0 +1,66 @@
+name: apm
+
+# The APM distribution channel is generated from plugin/ (scripts/build_apm_package.py).
+# This job builds the package and installs it with the real, pinned `apm` CLI into a
+# fake HOME, so a plugin/ change that breaks the APM layout (hooks not wired, runtime
+# dropped, user hooks clobbered) fails the PR instead of failing silently for users.
+on:
+  pull_request:
+    paths:
+      - "plugin/**"
+      - "scripts/build_apm_package.py"
+      - "tests/test_apm_package.py"
+      - ".github/workflows/apm.yml"
+  push:
+    branches: [main]
+    paths:
+      - "plugin/**"
+      - "scripts/build_apm_package.py"
+      - "tests/test_apm_package.py"
+      - ".github/workflows/apm.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: apm-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Keep in step with APM_PIN in tests/test_apm_package.py and the docs install page.
+  APM_VERSION: "0.33.0"
+  PYTEST_VERSION: "8.4.2"
+
+jobs:
+  apm-install:
+    name: apm install (pinned apm-cli)
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs (tag in the comment) so a moved tag cannot change CI.
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: install uv
+        uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+        with:
+          version: "0.8.0"
+
+      - name: install apm-cli (pinned)
+        run: |
+          uv tool install "apm-cli==${APM_VERSION}"
+          apm --version
+
+      - name: build package and run the install tests against the real apm
+        # The test module skips when apm is missing. Here a skip would be a silent
+        # pass, so fail the job if anything was skipped.
+        #
+        # `shell: bash` is load-bearing: with no `shell:` GitHub runs `bash -e {0}`
+        # WITHOUT pipefail, so a failing pytest piped into tee would exit 0. An
+        # explicit `bash` shell adds `-o pipefail`.
+        shell: bash
+        run: |
+          uv run --no-project --with "pytest==${PYTEST_VERSION}" pytest -q -rs tests/test_apm_package.py | tee pytest.log
+          if grep -qi "skipped" pytest.log; then
+            echo "::error::apm tests were skipped; apm is not on PATH"
+            exit 1
+          fi

@@ -6,6 +6,17 @@ versioning.
 
 ## [Unreleased]
 
+### Added
+
+- **APM distribution channel.** `scripts/build_apm_package.py` generates a
+  Microsoft APM (apm-cli 0.33.0) package from `plugin/` into `build/apm/reflect`:
+  the 10 skills, one hook file per agent (Claude 13 events, Codex 10, Copilot 13,
+  camelCase Cursor 10) and the runtime bundled under `.apm/hooks/rt/`. It is an
+  extra channel for Codex, Copilot and Cursor and wires agents only: it does not
+  install the `reflect-kb` CLI, launchd timers, the post-commit hook or the KB
+  bootstrap. A new `apm` CI job installs it into a fake HOME with the pinned
+  apm-cli. Live hook firing in Codex, Copilot and Cursor is unverified.
+
 ### Fixed
 
 - **Recall per-prompt cap.** `filter_to_new` counted the `## Prior learnings`
