@@ -46,6 +46,7 @@ Details: [capture](/ainb-reflect-memory/concepts/capture/), [drain](/ainb-reflec
 | Codex CLI | Adapter script merges skills and hooks | [Codex](/ainb-reflect-memory/install/codex/) |
 | GitHub Copilot CLI | Adapter script writes native hooks file | [Copilot](/ainb-reflect-memory/install/copilot/) |
 | Hermes (fleet-lambda) | Adapter deploys skills and shims | [Hermes](/ainb-reflect-memory/install/hermes/) |
+| Codex, Copilot, Cursor (extra channel) | APM package generated from `plugin/`; agent wiring only | [APM](/ainb-reflect-memory/install/apm/) |
 
 :::note
 The drain shells out to the `claude` CLI on every harness. Codex and Copilot users still need `claude` installed for background capture to run.
