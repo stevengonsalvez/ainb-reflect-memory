@@ -21,7 +21,7 @@ sidebar:
 | Bootstraps the knowledge base (`~/.learnings`, index build) | **No** |
 | Fires hooks inside a live Codex, Copilot or Cursor session | **Not verified** |
 
-APM packages cannot ship install scripts, so the machine layer stays manual. Without the `reflect` CLI on `PATH` the hooks fail open: they exit 0 and recall and capture quietly do nothing useful. Install the engine first, exactly as on the other pages:
+APM packages cannot ship install scripts, so the machine layer stays manual. Without the `reflect` CLI on `PATH` the hooks fail open: they exit 0 and recall and capture quietly do nothing useful. The hooks also run through `uv run --script`, so `uv` must be on `PATH` too. Install the engine first, exactly as on the other pages:
 
 ```bash
 uv tool install --force --upgrade --torch-backend cpu \
@@ -61,7 +61,7 @@ build/apm/reflect/
   .apm/hooks/rt/                  the whole runtime (scripts/, hooks/, skills/, assets/, ...)
 ```
 
-The hook files are derived from the plugin's own manifests, so the event set cannot drift from the native install.
+The Claude, Codex and Copilot hook files are derived from the plugin's own manifests, so their event sets track the native install. The Cursor file goes through an explicit event map instead, and the build fails if the plugin gains an event that map does not cover.
 
 ## Where things land
 
