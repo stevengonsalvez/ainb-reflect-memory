@@ -1,0 +1,31 @@
+# Historical gitleaks hits present when this gate was added (2026-10-12).
+# Reviewed as test fixtures and placeholders. A new leak is not in this list and fails CI.
+# Remove a line once its value is rotated or the file is gone. Do not add a line to hide a new leak.
+058c18d89fae34083a47535b5dd5c03695cab6da:tests/test_capture_redaction.py:private-key:23
+27b132f02fe04ab8636a630cbb67cf375735de06:tests/test_capture_redaction.py:generic-api-key:236
+27b132f02fe04ab8636a630cbb67cf375735de06:tests/test_capture_redaction.py:generic-api-key:244
+27b132f02fe04ab8636a630cbb67cf375735de06:tests/test_capture_redaction.py:generic-api-key:245
+31d9e3c7edfd634615c7345b5e7eafe2d50142c2:plugin/tests/test_hooks_silent_fail.py:generic-api-key:235
+31d9e3c7edfd634615c7345b5e7eafe2d50142c2:plugin/tests/test_hooks_silent_fail.py:generic-api-key:328
+31d9e3c7edfd634615c7345b5e7eafe2d50142c2:plugin/tests/test_hooks_silent_fail.py:github-pat:248
+31d9e3c7edfd634615c7345b5e7eafe2d50142c2:plugin/tests/test_hooks_silent_fail.py:github-pat:252
+367a28017432d565739ac94a4be134df24ad6b9e:tests/test_capture_redaction.py:generic-api-key:483
+367a28017432d565739ac94a4be134df24ad6b9e:tests/test_capture_redaction.py:generic-api-key:505
+367a28017432d565739ac94a4be134df24ad6b9e:tests/test_capture_redaction.py:generic-api-key:546
+367a28017432d565739ac94a4be134df24ad6b9e:tests/test_capture_redaction.py:private-key:481
+3bd903e13b47bc5cc7fb16a2c95bd54b55cef9e0:tests/test_issues_sanitize.py:generic-api-key:113
+3bd903e13b47bc5cc7fb16a2c95bd54b55cef9e0:tests/test_issues_sanitize.py:private-key:55
+65c5303e4db5b1a010211e44a9d4cec01a6e1785:tests/test_capture_redaction.py:generic-api-key:233
+69d9a506f27a009cb55854f2c00e266d25d30f61:plugin/tests/test_hooks_silent_fail.py:generic-api-key:235
+69d9a506f27a009cb55854f2c00e266d25d30f61:plugin/tests/test_hooks_silent_fail.py:generic-api-key:328
+69d9a506f27a009cb55854f2c00e266d25d30f61:plugin/tests/test_hooks_silent_fail.py:github-pat:248
+69d9a506f27a009cb55854f2c00e266d25d30f61:plugin/tests/test_hooks_silent_fail.py:github-pat:252
+84a917d33e24b973b1d51bd0383db308cdd9f206:tests/test_capture_redaction.py:generic-api-key:211
+84a917d33e24b973b1d51bd0383db308cdd9f206:tests/test_capture_redaction.py:generic-api-key:212
+84a917d33e24b973b1d51bd0383db308cdd9f206:tests/test_capture_redaction.py:generic-api-key:213
+8e15b0a6d496efbb3a655fe60890da099c7a96ad:plugin/tests/test_secret_redact_parity.py:generic-api-key:32
+8f3b43b69a39d85a411ef027df47ad9ab1e20047:tests/test_capture_redaction.py:generic-api-key:218
+8f3b43b69a39d85a411ef027df47ad9ab1e20047:tests/test_capture_redaction.py:generic-api-key:220
+8f3b43b69a39d85a411ef027df47ad9ab1e20047:tests/test_capture_redaction.py:generic-api-key:221
+9247ffa817f42ca08ec8aed2ee0070200caa58c6:tests/test_issues_sanitize.py:generic-api-key:113
+9247ffa817f42ca08ec8aed2ee0070200caa58c6:tests/test_issues_sanitize.py:private-key:55
