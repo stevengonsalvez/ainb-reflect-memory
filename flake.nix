@@ -108,11 +108,11 @@
 
         # ── plugly-reflect-memory application ─────────────────────────────────────────
         # Base CLI deps + the full `[graph]` extra so `nix run .#plugly-reflect-memory`
-        # gets a working `reflect search` out of the box. pipx users on
+        # gets a working `plugly-reflect-memory search` out of the box. pipx users on
         # macOS/Linux skip the heavy chain (see pyproject.toml comment).
         plugly-reflect-memory = pyPkgs.buildPythonApplication {
           pname = "plugly-reflect-memory";
-          version = "0.1.0";
+          version = (builtins.fromTOML (builtins.readFile ./pyproject.toml)).project.version;
           pyproject = true;
           src = ./.;
           build-system = [ pyPkgs.hatchling ];
@@ -135,7 +135,7 @@
             nano-graphrag
           ];
           doCheck = false;
-          pythonImportsCheck = [ "reflect_kb" ];
+          pythonImportsCheck = [ "plugly_reflect_memory" "reflect_kb" ];
           meta = with lib; {
             description = "Universal cross-harness retrieval + learning KB for AI coding agents";
             homepage = "https://github.com/stevengonsalvez/plugly-reflect-memory";
