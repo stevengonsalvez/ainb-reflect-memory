@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>reflect · memory browser</title>
+<title>plugly-reflect-memory · memory browser</title>
 <style>
   :root {
     --bg:#faf8f1; --surface:#ffffff; --surface2:#f3f1e6; --ink:#2b2a24; --muted:#77745f;
@@ -234,7 +234,7 @@
 </head>
 <body>
 <header>
-  <div class="brand"><span class="mark">🐘</span><b>reflect</b><span>memory browser</span></div>
+  <div class="brand"><span class="mark">🐘</span><b>plugly-reflect-memory</b><span>memory browser</span></div>
   <input id="search" data-testid="search" type="search" placeholder="Search memories… (lexical, ranked)" autocomplete="off">
   <nav class="tabs">
     <button data-tab="list" data-testid="tab-memories" class="active">Memories</button>
@@ -312,12 +312,13 @@ let KB_VERSION = null;              // server-reported documents/ mtime, to dete
 let SELECT_MODE = false; const SELECTED = new Set();
 
 /* ---------- theme ---------- */
-const savedTheme = localStorage.getItem("reflect-theme");
+const savedTheme = localStorage.getItem("plugly-reflect-memory-theme") ?? localStorage.getItem("reflect-theme");
 if (savedTheme) document.documentElement.dataset.theme = savedTheme;
 else if (matchMedia("(prefers-color-scheme: dark)").matches) document.documentElement.dataset.theme = "dark";
 $("#theme").onclick = () => {
   const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
   document.documentElement.dataset.theme = t;
+  localStorage.setItem("plugly-reflect-memory-theme", t);
   localStorage.setItem("reflect-theme", t);
   if (GRAPH) drawGraph();
 };
@@ -513,7 +514,7 @@ $("#ab-compress").onclick = async () => {
   const ids = [...SELECTED];
   const res = await post("/api/compress-queue", {ids});
   if (res.error) { toast("Compress failed: " + res.error); return; }
-  toast(`Queued ${res.queued.length} memories for /reflect compression`);
+  toast(`Queued ${res.queued.length} memories for /plugly-reflect-memory compression`);
   SELECTED.clear(); SELECT_MODE = false; $("#seltoggle").classList.remove("on");
   renderList(); updateActionBar();
 };
@@ -687,7 +688,7 @@ async function setConfidence(value) {
   if (!DETAIL_ID) return;
   const res = await post(`/api/memories/${encodeURIComponent(DETAIL_ID)}/confidence`, {value});
   if (res.error) { toast("Update failed: " + res.error); return; }
-  toast(`Confidence → ${value}` + (res.graph_index_stale ? " · run reflect reindex to refresh graph" : ""));
+  toast(`Confidence → ${value}` + (res.graph_index_stale ? " · run plugly-reflect-memory reindex to refresh graph" : ""));
   const id = DETAIL_ID;
   await reloadMems();
   openDetail(id);   // re-render drawer with new value
