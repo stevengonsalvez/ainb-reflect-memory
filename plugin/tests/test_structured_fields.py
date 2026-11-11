@@ -45,7 +45,7 @@ from recall import (  # noqa: E402
 )
 
 LEARNING_TEMPLATE = PLUGIN_ROOT / "assets" / "learning_template.md"
-REFLECT_SKILL = PLUGIN_ROOT / "skills" / "reflect" / "SKILL.md"
+REFLECT_SKILL = PLUGIN_ROOT / "skills" / "plugly-reflect-memory" / "SKILL.md"
 
 STRUCTURED_FIELDS = (
     "problem", "root_cause", "fix", "rule", "category",

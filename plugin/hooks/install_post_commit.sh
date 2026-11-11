@@ -63,28 +63,31 @@ fi
 
 [ -f "$REAL_HOOK" ] || { echo "error: reflect post_commit.sh not found at $REAL_HOOK" >&2; exit 1; }
 
-# Idempotent: if our managed wrapper is already there, done.
-if [ -f "$TARGET" ] && grep -qF "$MARKER" "$TARGET" 2>/dev/null; then
-  echo "reflect SG2: already installed in $HOOKS_DIR"
-  exit 0
-fi
-
-# Chain a pre-existing (non-managed) hook so we don't clobber it.
+# Refresh owned wrappers after plugin relocation without chaining ourselves.
 CHAIN_CALL=""
-if [ -e "$TARGET" ]; then
+if [ -f "$TARGET" ] && grep -qF "$MARKER" "$TARGET" 2>/dev/null; then
+  echo "plugly-reflect-memory SG2: refreshing managed wrapper in $HOOKS_DIR"
+elif [ -e "$TARGET" ]; then
+  # Preserve a developer's existing hook only on first installation.
+  if [ -e "$CHAINED" ]; then
+    echo "error: prior chained hook already exists at $CHAINED; refusing overwrite" >&2
+    exit 1
+  fi
   mv "$TARGET" "$CHAINED"
   chmod +x "$CHAINED" 2>/dev/null || true
+  echo "plugly-reflect-memory SG2: chained existing post-commit hook"
+fi
+if [ -f "$CHAINED" ]; then
   CHAIN_CALL='[ -x "$(dirname "$0")/post-commit.reflect-chained" ] && "$(dirname "$0")/post-commit.reflect-chained" "$@"'
-  echo "reflect SG2: chained existing post-commit hook -> post-commit.reflect-chained"
 fi
 
 cat > "$TARGET" <<EOF
 #!/usr/bin/env bash
 $MARKER
-# Managed by reflect install_post_commit.sh — edits will be overwritten on
+# Managed by reflect install_post_commit.sh , edits will be overwritten on
 # re-install. To remove: $HOOK_DIR/install_post_commit.sh --uninstall
 $CHAIN_CALL
-REFLECT_SCRIPTS_DIR="$SCRIPTS_DIR" "$REAL_HOOK" "\$@" || true
+PLUGLY_REFLECT_MEMORY_SCRIPTS_DIR="$SCRIPTS_DIR" REFLECT_SCRIPTS_DIR="$SCRIPTS_DIR" "$REAL_HOOK" "\$@" || true
 $END_MARKER
 EOF
 chmod +x "$TARGET"

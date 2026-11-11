@@ -1,5 +1,5 @@
 ---
-name: reflect:cost
+name: plugly-reflect-memory:cost
 description: |
   Report reflect drain spend over a time window — tokens split by cached
   (cache_read), uncached writes (cache_creation), and io (input+output), with a
@@ -12,7 +12,7 @@ description: |
 version: "4.1.0"
 user-invocable: true
 triggers:
-  - reflect:cost
+  - plugly-reflect-memory:cost
   - reflect cost
   - reflection cost
   - cost of reflection
@@ -23,7 +23,7 @@ allowed-tools:
   - Bash
 ---
 
-# /reflect:cost — Drain spend report
+# /plugly-reflect-memory:cost : Drain spend report
 
 Shows what the reflect background drainer is spending: token volume split into
 **cached** (cheap reuse), **uncached writes** (expensive cache_creation), and

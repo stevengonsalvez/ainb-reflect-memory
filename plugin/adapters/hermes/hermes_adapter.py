@@ -10,8 +10,8 @@ deploy the reflect skill content plus a pair of ``shim/`` scripts into
 Deployed layout::
 
     plugin/skills/<name>/{hooks,scripts,...}/  → ~/.hermes/skills/<name>/...
-    plugin/reflect.toml                        → ~/.hermes/skills/reflect/reflect.toml
-    plugin/adapters/hermes/shim/               → ~/.hermes/skills/reflect/shim/
+    plugin/reflect.toml                        → ~/.hermes/skills/plugly-reflect-memory/reflect.toml
+    plugin/adapters/hermes/shim/               → ~/.hermes/skills/plugly-reflect-memory/shim/
 
 The shims call the deployed ``recall.py`` (shadow recall / capture enqueue);
 the fleet-lambda side switches modes via ``FLEET_MEMORY_BACKEND``. Unlike
@@ -48,7 +48,7 @@ from base import (  # noqa: E402
     run_cli,
 )
 
-POINTER_MANAGED_BY = "reflect-kb/adapters/hermes"
+POINTER_MANAGED_BY = "plugly-reflect-memory/adapters/hermes"
 HARNESS_DIR = ".hermes"
 
 # Skill subdirectories synced verbatim alongside each SKILL.md so the shim's
@@ -92,7 +92,13 @@ class HermesAdapter(AdapterBase):
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
             return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        if dst is not None:
+            text = text.replace(
+                "${CLAUDE_PLUGIN_ROOT}/plugin/skills/plugly-reflect-memory/SKILL.md",
+                str(dst.parents[1] / "plugly-reflect-memory" / "SKILL.md"),
+            )
+        return text
 
     # --- plan augmentation + extras --------------------------------------
 
@@ -113,7 +119,7 @@ class HermesAdapter(AdapterBase):
                 if src_sub.is_dir():
                     subdir_syncs.append((src_sub, dst_skill_dir / subdir))
 
-        reflect_umbrella = plan.target_harness_dir / "skills" / "reflect"
+        reflect_umbrella = plan.target_harness_dir / "skills" / "plugly-reflect-memory"
 
         # Plugin-root single files (reflect.toml) land under the reflect skill.
         root_file_copies: list[tuple[Path, Path]] = []
@@ -129,6 +135,10 @@ class HermesAdapter(AdapterBase):
         if src_shim.is_dir():
             shim_syncs.append((src_shim, reflect_umbrella / "shim"))
 
+        for resource in ("scripts", "hooks", "assets", "references"):
+            source = plugin_root / resource
+            if source.is_dir():
+                subdir_syncs.append((source, reflect_umbrella / resource))
         plan.extras["subdir_syncs"] = subdir_syncs
         plan.extras["root_file_copies"] = root_file_copies
         plan.extras["shim_syncs"] = shim_syncs
@@ -176,7 +186,7 @@ class HermesAdapter(AdapterBase):
         wholly adapter-owned, so it is safe to remove them outright.
         """
         actions: list[str] = []
-        reflect_umbrella = home / self.HARNESS_DIR / "skills" / "reflect"
+        reflect_umbrella = home / self.HARNESS_DIR / "skills" / "plugly-reflect-memory"
 
         shim_dir = reflect_umbrella / "shim"
         if shim_dir.is_dir():

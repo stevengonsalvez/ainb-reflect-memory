@@ -1,5 +1,5 @@
 ---
-name: reflect:slots
+name: plugly-reflect-memory:slots
 description: |
   Read and edit the pinned memory slots — a fixed set of named, size-capped,
   agent-editable scratchpads (persona, user_preferences, tool_guidelines,
@@ -10,7 +10,7 @@ description: |
 version: "1.0.0"
 user-invocable: true
 triggers:
-  - reflect:slots
+  - plugly-reflect-memory:slots
   - memory slots
   - memory slot
   - pinned slots
@@ -55,22 +55,22 @@ the current repo, so it can normally be omitted.
 
 ```bash
 # memory_slot_list — every slot visible here, with fill levels
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-list
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py slot-list
 
 # memory_slot_get — full JSON for one slot
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-get \
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py slot-get \
   --name pending_items
 
 # memory_slot_append — add a line (errors if it would blow the size cap)
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-append \
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py slot-append \
   --name pending_items --text "- wire the retry budget into the drain loop"
 
 # memory_slot_replace — rewrite the whole slot (compact when near the cap)
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-replace \
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py slot-replace \
   --name guidance --content "Focus: finish A1 port. Avoid: touching uv.lock."
 
 # memory_slot_delete — empty a slot (the named slot itself survives)
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-delete \
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py slot-delete \
   --name self_notes
 ```
 
@@ -97,7 +97,7 @@ python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py slot-delete \
   counts summarize into `session_patterns`, touched files accumulate in
   `project_context`. Auto-writers dedupe and tail-truncate within the cap.
 
-## When the user invokes /reflect:slots
+## When the user invokes /plugly-reflect-memory:slots
 
 1. Run `slot-list` and show the table (name, scope, fill level, description).
 2. Ask (via `AskUserQuestion`) whether they want to view, append, replace,

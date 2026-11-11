@@ -1,5 +1,5 @@
 ---
-name: reflect:status
+name: plugly-reflect-memory:status
 description: |
   Show reflection metrics, pending reviews, sidecar coverage, and GraphRAG health.
   Read-only views into the reflect system state. Can also approve/reject pending
@@ -7,7 +7,7 @@ description: |
 version: "3.0.0"
 user-invocable: true
 triggers:
-  - reflect:status
+  - plugly-reflect-memory:status
   - reflect status
   - reflect review
   - reflection metrics
@@ -39,18 +39,18 @@ When invoked, display the following sections:
 ### 1. Reflect State
 
 ```bash
-python {{HOME_TOOL_DIR}}/skills/reflect/scripts/state_manager.py status
+python {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/state_manager.py status
 ```
 
 Shows:
-- Auto-reflect: enabled/disabled
+- Auto-plugly-reflect-memory: enabled/disabled
 - Last reflection: timestamp
 - Pending reviews: count
 
 ### 2. Aggregate Metrics
 
 ```bash
-python {{HOME_TOOL_DIR}}/skills/reflect/scripts/metrics_updater.py --show
+python {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/metrics_updater.py --show
 ```
 
 Shows:
@@ -91,7 +91,7 @@ Missing sidecars:
   - docs/solutions/api-integrations/stripe-webhook.md
 ```
 
-**If coverage < 100%**: Suggest running `/reflect:consolidate` to generate missing sidecars.
+**If coverage < 100%**: Suggest running `/plugly-reflect-memory:consolidate` to generate missing sidecars.
 
 ### 4. GraphRAG Health
 
@@ -112,7 +112,7 @@ Shows:
 ### 5. Orphaned Memory Stats
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py stats
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py stats
 ```
 
 Shows:
@@ -120,8 +120,8 @@ Shows:
 - Orphaned memory dirs count
 - Total lines across all orphaned dirs
 
-**If orphaned dirs > 0**: Suggest running `/reflect:consolidate` to merge them.
-**If unindexed memories found**: Suggest running `/reflect:ingest` to index into GraphRAG + QMD.
+**If orphaned dirs > 0**: Suggest running `/plugly-reflect-memory:consolidate` to merge them.
+**If unindexed memories found**: Suggest running `/plugly-reflect-memory:ingest` to index into GraphRAG + QMD.
 
 ### 6. Project Memory Health
 
@@ -132,7 +132,7 @@ if [[ -f .agents/MEMORY.md ]]; then
     LINES=$(wc -l < .agents/MEMORY.md | tr -d ' ')
     echo "Project memory: .agents/MEMORY.md ($LINES/200 lines)"
 else
-    echo "Project memory: not found (run /reflect:consolidate to create)"
+    echo "Project memory: not found (run /plugly-reflect-memory:consolidate to create)"
 fi
 ```
 
@@ -156,7 +156,7 @@ Options: `--min-sessions 1` to include one-off gaps, `--format json` for
 programmatic use.
 
 **If repeat gaps exist**: Suggest capturing learnings for those topics via
-`/reflect` or `/reflect:ingest` — once indexed, the gap stops recurring.
+`/plugly-reflect-memory` or `/plugly-reflect-memory:ingest` : once indexed, the gap stops recurring.
 
 ### 8. Learning Update History
 
@@ -166,7 +166,7 @@ table in `~/.reflect/reflect.db` (and, for knowledge notes, an append-only
 learning:
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py history
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py history
 ```
 
 Shows, per learning (most-updated first):
@@ -190,7 +190,7 @@ Jaccard > 0.9 with a negation marker in exactly one of the two — e.g. saving
 `~/.reflect/reflect.db`, mirrored to `~/.reflect/events.jsonl`.
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/reflect_db.py contradictions
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/reflect_db.py contradictions
 ```
 
 Shows:
@@ -209,7 +209,7 @@ When invoked as `reflect review` or when there are pending items, enter review m
 ### Pending Low-Confidence Items
 
 ```bash
-python {{HOME_TOOL_DIR}}/skills/reflect/scripts/state_manager.py pending
+python {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/state_manager.py pending
 ```
 
 For each pending item, show:
@@ -233,7 +233,7 @@ When approving:
    ```bash
    # Done internally via state_manager
    python -c "
-   import sys; sys.path.insert(0, '{{HOME_TOOL_DIR}}/skills/reflect/scripts')
+   import sys; sys.path.insert(0, '{{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts')
    from state_manager import clear_pending_review
    clear_pending_review(INDEX)
    "
@@ -292,7 +292,7 @@ Present everything in a clean dashboard format:
 
 ## Sidecar Coverage
 15/18 knowledge notes have sidecars (83%)
-3 notes missing sidecars -- run /reflect:consolidate to fix
+3 notes missing sidecars -- run /plugly-reflect-memory:consolidate to fix
 
 ## GraphRAG Health
 - Indexed learnings: 34
@@ -303,13 +303,13 @@ Present everything in a clean dashboard format:
 ## Orphaned Memories
 - Orphaned dirs: 3
 - Total lines: 127
-- Suggest: /reflect:consolidate
+- Suggest: /plugly-reflect-memory:consolidate
 
 ## Knowledge Gaps (negative recall)
 Knowledge gap — users keep asking about these with no learnings:
 - **istio sidecar injection failures** — 3 sessions, 5 asks, last 2026-04-11
 - **bun workspace hoisting** — 2 sessions, 2 asks, last 2026-04-09
-Suggest: capture learnings for these topics, then /reflect:ingest
+Suggest: capture learnings for these topics, then /plugly-reflect-memory:ingest
 
 ## Learning Update History
 | Learning | Updates | Last Updated |
@@ -334,7 +334,7 @@ Review pending items? (approve N / reject N / skip)
 ## Troubleshooting
 
 **Metrics show 0:**
-- Run `/reflect` at least once to initialize metrics
+- Run `/plugly-reflect-memory` at least once to initialize metrics
 - Check state directory: `ls ~/.reflect/`
 
 **GraphRAG stats unavailable:**
@@ -343,4 +343,4 @@ Review pending items? (approve N / reject N / skip)
 
 **Sidecar count is 0:**
 - Knowledge notes may exist without sidecars (pre-v3 behavior)
-- Run `/reflect:consolidate` to generate missing sidecars
+- Run `/plugly-reflect-memory:consolidate` to generate missing sidecars

@@ -34,6 +34,12 @@
 
 set -uo pipefail
 
+# Resolve canonical environment names before kill switches and shared state.
+_IDENTITY_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/identity_env.py"
+if [[ -f "$_IDENTITY_ENV" ]]; then
+    eval "$(python3 "$_IDENTITY_ENV" --shell)"
+fi
+
 # ── Hard kill switches ───────────────────────────────────────────────────────
 # Honoured before any work so an operator can stop all sweeps instantly.
 if [[ "${REFLECT_DISABLED:-0}" == "1" || "${REFLECT_IDLE_DISABLED:-0}" == "1" ]]; then

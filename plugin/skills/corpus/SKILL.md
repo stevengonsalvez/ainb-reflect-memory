@@ -1,17 +1,17 @@
 ---
-name: reflect:corpus
+name: plugly-reflect-memory:corpus
 description: >-
   Build a long-lived, filtered SLICE of the global learnings KB and answer a
   question-set over it ("ask the auth subsystem", "ask the migration log").
-  Unlike /reflect:recall (a fresh hybrid query each time), a corpus is a saved
+  Unlike /plugly-reflect-memory:recall (a fresh hybrid query each time), a corpus is a saved
   filter snapshotted to disk — prime it once, ask many questions, reprime when
   the KB drifts. Use when the user wants a durable Q&A session against one
   filtered area of their own code history rather than a one-shot search.
 ---
 
-# /reflect:corpus — Knowledge-corpus Q&A (build → prime → query → reprime)
+# /plugly-reflect-memory:corpus : Knowledge-corpus Q&A (build → prime → query → reprime)
 
-reflect-kb is search-shaped: every `/reflect:recall` is a fresh hybrid query.
+reflect-kb is search-shaped: every `/plugly-reflect-memory:recall` is a fresh hybrid query.
 A **corpus** is the complementary pattern — a long-lived, filtered slice of the
 user's own learnings that you hold open and answer a question-set against.
 
@@ -26,7 +26,7 @@ document; you read that document and answer questions over it.
 - A filtered slice (tag / category / project / date-window) of the KB is the
   unit of conversation.
 
-For a one-shot retrieval, use `/reflect:recall` instead.
+For a one-shot retrieval, use `/plugly-reflect-memory:recall` instead.
 
 ## Filter spec
 

@@ -38,13 +38,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
+if not _SHARED_SCRIPTS.is_dir():
+    _SHARED_SCRIPTS = Path(__file__).resolve().parents[2] / "plugly-reflect-memory" / "scripts"
+sys.path.insert(0, str(_SHARED_SCRIPTS))
+try:
+    from identity_env import getenv
+except ImportError:
+    getenv = os.environ.get
+
 DEFAULT_MIN_SESSIONS = 2
 GAPS_FILENAME = "knowledge-gaps.jsonl"
 
 
 def gaps_path() -> Path:
     """The jsonl recall.py appends to. Honors REFLECT_STATE_DIR (tests)."""
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / GAPS_FILENAME
 
 

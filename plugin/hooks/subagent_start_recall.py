@@ -19,7 +19,8 @@ import sys
 import traceback
 from pathlib import Path
 
-from hook_common import (  # noqa: E402
+from hook_common import (
+    getenv,  # noqa: E402
     emit_additional_context,
     forensics_log,
     get_agent_id,
@@ -34,9 +35,9 @@ from hook_common import (  # noqa: E402
 
 _HOOK_NAME = "subagent_start_recall"
 _EVENT_NAME = "SubagentStart"
-_RECALL_TIMEOUT = float(os.environ.get("REFLECT_SUBAGENT_RECALL_TIMEOUT", "5"))
-_RECALL_LIMIT = os.environ.get("REFLECT_SUBAGENT_RECALL_LIMIT", "3")
-_RECALL_MAX_CHARS = os.environ.get("REFLECT_SUBAGENT_RECALL_MAX_CHARS", "1500")
+_RECALL_TIMEOUT = float(getenv("REFLECT_SUBAGENT_RECALL_TIMEOUT", "5"))
+_RECALL_LIMIT = getenv("REFLECT_SUBAGENT_RECALL_LIMIT", "3")
+_RECALL_MAX_CHARS = getenv("REFLECT_SUBAGENT_RECALL_MAX_CHARS", "1500")
 
 
 def _plugin_root() -> Path:
@@ -70,7 +71,7 @@ def _build_query(data: dict) -> str:
 
 
 def _query_recall(query: str) -> str:
-    override = os.environ.get("REFLECT_SUBAGENT_CONTEXT")
+    override = getenv("REFLECT_SUBAGENT_CONTEXT")
     if override is not None:
         return override.strip()
     recall = _find_recall_script()

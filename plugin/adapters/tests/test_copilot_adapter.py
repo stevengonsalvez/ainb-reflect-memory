@@ -27,7 +27,7 @@ import copilot_adapter  # noqa: E402
 
 
 def _hooks_path(home: Path) -> Path:
-    return home / ".copilot" / "hooks" / "reflect.json"
+    return home / ".copilot" / "hooks" / "plugly-reflect-memory.json"
 
 
 @pytest.fixture(autouse=True)
@@ -70,13 +70,13 @@ def test_install_writes_pointer_files_under_dot_copilot(tmp_path):
     assert skills_root.is_dir()
 
     recall = skills_root / "recall" / "SKILL.md"
-    reflect = skills_root / "reflect" / "SKILL.md"
+    reflect = skills_root / "plugly-reflect-memory" / "SKILL.md"
     assert recall.exists()
     assert reflect.exists()
 
     body = recall.read_text(encoding="utf-8")
     assert copilot_adapter.POINTER_MANAGED_BY in body
-    assert "name: reflect:recall" in body
+    assert "name: plugly-reflect-memory:recall" in body
     # Adapter must not have leaked into Claude/Codex dirs.
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
@@ -97,13 +97,13 @@ def test_install_syncs_recall_hooks_and_scripts(tmp_path):
     assert recall_hook.exists()
 
     precompact = (
-        tmp_path / ".copilot" / "skills" / "reflect" / "hooks"
+        tmp_path / ".copilot" / "skills" / "plugly-reflect-memory" / "hooks"
         / "precompact_reflect.py"
     )
     assert precompact.exists()
 
     drain = (
-        tmp_path / ".copilot" / "skills" / "reflect" / "hooks"
+        tmp_path / ".copilot" / "skills" / "plugly-reflect-memory" / "hooks"
         / "reflect-drain-bg.sh"
     )
     assert drain.exists()
@@ -120,18 +120,18 @@ def test_install_deploys_new_hook_scripts_on_disk(tmp_path):
     copilot_dir = tmp_path / ".copilot"
     expected = [
         copilot_dir / "skills" / "recall" / "hooks" / "user_prompt_submit_recall.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "posttooluse_minilearning.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "stop_reflect.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "notification_reflect.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "pretooluse_context.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "permission_request_reflect.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "posttoolusefailure_minilearning.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "subagent_start_recall.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "subagent_stop_reflect.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "session_end_reflect.py",
-        copilot_dir / "skills" / "reflect" / "hooks" / "error_occurred_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "posttooluse_minilearning.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "stop_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "notification_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "pretooluse_context.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "permission_request_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "posttoolusefailure_minilearning.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "subagent_start_recall.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "subagent_stop_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "session_end_reflect.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "hooks" / "error_occurred_reflect.py",
         # The cross-harness stdin helper must land too (under the umbrella).
-        copilot_dir / "skills" / "reflect" / "scripts" / "hook_input.py",
+        copilot_dir / "skills" / "plugly-reflect-memory" / "scripts" / "hook_input.py",
     ]
     for path in expected:
         assert path.exists(), f"missing on disk: {path}"
@@ -243,11 +243,11 @@ def test_recall_commands_set_reflect_harness_env(tmp_path):
         "sessionEnd", "errorOccurred",
     ):
         for entry in cfg["hooks"][event]:
-            assert entry["command"].startswith("REFLECT_HARNESS=copilot uv run "), entry
+            assert entry["command"].startswith("REFLECT_HARNESS=copilot PLUGLY_REFLECT_MEMORY_HARNESS=copilot uv run "), entry
 
     ss = {("drain" if "nohup" in e["command"] else "recall"): e["command"]
           for e in cfg["hooks"]["sessionStart"]}
-    assert ss["recall"].startswith("REFLECT_HARNESS=copilot uv run ")
+    assert ss["recall"].startswith("REFLECT_HARNESS=copilot PLUGLY_REFLECT_MEMORY_HARNESS=copilot uv run ")
     # Drain is a subshell — env prefix would be invalid there.
     assert not ss["drain"].startswith("REFLECT_HARNESS=")
     assert ss["drain"].startswith("(nohup ")
@@ -306,16 +306,16 @@ def test_install_idempotent_reflect_json(tmp_path):
 def test_install_errors_on_corrupt_reflect_json(tmp_path):
     hooks_dir = tmp_path / ".copilot" / "hooks"
     hooks_dir.mkdir(parents=True)
-    (hooks_dir / "reflect.json").write_text("{ not valid json")
+    (hooks_dir / "plugly-reflect-memory.json").write_text("{ not valid json")
 
     result = subprocess.run(
         [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
         capture_output=True, text=True,
     )
     assert result.returncode != 0
-    assert "reflect.json" in result.stderr.lower()
+    assert "plugly-reflect-memory.json" in result.stderr.lower()
     # The corrupt file must NOT have been clobbered.
-    assert (hooks_dir / "reflect.json").read_text() == "{ not valid json"
+    assert (hooks_dir / "plugly-reflect-memory.json").read_text() == "{ not valid json"
 
 
 def test_install_preserves_foreign_json_in_hooks_dir(tmp_path):

@@ -61,6 +61,11 @@ _HOOK_NAME = "notification_reflect"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # hooks/<this> → plugins/reflect/
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
+try:
     from silent_fail import write_last_event, forensics_log, scrub_secrets  # noqa: E402
 except ImportError:
     def write_last_event(**kwargs):  # type: ignore[no-redef]
@@ -83,7 +88,7 @@ except ImportError:
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def permission_armed_path(session_id: str) -> Path:

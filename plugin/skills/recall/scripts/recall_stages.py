@@ -29,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
@@ -127,7 +126,7 @@ def docs_root() -> Path | None:
       3. ~/.learnings/documents (QMD root, pre-migration layout)
     Returns None when none exists — callers surface a graceful empty result.
     """
-    env_path = os.environ.get("GLOBAL_LEARNINGS_PATH")
+    env_path = recall_mod.getenv("GLOBAL_LEARNINGS_PATH")
     if env_path:
         candidate = Path(env_path) / "documents"
         return candidate if candidate.is_dir() else None

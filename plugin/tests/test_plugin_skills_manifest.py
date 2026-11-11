@@ -58,8 +58,12 @@ def test_every_declared_path_exists():
 
 
 def _all_manifests() -> list[Path]:
-    return sorted(p for p in _REPO_ROOT.rglob("plugin.json")
-                  if "node_modules" not in p.parts and ".git" not in p.parts)
+    return [
+        _ROOT_MANIFEST,
+        _PLUGIN_ROOT / ".claude-plugin" / "plugin.json",
+        _PLUGIN_ROOT / ".codex-plugin" / "plugin.json",
+        _PLUGIN_ROOT / "plugin.json",
+    ]
 
 
 def test_all_manifests_agree_on_version():
@@ -95,5 +99,6 @@ def test_skill_name_is_namespaced(skill_dir: Path):
             name = line.split(":", 1)[1].strip()
             break
     assert name, f"{skill_dir.name}/SKILL.md has no 'name:' frontmatter"
-    expected = "reflect" if skill_dir.name == "reflect" else f"reflect:{skill_dir.name}"
+    expected = (skill_dir.name if skill_dir.name in ("reflect", "plugly-reflect-memory")
+                else f"plugly-reflect-memory:{skill_dir.name}")
     assert name == expected, f"{skill_dir.name}/SKILL.md declares name '{name}', expected '{expected}'"

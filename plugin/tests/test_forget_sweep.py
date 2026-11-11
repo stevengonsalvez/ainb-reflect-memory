@@ -29,7 +29,7 @@ PLUGIN_ROOT = HERE.parent
 SCRIPTS = PLUGIN_ROOT / "scripts"
 SWEEP_SCRIPT = SCRIPTS / "reflect_forget_sweep.py"
 PLIST = PLUGIN_ROOT / "launchd" / "com.reflect.forget.plist"
-SKILL = PLUGIN_ROOT / "skills" / "reflect" / "SKILL.md"
+SKILL = PLUGIN_ROOT / "skills" / "plugly-reflect-memory" / "SKILL.md"
 TEMPLATE = PLUGIN_ROOT / "assets" / "learning_template.md"
 sys.path.insert(0, str(SCRIPTS))
 

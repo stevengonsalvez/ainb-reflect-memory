@@ -54,6 +54,15 @@ import yaml  # declared in PEP 723 header; uv run --script always installs
 # imports (tests, recall_stages) load recall via a path insert, so mirror
 # the recall_stages.py convention to keep both paths working.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+_SHARED_SCRIPTS = Path(__file__).resolve().parents[3] / "scripts"
+if not _SHARED_SCRIPTS.is_dir():
+    _SHARED_SCRIPTS = Path(__file__).resolve().parents[2] / "plugly-reflect-memory" / "scripts"
+sys.path.insert(0, str(_SHARED_SCRIPTS))
+try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
 from temporal_extraction import (  # noqa: E402
     TemporalRange,
     extract_temporal_constraint,
@@ -66,7 +75,7 @@ def _env_num(name: str, default, cast):
     """Parse a numeric env override, falling back to ``default`` on a missing or
     malformed value. recall.py is the always-on recall path, so a typo'd env var
     must never crash it at import time."""
-    raw = os.environ.get(name)
+    raw = getenv(name)
     if raw is None or raw == "":
         return default
     try:
@@ -105,7 +114,7 @@ def _env_alpha(name: str, default: float) -> float:
     """R8: parse a boost α from env; clamp to [0, 2] so a typo can't flip
     the boost negative or let one signal dwarf the base score."""
     try:
-        value = float(os.environ.get(name, default))
+        value = float(getenv(name, default))
     except (TypeError, ValueError):
         return default
     return min(2.0, max(0.0, value))
@@ -171,7 +180,7 @@ ARCHIVE_HEADER_RE = re.compile(r"<!--\s*archived:\s*([0-9T:.+\-Z]+)\s*-->")
 # neighborhood (nano-graphrag) — surfacing learnings that share entities with
 # the lexical/vector hits but don't match the query text directly. Disable
 # with RECALL_GRAPH_ARM=0.
-GRAPH_ARM_ENABLED = os.environ.get("RECALL_GRAPH_ARM", "1") != "0"
+GRAPH_ARM_ENABLED = getenv("RECALL_GRAPH_ARM", "1") != "0"
 
 # R2: cross-encoder rerank. After RRF fusion the top candidates are scored
 # jointly with the query by a local cross-encoder (`reflect rerank`; model
@@ -182,9 +191,9 @@ GRAPH_ARM_ENABLED = os.environ.get("RECALL_GRAPH_ARM", "1") != "0"
 # reflect builds (no
 # sentence-transformers) or legacy CLIs without the subcommand silently
 # degrade to formula-only ordering. Disable with RECALL_CROSS_ENCODER=0.
-CROSS_ENCODER_ENABLED = os.environ.get("RECALL_CROSS_ENCODER", "1") != "0"
+CROSS_ENCODER_ENABLED = getenv("RECALL_CROSS_ENCODER", "1") != "0"
 CE_CANDIDATES = 20  # only the top fused candidates are CE-scored (one batch)
-CE_TIMEOUT = int(os.environ.get("RECALL_CE_TIMEOUT", "60"))
+CE_TIMEOUT = int(getenv("RECALL_CE_TIMEOUT", "60"))
 # Candidates beyond CE_CANDIDATES get this epsilon as their CE component:
 # they sort below every scored candidate, ordered by the legacy formula
 # among themselves (they were already tail-ranked by RRF).
@@ -204,13 +213,13 @@ CE_UNSCORED = 1e-6
 # (benchmarking) or RECALL_MMR=0; tune λ with --mmr-lambda or
 # RECALL_MMR_LAMBDA. Slim engines / legacy CLIs without the `embed`
 # subcommand silently degrade to plain top-k slicing.
-MMR_ENABLED = os.environ.get("RECALL_MMR", "1") != "0"
+MMR_ENABLED = getenv("RECALL_MMR", "1") != "0"
 try:
-    MMR_LAMBDA = float(os.environ.get("RECALL_MMR_LAMBDA", "0.7"))
+    MMR_LAMBDA = float(getenv("RECALL_MMR_LAMBDA", "0.7"))
 except ValueError:
     MMR_LAMBDA = 0.7
 MMR_CANDIDATES = 20  # embed the same top-candidate window as the CE batch
-EMBED_TIMEOUT = int(os.environ.get("RECALL_EMBED_TIMEOUT", "60"))
+EMBED_TIMEOUT = int(getenv("RECALL_EMBED_TIMEOUT", "60"))
 
 # R7: OOD gate. Stopword-filtered query-term coverage of the top hit; below
 # the threshold the whole result set is treated as out-of-domain noise and
@@ -234,7 +243,7 @@ _STOPWORDS = frozenset(
 # --no-gap-log flag (the SessionStart hook passes the flag — its queries are
 # synthetic cwd/branch strings, not genuine asks, and would surface as fake
 # gaps every session).
-GAP_LOG_ENABLED = os.environ.get("RECALL_GAP_LOG", "1") != "0"
+GAP_LOG_ENABLED = getenv("RECALL_GAP_LOG", "1") != "0"
 
 # A4: followup-rate diagnostic (agentmemory smart-search shape). The most
 # recent search per session is tracked in ~/.reflect/recent-searches.json;
@@ -252,7 +261,7 @@ GAP_LOG_ENABLED = os.environ.get("RECALL_GAP_LOG", "1") != "0"
 # --no-followup flag (the SessionStart hook passes the flag — its synthetic
 # cwd/branch queries chased by a genuine first ask would inflate the rate
 # every session). Window tunable via RECALL_FOLLOWUP_WINDOW_SECONDS.
-FOLLOWUP_ENABLED = os.environ.get("RECALL_FOLLOWUP", "1") != "0"
+FOLLOWUP_ENABLED = getenv("RECALL_FOLLOWUP", "1") != "0"
 DEFAULT_FOLLOWUP_WINDOW_SECONDS = 30.0
 # State-file pruning horizon — the on-read analog of agentmemory's hourly
 # TTL sweep over its recent-searches scope: entries older than this are
@@ -263,7 +272,7 @@ FOLLOWUP_STATE_MAX_AGE_SECONDS = 3600.0
 def _followup_window_seconds() -> float:
     """A4: detection window, env-tunable, floored at 1s (source's
     Math.max(1, …) guard); unparseable values fall back to the default."""
-    raw = os.environ.get("RECALL_FOLLOWUP_WINDOW_SECONDS")
+    raw = getenv("RECALL_FOLLOWUP_WINDOW_SECONDS")
     if raw is None or not raw.strip():
         return DEFAULT_FOLLOWUP_WINDOW_SECONDS
     try:
@@ -283,10 +292,10 @@ def _followup_window_seconds() -> float:
 # RECALL_FUZZY_CACHE=0. The bead pins the threshold at 0.85 (conservative —
 # ByteRover ships 0.6 for its in-memory tier); tune via
 # RECALL_FUZZY_THRESHOLD.
-FUZZY_CACHE_ENABLED = os.environ.get("RECALL_FUZZY_CACHE", "1") != "0"
+FUZZY_CACHE_ENABLED = getenv("RECALL_FUZZY_CACHE", "1") != "0"
 try:
     FUZZY_CACHE_THRESHOLD = min(
-        1.0, max(0.0, float(os.environ.get("RECALL_FUZZY_THRESHOLD", "0.85")))
+        1.0, max(0.0, float(getenv("RECALL_FUZZY_THRESHOLD", "0.85")))
     )
 except ValueError:
     FUZZY_CACHE_THRESHOLD = 0.85
@@ -302,7 +311,7 @@ FUZZY_INDEX_MAX_ENTRIES = 200
 # TemporalRange and surfaced on RecallResult / the JSON output. Extraction
 # only — the R5 temporal arm consumes the range for time-aware ranking.
 # Pure-regex stdlib pass, sub-millisecond; disable with RECALL_TEMPORAL=0.
-TEMPORAL_ENABLED = os.environ.get("RECALL_TEMPORAL", "1") != "0"
+TEMPORAL_ENABLED = getenv("RECALL_TEMPORAL", "1") != "0"
 
 # R5: temporal retrieval arm (Hindsight `retrieve_temporal_combined` shape).
 # When R6 extraction finds a date phrase, a 4th parallel arm scans the local
@@ -312,7 +321,7 @@ TEMPORAL_ENABLED = os.environ.get("RECALL_TEMPORAL", "1") != "0"
 # relying on the bounded ±10% recency boost alone. Date-free queries skip
 # the arm entirely (zero hits, no false boost). Disable with
 # RECALL_TEMPORAL_ARM=0 (extraction itself stays on for the JSON surface).
-TEMPORAL_ARM_ENABLED = os.environ.get("RECALL_TEMPORAL_ARM", "1") != "0"
+TEMPORAL_ARM_ENABLED = getenv("RECALL_TEMPORAL_ARM", "1") != "0"
 # Corpus-scan bound: the arm reads frontmatter for every learning file, so
 # cap the walk — a runaway docs dir must never stall the recall path.
 TEMPORAL_ARM_MAX_FILES = 5000
@@ -371,7 +380,7 @@ def _arm_floor(arm: str) -> float:
     directly comparable.
     """
     default = _ARM_FLOOR_DEFAULTS.get(arm, 0.0)
-    raw = os.environ.get(f"RECALL_ARM_{arm.upper()}_MIN_SCORE")
+    raw = getenv(f"RECALL_ARM_{arm.upper()}_MIN_SCORE")
     if raw is None:
         return default
     try:
@@ -392,7 +401,7 @@ def _est_tokens(text: str) -> int:
 # mode's learning_types (M4 ``work_emoji``; never a hardcoded table). Block
 # totals roll up to the header line, and the SessionStart hook appends a
 # one-line economics footer. Disable with RECALL_ECONOMICS=0.
-ECONOMICS_ENABLED = os.environ.get("RECALL_ECONOMICS", "1") != "0"
+ECONOMICS_ENABLED = getenv("RECALL_ECONOMICS", "1") != "0"
 # Discovery-cost fallbacks for notes that predate the write-time
 # ``discovery_tokens`` frontmatter field AND whose source transcript
 # (provenance.source_path) is gone: category averages keyed by
@@ -460,13 +469,13 @@ BRANCHES_DIRNAME = "branches"
 _TRUNK_BRANCHES = frozenset({"main", "master", ""})
 # RECALL_GLOBAL=1 is the env analog of the --global flag (so the SessionStart
 # hook / settings.json can force global scope without a CLI edit).
-RECALL_GLOBAL_ENV = os.environ.get("RECALL_GLOBAL", "").strip().lower() in (
+RECALL_GLOBAL_ENV = getenv("RECALL_GLOBAL", "").strip().lower() in (
     "1", "true", "yes", "on",
 )
 # A6: RECALL_ALL_BRANCHES=1 is the env analog of --all-branches (so the
 # SessionStart hook / settings.json can widen scope to every branch of the
 # current project without a CLI edit).
-RECALL_ALL_BRANCHES_ENV = os.environ.get(
+RECALL_ALL_BRANCHES_ENV = getenv(
     "RECALL_ALL_BRANCHES", ""
 ).strip().lower() in ("1", "true", "yes", "on")
 
@@ -479,7 +488,7 @@ def _global_learnings_root() -> Path:
     install) can sandbox the shard tree without touching the user's real KB.
     Resolved on each call so tests can flip the env without re-importing.
     """
-    override = (os.environ.get("RECALL_LEARNINGS_ROOT") or "").strip()
+    override = (getenv("RECALL_LEARNINGS_ROOT") or "").strip()
     if override:
         return Path(override).expanduser()
     return Path.home() / ".learnings"
@@ -583,7 +592,7 @@ def resolve_kb_root(
     """
     # (1) An explicit pre-set override always wins — never clobber a harness'
     #     hermetic KB or a caller that already chose a path.
-    if (os.environ.get("GLOBAL_LEARNINGS_PATH") or "").strip():
+    if (getenv("GLOBAL_LEARNINGS_PATH") or "").strip():
         return None
     # (2) Global scope → the pooled KB across all projects.
     if scope_global or RECALL_GLOBAL_ENV:
@@ -629,7 +638,7 @@ def _docs_root_for(kb_root: Path | None) -> Path:
     """
     if kb_root is not None:
         return kb_root / "documents"
-    override = os.environ.get("GLOBAL_LEARNINGS_PATH")
+    override = getenv("GLOBAL_LEARNINGS_PATH")
     return Path(override) / "documents" if override else QMD_DOCS_ROOT
 
 
@@ -966,7 +975,7 @@ def find_learnings_cli() -> Path | None:
 
     Returns None if neither is found. Caller surfaces a graceful empty result.
     """
-    cli_on_path = shutil.which(REFLECT_CLI_NAME)
+    cli_on_path = shutil.which("plugly-reflect-memory") or shutil.which(REFLECT_CLI_NAME)
     if cli_on_path:
         return Path(cli_on_path)
     if LEGACY_LEARNINGS_CLI.exists() and os.access(LEGACY_LEARNINGS_CLI, os.X_OK):
@@ -1016,7 +1025,7 @@ def cache_path(query: str, mode: str, limit: int) -> Path:
 
 def _cache_dir() -> Path:
     """Recall cache directory under the (overridable) reflect state dir."""
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "recall_cache"
 
 
@@ -1049,7 +1058,7 @@ def write_cache(path: Path, payload: dict) -> None:
         # Disk full / permission / path too long — non-fatal, but surface
         # in debug mode so silent cache-write failures don't hide real
         # issues (e.g. $HOME on a read-only volume).
-        if os.environ.get("REFLECT_RECALL_DEBUG"):
+        if getenv("REFLECT_RECALL_DEBUG"):
             print(f"recall: cache write failed: {e}", file=sys.stderr)
 
 
@@ -1140,7 +1149,7 @@ def update_cache_index(
         cache_dir.mkdir(parents=True, exist_ok=True)
         _cache_index_path().write_text(json.dumps(index))
     except OSError as e:
-        if os.environ.get("REFLECT_RECALL_DEBUG"):
+        if getenv("REFLECT_RECALL_DEBUG"):
             print(f"recall: cache index write failed: {e}", file=sys.stderr)
 
 
@@ -1335,7 +1344,7 @@ def fetch_temporal(
     if docs_root is not None:
         root = docs_root
     else:
-        override = os.environ.get("GLOBAL_LEARNINGS_PATH")
+        override = getenv("GLOBAL_LEARNINGS_PATH")
         root = Path(override) / "documents" if override else QMD_DOCS_ROOT
     try:
         if not root.is_dir():
@@ -1398,7 +1407,7 @@ def fetch_temporal(
 # the edge's death — "what was the architecture in April?" drops a relationship
 # superseded in March. The graph arm runs this filter ONLY when the query
 # parsed a date range; a date-free query leaves every edge untouched.
-RECALL_BITEMPORAL_ENABLED = os.environ.get("RECALL_BITEMPORAL_EDGES", "1") != "0"
+RECALL_BITEMPORAL_ENABLED = getenv("RECALL_BITEMPORAL_EDGES", "1") != "0"
 
 
 def edge_tvalid_window(
@@ -1938,7 +1947,7 @@ def detect_current_project() -> str:
     global _CURRENT_PROJECT_CACHE
     if _CURRENT_PROJECT_CACHE is not None:
         return _CURRENT_PROJECT_CACHE
-    project = _normalize_project(os.environ.get("CLAUDE_PROJECT_DIR"))
+    project = _normalize_project(getenv("CLAUDE_PROJECT_DIR"))
     if not project:
         try:
             proc = subprocess.run(
@@ -1973,7 +1982,7 @@ def detect_current_branch() -> str:
     global _CURRENT_BRANCH_CACHE
     if _CURRENT_BRANCH_CACHE is not None:
         return _CURRENT_BRANCH_CACHE
-    override = os.environ.get("RECALL_BRANCH")
+    override = getenv("RECALL_BRANCH")
     if override is not None:
         branch = _sanitize_branch(override)
     else:
@@ -2147,7 +2156,7 @@ _EMPTY_MARKERS = frozenset({"", "null", "none", "~", "false"})
 
 def include_superseded() -> bool:
     """Env opt-out, read per call so tests and long-lived callers can toggle."""
-    return os.environ.get(INCLUDE_SUPERSEDED_ENV, "").strip().lower() in {
+    return getenv(INCLUDE_SUPERSEDED_ENV, "").strip().lower() in {
         "1", "true", "yes", "on",
     }
 
@@ -2817,7 +2826,7 @@ def log_recall(
     injected_tokens / discovery_tokens / saved_tokens / savings_pct so the
     A4 followup-rate diagnostic can correlate economics with recall quality.
     """
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     log = base / "recall_log.jsonl"
     record = {
         "ts": datetime.now().isoformat(timespec="seconds"),
@@ -2860,7 +2869,7 @@ def _gap_session_id(explicit: str | None) -> str:
     so anonymous repeats on DIFFERENT days still count as distinct
     sessions while N asks within one anonymous day count as one.
     """
-    sid = (explicit or os.environ.get("CLAUDE_SESSION_ID", "") or "").strip()
+    sid = (explicit or getenv("CLAUDE_SESSION_ID", "") or "").strip()
     if sid:
         return sid
     return "unknown-" + datetime.now().strftime("%Y-%m-%d")
@@ -2879,7 +2888,7 @@ def log_knowledge_gap(query: str, session_id: str | None = None) -> None:
     normalized = normalize_gap_query(query)
     if not normalized:
         return  # vacuous query — not a meaningful gap
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     log = base / "knowledge-gaps.jsonl"
     try:
         base.mkdir(parents=True, exist_ok=True)
@@ -2901,7 +2910,7 @@ def log_knowledge_gap(query: str, session_id: str | None = None) -> None:
 
 def _recent_searches_path() -> Path:
     """A4: per-session most-recent-search state file."""
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "recent-searches.json"
 
 
@@ -2909,7 +2918,7 @@ def _metrics_jsonl_path() -> Path:
     """A4: the engine's append-only metrics log (~/.learnings/metrics.jsonl,
     the file reflect-kb's write_metric appends to). REFLECT_METRICS_PATH
     overrides for tests / relocated installs."""
-    override = (os.environ.get("REFLECT_METRICS_PATH") or "").strip()
+    override = (getenv("REFLECT_METRICS_PATH") or "").strip()
     if override:
         return Path(override).expanduser()
     return Path.home() / ".learnings" / "metrics.jsonl"
@@ -3030,7 +3039,7 @@ def record_followup_diagnostic(
     """
     if not (FOLLOWUP_ENABLED and enabled) or not learnings:
         return
-    sid = (session_id or os.environ.get("CLAUDE_SESSION_ID", "") or "").strip()
+    sid = (session_id or getenv("CLAUDE_SESSION_ID", "") or "").strip()
     if not sid:
         return
     try:
@@ -3447,7 +3456,7 @@ def _hyde_expand(query: str) -> str:
     embeds answer-shaped text. Gated by ``REFLECT_RECALL_HYDE``; any failure
     (no claude, timeout, error) falls back to the raw query so recall never breaks.
     """
-    model = os.environ.get("REFLECT_DRAIN_MODEL", "sonnet")
+    model = getenv("REFLECT_DRAIN_MODEL", "sonnet")
     sys_p = (
         "You expand a search query for a memory database. Write ONE short "
         "hypothetical fact sentence that would answer the question, as if recalled "
@@ -3594,7 +3603,7 @@ def main() -> int:
     # D: HyDE query expansion (gated). Embeds answer-shaped text alongside the
     # question to bridge the question<->statement vocab gap that costs single-hop
     # recall. Reuses reflect's own `claude -p` model — no new API key.
-    if os.environ.get("REFLECT_RECALL_HYDE") == "1":
+    if getenv("REFLECT_RECALL_HYDE") == "1":
         query = _hyde_expand(query)
 
     query_tags = [t.strip() for t in args.tags.split(",") if t.strip()]
@@ -3630,7 +3639,7 @@ def main() -> int:
 
     if result.error:
         # D9: silent no-op on KB absence; only print to stderr when diagnostic
-        if os.environ.get("REFLECT_RECALL_DEBUG"):
+        if getenv("REFLECT_RECALL_DEBUG"):
             print(f"recall: {result.error}", file=sys.stderr)
         # Empty output, exit 0
         return 0

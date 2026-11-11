@@ -26,7 +26,7 @@ HERE = Path(__file__).resolve().parent
 PLUGIN_ROOT = HERE.parent
 SCRIPTS = PLUGIN_ROOT / "scripts"
 DRAIN = PLUGIN_ROOT / "hooks" / "reflect-drain-bg.sh"
-SKILL = PLUGIN_ROOT / "skills" / "reflect" / "SKILL.md"
+SKILL = PLUGIN_ROOT / "skills" / "plugly-reflect-memory" / "SKILL.md"
 CASCADE = SCRIPTS / "reflect_cascade.py"
 sys.path.insert(0, str(SCRIPTS))
 

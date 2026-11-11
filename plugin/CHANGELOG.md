@@ -4,6 +4,22 @@ All notable changes to the **reflect** plugin. Format follows
 [Keep a Changelog](https://keepachangelog.com/); this project uses semantic
 versioning.
 
+## [6.0.0] - 2026-11-11
+
+### Changed
+
+- Canonical plugin, marketplace and base skill name is `plugly-reflect-memory`.
+  Namespaced commands use `plugly-reflect-memory:recall` and sibling names.
+  `/reflect` remains a compatibility skill without its own lifecycle hooks.
+- Adapters deploy shared runtime under `skills/plugly-reflect-memory` and
+  recognize legacy `reflect-kb/adapters/*` ownership during upgrades.
+  Codex replaces exact legacy hook commands; Copilot replaces recognized
+  `reflect.json` registrations with `plugly-reflect-memory.json`.
+- Hooks honor `PLUGLY_REFLECT_MEMORY_*` before legacy `REFLECT_*` settings.
+  Existing state directories, database, queue and lock filenames stay shared.
+- Agentic capture invokes the canonical skill; recursion detection accepts
+  both skill identities. CLI lookup prefers `plugly-reflect-memory`, then `reflect`.
+
 ## [Unreleased]
 
 ### Added

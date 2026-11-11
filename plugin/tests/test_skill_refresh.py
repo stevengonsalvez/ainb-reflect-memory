@@ -38,7 +38,7 @@ PLUGIN_ROOT = HERE.parent
 SCRIPTS = PLUGIN_ROOT / "scripts"
 DRAIN = PLUGIN_ROOT / "hooks" / "reflect-drain-bg.sh"
 HOOK = PLUGIN_ROOT / "skills" / "recall" / "hooks" / "session_start_recall.py"
-SKILL_DOC = PLUGIN_ROOT / "skills" / "reflect" / "SKILL.md"
+SKILL_DOC = PLUGIN_ROOT / "skills" / "plugly-reflect-memory" / "SKILL.md"
 sys.path.insert(0, str(SCRIPTS))
 
 import reflect_cascade  # noqa: E402

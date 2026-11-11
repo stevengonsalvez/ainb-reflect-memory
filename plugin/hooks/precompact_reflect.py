@@ -53,6 +53,11 @@ _HOOK_NAME = "precompact_reflect"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # hooks/<this> → plugins/reflect/
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
+try:
     from silent_fail import write_last_event, forensics_log  # noqa: E402
 except ImportError:
     def write_last_event(**kwargs):  # type: ignore[no-redef]
@@ -84,7 +89,7 @@ except ImportError:
 
 def get_state_dir() -> Path:
     """Get the reflect state directory."""
-    custom_dir = os.environ.get('REFLECT_STATE_DIR')
+    custom_dir = getenv('REFLECT_STATE_DIR')
     if custom_dir:
         return Path(custom_dir).expanduser()
 
@@ -100,7 +105,7 @@ def is_auto_reflect_enabled() -> bool:
     migration on 2026-05-09; values would always return False because the
     migration stub does not carry the auto_reflect key).
     """
-    val = os.environ.get('REFLECT_AUTO_REFLECT', '').strip().lower()
+    val = getenv('REFLECT_AUTO_REFLECT', '').strip().lower()
     if val in ('0', 'false', 'no', 'off'):
         return False
     return True

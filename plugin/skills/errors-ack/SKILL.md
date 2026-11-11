@@ -1,5 +1,5 @@
 ---
-name: reflect:errors-ack
+name: plugly-reflect-memory:errors-ack
 description: |
   Triage and acknowledge entries in the reflect errors sink
   (~/.reflect/errors.json). Invoked from the statusline ⚠N badge when
@@ -8,7 +8,7 @@ description: |
 version: "1.0.0"
 user-invocable: true
 triggers:
-  - reflect:errors-ack
+  - plugly-reflect-memory:errors-ack
   - errors-ack
   - ack reflect errors
   - clear reflect errors
@@ -23,12 +23,12 @@ allowed-tools:
 
 Triages unacknowledged entries in `~/.reflect/errors.json` and
 acknowledges them (individually or in bulk). The statusline `⚠N
-/reflect:errors-ack` badge is the entry point — clicking the badge or
-typing `/reflect:errors-ack` lands here.
+/plugly-reflect-memory:errors-ack` badge is the entry point : clicking the badge or
+typing `/plugly-reflect-memory:errors-ack` lands here.
 
 ## When to Use
 
-- Statusline shows `⚠N /reflect:errors-ack` badge
+- Statusline shows `⚠N /plugly-reflect-memory:errors-ack` badge
 - User asks "what are the reflect errors", "what's broken in reflect"
 - After a known fix has landed and user wants to clear stale errors
 - Periodic triage of accumulated pipeline noise
@@ -140,8 +140,8 @@ Acked M entries. Badge will clear within 10s.
 
 ## Related
 
-- `/reflect:status` — broader system health view
-- `/reflect:recall` — search learnings (separate concern, not errors)
+- `/plugly-reflect-memory:status` : broader system health view
+- `/plugly-reflect-memory:recall` : search learnings (separate concern, not errors)
 - The errors sink itself: `~/.reflect/errors.json`
-- Statusline badge: `⚠N /reflect:errors-ack` (rendered red, only when
+- Statusline badge: `⚠N /plugly-reflect-memory:errors-ack` (rendered red, only when
   `count > 0`)

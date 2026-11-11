@@ -71,8 +71,8 @@ def test_install_refuses_and_writes_nothing(tmp_path, flags):
     """No flag combination may create ~/.claude, skills or a hook."""
     result = _run("install", "--home", str(tmp_path), *flags)
     assert result.returncode != 0
-    assert "claude plugin marketplace add stevengonsalvez/ainb-reflect-memory" in result.stderr
-    assert "claude plugin install reflect@ainb-reflect-memory" in result.stderr
+    assert "claude plugin marketplace add stevengonsalvez/plugly-reflect-memory" in result.stderr
+    assert "claude plugin install plugly-reflect-memory@plugly-reflect-memory" in result.stderr
     assert not (tmp_path / ".claude").exists()
 
 
@@ -97,7 +97,7 @@ def test_install_refuses_even_when_plugin_runtime_owns_reflect(tmp_path):
     plugins_dir = tmp_path / ".claude" / "plugins"
     plugins_dir.mkdir(parents=True)
     (plugins_dir / "installed_plugins.json").write_text(json.dumps(
-        {"version": 2, "plugins": {"reflect@ainb-reflect-memory": [{"scope": "user"}]}}
+        {"version": 2, "plugins": {"plugly-reflect-memory@plugly-reflect-memory": [{"scope": "user"}]}}
     ))
 
     result = _run("install", "--home", str(tmp_path))
@@ -230,7 +230,7 @@ def test_uninstall_removes_only_managed_skill_files(tmp_path):
     managed = _seed_managed_skill(claude_dir, "recall")
     note = managed.parent / "user-note.md"
     note.write_text("hand-written", encoding="utf-8")
-    foreign = claude_dir / "skills" / "reflect" / "SKILL.md"
+    foreign = claude_dir / "skills" / "plugly-reflect-memory" / "SKILL.md"
     foreign.parent.mkdir(parents=True)
     foreign.write_text("---\nname: user-handwritten\n---\nbody\n", encoding="utf-8")
 
