@@ -4,26 +4,26 @@ import starlightLinksValidator from 'starlight-links-validator';
 
 export default defineConfig({
   site: 'https://stevengonsalvez.github.io',
-  base: '/ainb-reflect-memory/',
+  base: '/plugly-reflect-memory/',
   trailingSlash: 'always',
   integrations: [
     starlight({
       plugins: [starlightLinksValidator({ errorOnInvalidHashes: true })],
-      title: 'reflect',
+      title: 'plugly-reflect-memory',
       description: 'Self-improving memory for coding agents: capture, drain, index, recall.',
-      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/stevengonsalvez/ainb-reflect-memory' }],
+      social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/stevengonsalvez/plugly-reflect-memory' }],
       logo: {
         light: './src/assets/logo-light.svg',
         dark: './src/assets/logo-dark.svg',
-        alt: 'reflect',
+        alt: 'plugly-reflect-memory',
       },
       head: [
         { tag: 'meta', attrs: { name: 'theme-color', content: '#0f0f18' } },
-        { tag: 'meta', attrs: { property: 'og:image', content: 'https://stevengonsalvez.github.io/ainb-reflect-memory/img/og.png' } },
+        { tag: 'meta', attrs: { property: 'og:image', content: 'https://stevengonsalvez.github.io/plugly-reflect-memory/img/og.png' } },
         { tag: 'meta', attrs: { property: 'og:image:width', content: '1200' } },
         { tag: 'meta', attrs: { property: 'og:image:height', content: '630' } },
         { tag: 'meta', attrs: { name: 'twitter:card', content: 'summary_large_image' } },
-        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://stevengonsalvez.github.io/ainb-reflect-memory/img/og.png' } },
+        { tag: 'meta', attrs: { name: 'twitter:image', content: 'https://stevengonsalvez.github.io/plugly-reflect-memory/img/og.png' } },
       ],
       lastUpdated: true,
       expressiveCode: {
@@ -35,7 +35,7 @@ export default defineConfig({
         },
       },
       customCss: ['./src/styles/custom.css'],
-      editLink: { baseUrl: 'https://github.com/stevengonsalvez/ainb-reflect-memory/edit/main/docs-site/' },
+      editLink: { baseUrl: 'https://github.com/stevengonsalvez/plugly-reflect-memory/edit/main/docs-site/' },
       sidebar: [
         { label: 'Start here', items: [{ autogenerate: { directory: 'start' } }] },
         { label: 'Install per harness', items: [{ autogenerate: { directory: 'install' } }] },

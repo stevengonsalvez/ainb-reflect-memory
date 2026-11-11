@@ -1,15 +1,15 @@
 ---
 title: serve HTTP API
-description: The JSON endpoints behind reflect serve, with methods, parameters, real response examples, curation semantics and the loopback-only security posture.
+description: The JSON endpoints behind plugly-reflect-memory serve, with methods, parameters, real response examples, curation semantics and the loopback-only security posture.
 sidebar:
   order: 6
 ---
 
-`reflect serve` runs a stdlib-only HTTP server (`http.server.ThreadingHTTPServer`, no FastAPI or uvicorn) that serves a single-file SPA at `/` and a small JSON API under `/api/`. The SPA is the [memory browser](/ainb-reflect-memory/guides/memory-browser/); this page documents the API it talks to. Source: `src/reflect_kb/serve.py`. Launch flags are in the [CLI reference](/ainb-reflect-memory/reference/cli/#reflect-serve).
+`plugly-reflect-memory serve` runs a stdlib-only HTTP server (`http.server.ThreadingHTTPServer`, no FastAPI or uvicorn) that serves a single-file SPA at `/` and a small JSON API under `/api/`. The SPA is the [memory browser](/plugly-reflect-memory/guides/memory-browser/); this page documents the API it talks to. Source: `src/reflect_kb/serve.py`. Launch flags are in the [CLI reference](/plugly-reflect-memory/reference/cli/#plugly-reflect-memory-serve).
 
 ```bash
-reflect serve                          # http://127.0.0.1:8377
-reflect serve --port 8942 --repo /path/to/kb
+plugly-reflect-memory serve                          # http://127.0.0.1:8377
+plugly-reflect-memory serve --port 8942 --repo /path/to/kb
 ```
 
 All examples below were captured by running the real handler against a throwaway copy of the repo's e2e fixture KB, never a real `~/.learnings`. Paths and ids are fixture data.
@@ -167,7 +167,7 @@ BM25-style lexical ranking (k1 = 1.4, b = 0.6) over title, tags and body, with t
 ]
 ```
 
-`match_score` is the lexical relevance. Semantic search stays on `reflect search` (see [CLI](/ainb-reflect-memory/reference/cli/#reflect-search-query)).
+`match_score` is the lexical relevance. Semantic search stays on `plugly-reflect-memory search` (see [CLI](/plugly-reflect-memory/reference/cli/#plugly-reflect-memory-search-query)).
 
 ### `GET /api/graph`
 
@@ -246,7 +246,7 @@ An empty or missing queue returns `{"version": 1, "groups": []}`. A malformed `c
 
 All require `X-Reflect: <any non-empty value>` and a loopback `Host`. Success bodies carry `"ok": true`. A rejected mutation returns `400 {"error": "..."}`.
 
-Curation is **file-first**: the markdown note is the source of truth, and the in-memory view reloads immediately. The nano-graphrag cache behind `reflect search` is **not** rebuilt, because the engine only supports a full-batch reindex. Archive, restore and confidence responses therefore include `"graph_index_stale": true`. Run `reflect reindex` afterwards.
+Curation is **file-first**: the markdown note is the source of truth, and the in-memory view reloads immediately. The nano-graphrag cache behind `plugly-reflect-memory search` is **not** rebuilt, because the engine only supports a full-batch reindex. Archive, restore and confidence responses therefore include `"graph_index_stale": true`. Run `plugly-reflect-memory reindex` afterwards.
 
 | Endpoint | File effect |
 |---|---|
@@ -324,4 +324,4 @@ Error (400): `compress needs at least two live memories`. The web app never call
 
 ## Tests
 
-End-to-end coverage lives in [`tests/e2e/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/tests/e2e) (Playwright against a fresh copy of `tests/e2e/fixture-kb`) and `tests/test_serve_curation.py`.
+End-to-end coverage lives in [`tests/e2e/`](https://github.com/stevengonsalvez/plugly-reflect-memory/tree/main/tests/e2e) (Playwright against a fresh copy of `tests/e2e/fixture-kb`) and `tests/test_serve_curation.py`.

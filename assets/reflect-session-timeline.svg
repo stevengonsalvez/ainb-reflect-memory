@@ -17,7 +17,7 @@
   <rect x="0" y="0" width="1040" height="520" fill="#FAF9F5"/>
 
   <!-- title -->
-  <text x="40" y="44" font-size="23" font-weight="700" fill="#141413">How reflect operates across one coding session</text>
+  <text x="40" y="44" font-size="23" font-weight="700" fill="#141413">How plugly-reflect-memory operates across one coding session</text>
   <text x="40" y="68" font-size="13.5" fill="#87867F">Reads inject prior knowledge into context · writes capture new signals · the index closes the loop to the next session.</text>
 
   <!-- lane labels -->
@@ -76,7 +76,7 @@
     <rect x="318" y="324" width="396" height="62" rx="8" fill="#EEF1E8" stroke="#788C5D" stroke-width="1.5"/>
     <text x="330" y="345" font-size="12.5" font-weight="700" fill="#3E4A2E">PostToolUse · signals</text>
     <text x="330" y="362" font-size="11" fill="#141413">test pass/fail · tool-loop · git event · todo done</text>
-    <text x="330" y="377" font-size="11" fill="#141413">correction (“no — don’t…”) · permission reply</text>
+    <text x="330" y="377" font-size="11" fill="#141413">correction (“no, don’t…”) · permission reply</text>
     <line x1="460" y1="264" x2="460" y2="322" stroke="#788C5D" stroke-width="1.5" marker-end="url(#ahg)"/>
 
     <!-- Stop capture -->

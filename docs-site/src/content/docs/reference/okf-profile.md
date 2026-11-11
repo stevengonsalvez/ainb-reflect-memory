@@ -1,24 +1,24 @@
 ---
 title: OKF v0.2 profile (proposed)
-description: How reflect notes become Open Knowledge Format v0.2 concepts under PR #47 - derived keys, writers, lifecycle edits, and what is not included.
+description: How plugly-reflect-memory notes become Open Knowledge Format v0.2 concepts under PR #47 - derived keys, writers, lifecycle edits, and what is not included.
 sidebar:
   order: 5
 ---
 
 :::note[Proposed, lands with PR #47]
-Nothing on this page exists on `main`. It documents [PR #47](https://github.com/stevengonsalvez/ainb-reflect-memory/pull/47) ("store learnings as OKF v0.2 concepts", open at the time of writing) from the code on the `stevengonsalvez/okf` branch. Behaviour may change in review. The shipped format is in [KB on-disk format](/ainb-reflect-memory/reference/kb-format/).
+Nothing on this page exists on `main`. It documents [PR #47](https://github.com/stevengonsalvez/plugly-reflect-memory/pull/47) ("store learnings as OKF v0.2 concepts", open at the time of writing) from the code on the `stevengonsalvez/okf` branch. Behaviour may change in review. The shipped format is in [KB on-disk format](/plugly-reflect-memory/reference/kb-format/).
 :::
 
-[Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format) (OKF) v0.2 is a markdown-plus-frontmatter convention for agent knowledge. Its only required key is `type`. The profile makes every note reflect writes a valid OKF concept by adding a few derived keys, while every reflect key stays in place as an OKF extension key. Retrieval is unchanged.
+[Open Knowledge Format](https://github.com/GoogleCloudPlatform/open-knowledge-format) (OKF) v0.2 is a markdown-plus-frontmatter convention for agent knowledge. Its only required key is `type`. The profile makes every note plugly-reflect-memory writes a valid OKF concept by adding a few derived keys, while every plugly-reflect-memory key stays in place as an OKF extension key. Retrieval is unchanged.
 
 ```
  writers                       profile                     note on disk
 ┌──────────────┐   fm + body  ┌──────────────────┐        ┌────────────────────┐
 │ drain        │─────────────▶│ okf_additions()  │───────▶│ type, title,       │
 │ hooks        │              │ derive missing   │        │ description,       │
-│ reflect add  │              │ OKF keys only    │        │ generated, sources,│
+│ plugly-reflect-memory add  │              │ OKF keys only    │        │ generated, sources,│
 │ fleet, share │              └──────────────────┘        │ stale_after        │
-└──────────────┘                                          │ + every reflect key│
+└──────────────┘                                          │ + every plugly-reflect-memory key│
                                                           └────────────────────┘
 ```
 
@@ -29,8 +29,8 @@ Nothing on this page exists on `main`. It documents [PR #47](https://github.com/
 | Stdlib-only derivation and conformance checks | `src/reflect_kb/okf_profile.py` |
 | Byte-identical vendored copy for hooks | `plugin/scripts/okf_profile.py` |
 | Note text surgery, parsing, lifecycle edits | `src/reflect_kb/okf.py` |
-| Writers wired to the profile | drain, skill, mini and permission hooks, `reflect add`, fleet importer, team share |
-| `reflect serve` archive and restore stamp `status` | `src/reflect_kb/serve.py` |
+| Writers wired to the profile | drain, skill, mini and permission hooks, `plugly-reflect-memory add`, fleet importer, team share |
+| `plugly-reflect-memory serve` archive and restore stamp `status` | `src/reflect_kb/serve.py` |
 | Schema and template updates | `schemas/frontmatter.schema.json`, `plugin/assets/learning_template.md` |
 | Tests | `tests/test_okf_profile.py` |
 
@@ -50,7 +50,7 @@ Warnings cover: a `sources` entry without `resource`; `generated.by` missing or 
 
 ## Derived keys
 
-`okf_additions(fm, body, actor, now)` returns only the keys a note is missing. It never edits a reflect key. The single exception is the casing of `type`.
+`okf_additions(fm, body, actor, now)` returns only the keys a note is missing. It never edits a plugly-reflect-memory key. The single exception is the casing of `type`.
 
 | Key | Derived from | Rule |
 |---|---|---|
@@ -70,9 +70,9 @@ Details that matter when reading output:
 | Writer | Actor producer | Mechanism |
 |---|---|---|
 | Drain single-shot writer | `reflect-drain` | `okf_additions` appended to the rendered frontmatter |
-| `/reflect` project notes (`output_generator.py`) | `reflect-skill` | `to_okf` on the frontmatter dict |
+| `/plugly-reflect-memory` project notes (`output_generator.py`) | `reflect-skill` | `to_okf` on the frontmatter dict |
 | Mini-learning and permission-reply hooks | `reflect-mini` | `to_okf`, rendered by `render_frontmatter` (a fallback renderer keeps `type: learning` if the module cannot be imported) |
-| `reflect add` | `reflect-cli` | `normalize_note` on the stored copy |
+| `plugly-reflect-memory add` | `reflect-cli` | `normalize_note` on the stored copy |
 | Fleet importer | `reflect-fleet-import` | `to_okf` before `yaml.safe_dump` |
 | Team share (`write_flow._copy_into_team`) | `reflect-share` | `normalize_note` on the team copy; the local source is not rewritten |
 
@@ -93,7 +93,7 @@ source_path: /tmp/session.jsonl
 ---
 ```
 
-After `reflect add` (the `type` line is replaced in place; the other additions are appended; body and every other line are untouched):
+After `plugly-reflect-memory add` (the `type` line is replaced in place; the other additions are appended; body and every other line are untouched):
 
 ```yaml
 ---
@@ -120,19 +120,19 @@ This output was produced by running the branch's `okf.normalize_note` on the inp
 
 | Case | Behaviour |
 |---|---|
-| No OKF key missing | Returned unchanged. `reflect add` then copies bytes and file mode verbatim. |
+| No OKF key missing | Returned unchanged. `plugly-reflect-memory add` then copies bytes and file mode verbatim. |
 | No frontmatter | A fresh block is derived from the body and prepended. |
-| Duplicate keys, flow-style frontmatter, unterminated, glued or BOM-prefixed fence | `ValueError`. `reflect add` stores the note verbatim and prints a warning. Team share falls back to a verbatim copy. |
+| Duplicate keys, flow-style frontmatter, unterminated, glued or BOM-prefixed fence | `ValueError`. `plugly-reflect-memory add` stores the note verbatim and prints a warning. Team share falls back to a verbatim copy. |
 | CRLF notes | Line endings preserved. |
 | Idempotence | Normalizing twice yields the same bytes. |
 
 ## Parser change
 
-The PR changes every note reader (`reflect add`, `reflect serve`, fleet import, team share, entity extraction) to split frontmatter on `---` delimiter lines instead of any `---` text. A value such as `title: cost --- benefit` used to truncate the block. Consequences:
+The PR changes every note reader (`plugly-reflect-memory add`, `plugly-reflect-memory serve`, fleet import, team share, entity extraction) to split frontmatter on `---` delimiter lines instead of any `---` text. A value such as `title: cost --- benefit` used to truncate the block. Consequences:
 
 - The opening fence may carry a YAML comment (`--- # note`).
-- Notes whose closing fence is glued to the last value (written by `/reflect` without PyYAML before the fix) are still read, but never rewritten in place.
-- The generated doc id can change for a note that was previously misparsed, leaving a duplicate beside the old copy. The PR's changelog entry says to run `reflect reindex` after upgrading and dedupe such pairs.
+- Notes whose closing fence is glued to the last value (written by `/plugly-reflect-memory` without PyYAML before the fix) are still read, but never rewritten in place.
+- The generated doc id can change for a note that was previously misparsed, leaving a duplicate beside the old copy. The PR's changelog entry says to run `plugly-reflect-memory reindex` after upgrading and dedupe such pairs.
 
 ## Lifecycle edits (Rule S9 carve-out)
 
@@ -146,7 +146,7 @@ Rule S9 keeps per-query telemetry out of note frontmatter. The PR rewords it to 
 
 Pass `None` to remove a key; the call is a no-op when nothing would change. The volatile ranking fields (`recall_count`, `importance`, and so on) stay out of notes and remain in the `learning_signals` table.
 
-### Archive and restore in `reflect serve`
+### Archive and restore in `plugly-reflect-memory serve`
 
 ```
  archive:  documents/<id>.md ──move pair──▶ archived/<id>.md
@@ -156,7 +156,7 @@ Pass `None` to remove a key; the call is a no-op when nothing would change. The 
                                             status = prior value, marker deleted
 ```
 
-- The stamp runs after the move. If it fails, the archive still stands and the failure goes to the reflect error sink as `okf_status_stamp_failed`.
+- The stamp runs after the move. If it fails, the archive still stands and the failure goes to the plugly-reflect-memory error sink as `okf_status_stamp_failed`.
 - A note already `deprecated`, or carrying a `status` outside OKF's vocabulary, is left untouched and gets no marker, so restore leaves it untouched too.
 - The marker file lives in `archived/` only and is not a `*.md`, so archive listings ignore it.
 
@@ -168,15 +168,15 @@ Pass `None` to remove a key; the call is a no-op when nothing would change. The 
 
 | Item | State |
 |---|---|
-| `reflect export --format okf` | not implemented |
+| `plugly-reflect-memory export --format okf` | not implemented |
 | Generated `index.md` or `log.md` per directory, root `okf_version` | not implemented |
-| OKF bundle provider for `/reflect:ingest` | not implemented |
-| A `reflect okf lint` command | not implemented (conformance checks exist as library functions) |
+| OKF bundle provider for `/plugly-reflect-memory:ingest` | not implemented |
+| A `plugly-reflect-memory okf lint` command | not implemented (conformance checks exist as library functions) |
 | Backfill of existing notes (the PR describes about 56% of a 3,000-note sample as lacking `type`) | listed as a follow-up in the PR; needs a dry run and a backup first |
 | Trust tiers derived from `generated` and `verified` | not implemented; the profile only writes the keys |
 
-Why these gaps and how the PR departs from the original recommendation is in [OKF vs reflect](/ainb-reflect-memory/design/okf-vs-reflect/).
+Why these gaps and how the PR departs from the original recommendation is in [OKF vs reflect](/plugly-reflect-memory/design/okf-vs-reflect/).
 
 ## Verification state
 
-The PR description reports `pytest tests --ignore=tests/eval` at 374 passed and 18 skipped, the same 15 pre-existing failures in `plugin/tests` as `main`, and import checks on Python 3.9 and 3.10. These are the author's reported results, not re-run for this page. The branch tests cover, among others: vendored-copy equality, YAML round-trip of rendered values, every writer producing a conformant note, `reflect add` preserving bytes and mode, CRLF survival, archive and restore round trips, and notes with `---` inside values.
+The PR description reports `pytest tests --ignore=tests/eval` at 374 passed and 18 skipped, the same 15 pre-existing failures in `plugin/tests` as `main`, and import checks on Python 3.9 and 3.10. These are the author's reported results, not re-run for this page. The branch tests cover, among others: vendored-copy equality, YAML round-trip of rendered values, every writer producing a conformant note, `plugly-reflect-memory add` preserving bytes and mode, CRLF survival, archive and restore round trips, and notes with `---` inside values.

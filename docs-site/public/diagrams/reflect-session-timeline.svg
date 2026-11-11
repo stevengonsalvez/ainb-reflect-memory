@@ -17,7 +17,7 @@
   <rect x="0" y="0" width="1040" height="520" fill="#FAF9F5"/>
 
   <!-- title -->
-  <text x="40" y="44" font-size="23" font-weight="700" fill="#141413">How reflect operates across one coding session</text>
+  <text x="40" y="44" font-size="23" font-weight="700" fill="#141413">How plugly-reflect-memory operates across one coding session</text>
   <text x="40" y="68" font-size="13.5" fill="#87867F">Reads inject prior knowledge into context · writes capture new signals · the index closes the loop to the next session.</text>
 
   <!-- lane labels -->

@@ -24,7 +24,7 @@ LOCAL (default)                         SHARED (opt-in)
  reflect.db (state)                      reflect.db (state, still local)
 ```
 
-Enable it by setting **both** `REFLECT_PG_DSN` and `REFLECT_WORKSPACE_ID` and installing the `postgres` extra. The trigger is deliberately `REFLECT_PG_DSN` only, not the generic `DATABASE_URL`, which usually points at an unrelated database. Unset, reflect uses local files exactly as before. Setup is in the repo's [`docs/setup.md`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/docs/setup.md) and the README "Mode 2" section.
+Enable it by setting **both** `REFLECT_PG_DSN` and `REFLECT_WORKSPACE_ID` and installing the `postgres` extra. The trigger is deliberately `REFLECT_PG_DSN` only, not the generic `DATABASE_URL`, which usually points at an unrelated database. Unset, reflect uses local files exactly as before. Setup is in the repo's [`docs/setup.md`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/docs/setup.md) and the README "Mode 2" section.
 
 ## Decisions
 
@@ -49,11 +49,11 @@ nano-graphrag keeps four pluggable stores: a graph (entities with name, type, de
 | `PgVectorStorage` | nano-graphrag vector | pgvector ANN with an HNSW index (`ng_vectors`, 768-d for the default embedder); embeds only via an injected function, never its own model; cosine threshold applied in SQL so results match the local arm |
 | `PgGraphStorage` | `NetworkXStorage` | overrides only load (Postgres to networkx) and save (networkx to Postgres), so clustering and community-schema code is reused client-side; no graphml is written |
 
-Code: [`src/reflect_kb/postgres/nanographrag/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/src/reflect_kb/postgres/nanographrag). Migrations: [`supabase/migrations/0001_reflect_memory_phase1.sql`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/supabase/migrations/0001_reflect_memory_phase1.sql) (memory items, entities, edges, full-text search, RLS) and [`0002_nanographrag_pgvector.sql`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/supabase/migrations/0002_nanographrag_pgvector.sql) (pgvector and the `ng_*` tables). `reflect_kb.postgres` also exposes a typed `MemoryStore` (insert, search, entity lookup by name or alias, graph neighbourhood, evidence packs); that API is separate from the nano-graphrag adapters and recall does not call it.
+Code: [`src/reflect_kb/postgres/nanographrag/`](https://github.com/stevengonsalvez/plugly-reflect-memory/tree/main/src/reflect_kb/postgres/nanographrag). Migrations: [`supabase/migrations/0001_reflect_memory_phase1.sql`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/supabase/migrations/0001_reflect_memory_phase1.sql) (memory items, entities, edges, full-text search, RLS) and [`0002_nanographrag_pgvector.sql`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/supabase/migrations/0002_nanographrag_pgvector.sql) (pgvector and the `ng_*` tables). `reflect_kb.postgres` also exposes a typed `MemoryStore` (insert, search, entity lookup by name or alias, graph neighbourhood, evidence packs); that API is separate from the nano-graphrag adapters and recall does not call it.
 
 ## Blast radius on recall
 
-Of the retrieval styles on [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/), only the **vector** arm and the **graph** arm read nano-graphrag storage. BM25, rerank, MMR, temporal and the boosts are backend-independent. At 4.1.0 the regression notes counted exactly one of the 57 ports (R1, the graph arm) as storage-coupled. `tests/postgres/test_recall_backend_independence.py` pins that.
+Of the retrieval styles on [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/), only the **vector** arm and the **graph** arm read nano-graphrag storage. BM25, rerank, MMR, temporal and the boosts are backend-independent. At 4.1.0 the regression notes counted exactly one of the 57 ports (R1, the graph arm) as storage-coupled. `tests/postgres/test_recall_backend_independence.py` pins that.
 
 ## Security review (from the journal)
 
@@ -89,5 +89,5 @@ This is storage parity, not a retrieval-quality comparison: nothing here shows t
 
 - Real cross-host and concurrent-writer merge behaviour was not exercised; tests use two isolated instances.
 - The pipeline tests use a deterministic fake embedder and a canned LLM for most cases (legitimate because both are client-side and swappable); the real-model parity test covers the embedding path.
-- Community summaries via the passthrough LLM are placeholder reports, so `global` mode returns structure rather than prose; see [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/#graph-communities).
-- A later full golden tier (all 13 lookup types including BM25) is scaffolded in the regression-suite notes; see the [Regression suite](/ainb-reflect-memory/evals/regression-suite/).
+- Community summaries via the passthrough LLM are placeholder reports, so `global` mode returns structure rather than prose; see [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/#graph-communities).
+- A later full golden tier (all 13 lookup types including BM25) is scaffolded in the regression-suite notes; see the [Regression suite](/plugly-reflect-memory/evals/regression-suite/).

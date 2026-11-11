@@ -42,7 +42,7 @@ recall.py ─┬─ reflect search --mode naive  (GraphRAG vector)   ┐
 - Same day, `learnings add` was fixed to run `qmd update` before `qmd embed`: before the fusion commit, every write populated QMD and nothing ever queried it.
 - A 1 h per-query cache, a no-op exit 0 when the KB is absent, and the append-only recall log were in the first cut.
 
-Later phases of the recall stack (graph arm, cross-encoder, MMR, gates, sharding) are on [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/).
+Later phases of the recall stack (graph arm, cross-encoder, MMR, gates, sharding) are on [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/).
 
 ## Open questions from the handover, and what happened
 
@@ -57,4 +57,4 @@ Later phases of the recall stack (graph arm, cross-encoder, MMR, gates, sharding
 
 It records the motive for the whole recall stack: capture without retrieval is an archive. It also shows the one phase that is still open, closing the loop with usage feedback. The schema to support it (`recall_events`, helpful and ignored counters) exists, so Phase 6 is a ranking change rather than a data-model change.
 
-See also [How reflect evolved](/ainb-reflect-memory/design/history/) and the [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/).
+See also [How reflect evolved](/plugly-reflect-memory/design/history/) and the [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/).

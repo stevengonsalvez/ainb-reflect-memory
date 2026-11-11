@@ -50,12 +50,12 @@ defaults to `extract` (shipped opt-in in 5.2.3); set it to `agentic` to opt back
 into the legacy loop.
 
 **Why now.** 5.2.4 bounded the writer's input, and the oversized transcripts
-from [#34](https://github.com/stevengonsalvez/ainb-reflect-memory/issues/34) did then reach the model, but on the agentic path they still failed.
+from [#34](https://github.com/stevengonsalvez/plugly-reflect-memory/issues/34) did then reach the model, but on the agentic path they still failed.
 The loop re-sends its whole growing conversation every turn, so the context
 wall is reached mid-run no matter how small the input started. Bounding cannot
 fix that; the growth is the loop.
 
-**Measured on the two 1.5MB transcripts from [#34](https://github.com/stevengonsalvez/ainb-reflect-memory/issues/34)**, real `claude`, isolated
+**Measured on the two 1.5MB transcripts from [#34](https://github.com/stevengonsalvez/plugly-reflect-memory/issues/34)**, real `claude`, isolated
 state dir:
 
 | writer  | turns | tokens    | cost  | outcome                          |
@@ -77,7 +77,7 @@ drain script and asserts the default takes the extract path while
 
 Patch. Fixes a total, silent outage of the drain: no learning was written
 between 2026-07-31 and 2026-08-10 while the logs and statusline reported a
-healthy system (issue [#34](https://github.com/stevengonsalvez/ainb-reflect-memory/issues/34)).
+healthy system (issue [#34](https://github.com/stevengonsalvez/plugly-reflect-memory/issues/34)).
 
 **The problem.** Sessions crossed ~1.5MB of transcript. Measured: 367K tokens
 raw, 162K tokens of dialogue alone, against a 200K context of which ~64K is
@@ -421,7 +421,7 @@ breaks; the retrieval improvements are live out of the box.
   thresholds** (R12, `reflect calibrate-thresholds`), **auto-skill-refresh +
   per-skill staleness** (R13/R14), **per-project sharding** (R15), **project
   affinity** (R16), **skills index** (R20), **staged 3-layer recall** (M1).
-- See the [retrieval features](/ainb-reflect-memory/concepts/retrieval-features/) page for each feature with a worked example and
+- See the [retrieval features](/plugly-reflect-memory/concepts/retrieval-features/) page for each feature with a worked example and
   the counterfactual.
 
 ### Added: storage / signals / consolidation / open-domain
@@ -452,7 +452,7 @@ breaks; the retrieval improvements are live out of the box.
 
 ### Activation notes (features that need a one-time wiring step)
 - **SG2 git-event capture** needs the post-commit hook installed per repo (see the
-  [install guides](/ainb-reflect-memory/install/claude-code/)). **SG3 idle** and the other launchd timers load via their
+  [install guides](/plugly-reflect-memory/install/claude-code/)). **SG3 idle** and the other launchd timers load via their
   `launchd/*.plist` INSTALL blocks. **S8** document-grouping persists once the
   drain calls the chunk-record step.
 
@@ -466,7 +466,7 @@ and the daily cap was blown 20→61. A 30-day backfill showed reflect was burnin
 ~1.2B tokens / 446 runs / ~$7k, almost all on Opus.
 
 > Note: `4.0.0` was previously sketched for the "universal cross-harness
-> install" effort (see [`docs/design-records/2026-04-23-v4-universal-install-spec.md`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/docs/design-records/2026-04-23-v4-universal-install-spec.md));
+> install" effort (see [`docs/design-records/2026-04-23-v4-universal-install-spec.md`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/docs/design-records/2026-04-23-v4-universal-install-spec.md));
 > that effort now targets **5.0.0**.
 
 ### Added
@@ -528,5 +528,5 @@ and the daily cap was blown 20→61. A 30-day backfill showed reflect was burnin
 
 ## [3.6.0] and earlier
 
-See [`docs/design-records/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/plugin/docs/design-records) for frozen plans (v3.2 single-PR, v4 universal
+See [`docs/design-records/`](https://github.com/stevengonsalvez/plugly-reflect-memory/tree/main/plugin/docs/design-records) for frozen plans (v3.2 single-PR, v4 universal
 install) that informed earlier evolution.

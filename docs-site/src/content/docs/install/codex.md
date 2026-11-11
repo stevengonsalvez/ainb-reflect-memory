@@ -1,11 +1,11 @@
 ---
 title: Codex CLI
-description: Install reflect into Codex CLI with the python adapter or the native plugin manifest. What gets copied, the 10 hooks written to hooks.json, how to verify, uninstall, and the limits of Codex support.
+description: Install plugly-reflect-memory into Codex CLI with the python adapter or the native plugin manifest. What gets copied, the 10 hooks written to hooks.json, how to verify, uninstall, and the limits of Codex support.
 sidebar:
   order: 20
 ---
 
-Codex CLI has lifecycle hooks, so reflect recalls at session start and per prompt, and queues transcripts for capture, the same as on Claude Code. Support is good but narrower: 10 of the 13 hooks, and 5 of the 10 skills when installed by the adapter. Capture still needs the `claude` CLI.
+Codex CLI has lifecycle hooks, so plugly-reflect-memory recalls at session start and per prompt, and queues transcripts for capture, the same as on Claude Code. Support is good but narrower: 10 of the 13 hooks, and 5 of the 10 skills when installed by the adapter. Capture still needs the `claude` CLI.
 
 There are two install routes. Pick one, not both (you would get every hook twice).
 
@@ -21,7 +21,7 @@ There are two install routes. Pick one, not both (you would get every hook twice
 | macOS or Linux | hooks are bash and Python | |
 | Codex CLI with hooks enabled | `hooks` feature; the adapter targets the Codex hook set that landed around 0.129 | `codex features list \| grep hooks` |
 | [uv](https://docs.astral.sh/uv/) | runs every hook and installs the CLI | `uv --version` |
-| reflect engine on `PATH` | recall and indexing | `reflect --version` |
+| plugly-reflect-memory engine on `PATH` | recall and indexing | `plugly-reflect-memory --version` |
 | `claude` on `PATH` | the drain runs `claude -p` to turn queued transcripts into learnings | `command -v claude` |
 | PyYAML for the adapter (route A) | `plugin/adapters/base.py` imports `yaml`; stock `python3` without it fails with `ModuleNotFoundError: No module named 'yaml'` | `python3 -c 'import yaml'` |
 
@@ -29,14 +29,14 @@ Install the engine first (both routes):
 
 ```bash
 uv tool install --force --upgrade --torch-backend cpu \
-  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+  'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 ```
 
 ## Route A: adapter
 
 ```bash
-git clone https://github.com/stevengonsalvez/ainb-reflect-memory.git
-cd ainb-reflect-memory
+git clone https://github.com/stevengonsalvez/plugly-reflect-memory.git
+cd plugly-reflect-memory
 
 # preview, writes nothing
 uv run --no-project --with pyyaml python plugin/adapters/codex/codex_adapter.py install --dry-run
@@ -49,7 +49,7 @@ uv run --no-project --with pyyaml python plugin/adapters/codex/codex_adapter.py 
 | Flag | Effect |
 |---|---|
 | `--dry-run` | print the plan, change nothing |
-| `--no-hooks` | copy skills and scripts, leave `hooks.json` alone (older Codex builds without hooks; then drive `/reflect` and `/recall` by hand) |
+| `--no-hooks` | copy skills and scripts, leave `hooks.json` alone (older Codex builds without hooks; then drive `/plugly-reflect-memory` and `/plugly-reflect-memory:recall` by hand) |
 | `--no-bg-drain` | skip the `SessionStart` drain entry (see the drain caveat below) |
 | `--force` | overwrite a hand-written `SKILL.md` that lacks the adapter's `managed_by` sentinel |
 | `--home DIR` | treat `DIR` as `$HOME` (testing) |
@@ -62,10 +62,10 @@ Codex has no plugin runtime that extracts the plugin tree for the adapter route,
 
 ```
 ~/.codex/
-├── hooks.json                     merged: reflect entries only added, yours kept
+├── hooks.json                     merged: plugly-reflect-memory entries only added, yours kept
 └── skills/
-    ├── reflect/
-    │   ├── SKILL.md               full content + managed_by: reflect-kb/adapters/codex
+    ├── plugly-reflect-memory/
+    │   ├── SKILL.md               full content + managed_by: plugly-reflect-memory/adapters/codex
     │   ├── hooks/                 plugin-level hook scripts (drain, queue, policy, subagent)
     │   ├── scripts/  assets/  references/
     │   └── reflect.toml           plugin defaults
@@ -104,12 +104,12 @@ Recall hooks emit the default envelope, `{"hookSpecificOutput": {"hookEventName"
 The repo ships `plugin/.codex-plugin/plugin.json`, which points at `./codex-hooks.json` (same 10 events, `${PLUGIN_ROOT}` paths) and `./skills/` (all 10 skills). Codex reads the marketplace file at `.claude-plugin/marketplace.json`:
 
 ```bash
-codex plugin marketplace add stevengonsalvez/ainb-reflect-memory
-codex plugin add reflect@ainb-reflect-memory
-codex plugin list      # reflect@ainb-reflect-memory   installed, enabled   5.2.5
+codex plugin marketplace add stevengonsalvez/plugly-reflect-memory
+codex plugin add plugly-reflect-memory@plugly-reflect-memory
+codex plugin list      # plugly-reflect-memory@plugly-reflect-memory   installed, enabled   5.2.5
 ```
 
-Verified: against a local checkout and a scratch `CODEX_HOME`, `marketplace add` registered `ainb-reflect-memory` and `plugin add` installed 5.2.5 into `$CODEX_HOME/plugins/cache/ainb-reflect-memory/reflect/5.2.5`. Not verified: that Codex then fires the hooks from `codex-hooks.json` in a real session. If you take this route, confirm with the checks below before relying on it.
+Canonical native installs use `$CODEX_HOME/plugins/cache/plugly-reflect-memory/plugly-reflect-memory/`. Real-session hook firing must be verified after migration before relying on this route.
 
 ## Verify it works
 
@@ -132,8 +132,8 @@ Then run a short Codex session that includes a correction ("no, use X not Y") an
 |---|---|
 | Transcript queued | new line in `~/.reflect/pending_reflections.jsonl` with `"harness"` set |
 | Drain ran | `~/.reflect/drain.log` |
-| Learning landed | `reflect stats`, `~/.learnings/documents/` |
-| Hook errors | `reflect errors count` |
+| Learning landed | `plugly-reflect-memory stats`, `~/.learnings/documents/` |
+| Hook errors | `plugly-reflect-memory errors count` |
 
 ## Uninstall
 
@@ -143,25 +143,25 @@ Route A:
 uv run --no-project --with pyyaml python plugin/adapters/codex/codex_adapter.py uninstall
 ```
 
-This deletes the five adapter-managed `SKILL.md` files (only those carrying the `managed_by` sentinel) and removes reflect's entries from `hooks.json`, leaving other hooks alone. It does **not** delete the copied support directories, and leaves an empty `{}` if `hooks.json` held only reflect. To finish:
+This deletes the five adapter-managed `SKILL.md` files (only those carrying the `managed_by` sentinel) and removes plugly-reflect-memory's entries from `hooks.json`, leaving other hooks alone. It does **not** delete the copied support directories, and leaves an empty `{}` if `hooks.json` held only plugly-reflect-memory. To finish:
 
 ```bash
-rm -rf ~/.codex/skills/reflect/{hooks,scripts,assets,references} ~/.codex/skills/reflect/reflect.toml
+rm -rf ~/.codex/skills/plugly-reflect-memory/{hooks,scripts,assets,references} ~/.codex/skills/plugly-reflect-memory/reflect.toml
 rm -rf ~/.codex/skills/recall/{hooks,scripts} ~/.codex/skills/status/scripts
-rmdir ~/.codex/skills/{reflect,recall,status,consolidate,ingest} 2>/dev/null
+rmdir ~/.codex/skills/{plugly-reflect-memory,recall,status,consolidate,ingest} 2>/dev/null
 ```
 
-Route B: `codex plugin remove reflect@ainb-reflect-memory`, then `codex plugin marketplace remove ainb-reflect-memory`.
+Route B: `codex plugin remove plugly-reflect-memory@plugly-reflect-memory`, then `codex plugin marketplace remove plugly-reflect-memory`.
 
-Your knowledge base (`~/.learnings/`, `~/.reflect/`) is never touched. Remove the engine with `uv tool uninstall reflect-kb`.
+Your knowledge base (`~/.learnings/`, `~/.reflect/`) is never touched. Remove the engine with `uv tool uninstall plugly-reflect-memory`.
 
 ## Limitations
 
-- **Capture needs `claude`.** `reflect-drain-bg.sh` shells out to `claude -p /reflect <transcript>`. With no `claude` on `PATH` the drain logs a warning and exits 0 (Codex startup never blocks), but queued transcripts are not converted. Recall still works against existing learnings; run `/reflect` by hand to capture. `--no-bg-drain` removes the drain entry entirely, so on its own the queue is never consumed. The queue at `~/.reflect/pending_reflections.jsonl` is shared across harnesses, so a Claude Code session on the same machine will drain Codex entries.
+- **Capture needs `claude`.** `reflect-drain-bg.sh` shells out to `claude -p /plugly-reflect-memory <transcript>`. With no `claude` on `PATH` the drain logs a warning and exits 0 (Codex startup never blocks), but queued transcripts are not converted. Recall still works against existing learnings; run `/plugly-reflect-memory` by hand to capture. `--no-bg-drain` removes the drain entry entirely, so on its own the queue is never consumed. The queue at `~/.reflect/pending_reflections.jsonl` is shared across harnesses, so a Claude Code session on the same machine will drain Codex entries.
 - **Fewer hooks.** No `Notification`, `PostToolUseFailure` or `SessionEnd` on Codex, so permission-decision and failure-shaped mini-learnings are not armed from those events, and session-end queueing relies on `Stop`.
-- **Fewer skills via the adapter.** The adapter installs `reflect`, `recall`, `status`, `consolidate`, `ingest`. The `cost`, `errors-ack`, `corpus`, `export` and `slots` skills come only with the native route (or use the matching `reflect` CLI commands).
+- **Fewer skills via the adapter.** The adapter installs `plugly-reflect-memory`, `recall`, `status`, `consolidate`, `ingest`. The `cost`, `errors-ack`, `corpus`, `export` and `slots` skills come only with the native route (or use the matching `plugly-reflect-memory` CLI commands).
 - **Frozen copy.** Under route A the deployed scripts do not follow plugin upgrades; re-run the adapter after updating the checkout. Only `SKILL.md` bodies get their path anchors rewritten, not other copied files.
-- **No Codex status line.** Codex has only a built-in item picker, so the reflect statusline timeline does not apply.
-- **Older Codex without hooks.** Use `--no-hooks` and run `/reflect` and `/recall` manually each session.
+- **No Codex status line.** Codex has only a built-in item picker, so the plugly-reflect-memory statusline timeline does not apply.
+- **Older Codex without hooks.** Use `--no-hooks` and run `/plugly-reflect-memory` and `/plugly-reflect-memory:recall` manually each session.
 
-See also: [Hooks reference](/ainb-reflect-memory/reference/hooks/), [Drain](/ainb-reflect-memory/concepts/drain/), [Troubleshooting](/ainb-reflect-memory/guides/troubleshooting/).
+See also: [Hooks reference](/plugly-reflect-memory/reference/hooks/), [Drain](/plugly-reflect-memory/concepts/drain/), [Troubleshooting](/plugly-reflect-memory/guides/troubleshooting/).

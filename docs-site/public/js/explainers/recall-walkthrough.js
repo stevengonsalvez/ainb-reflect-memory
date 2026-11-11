@@ -2,7 +2,7 @@ import { h, clear } from './dom.js';
 import { prepare, run, C, PROFILES, fetchedLimit } from './recall-engine.js';
 
 
-const BLOB = 'https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/';
+const BLOB = 'https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/';
 
 const EXAMPLES = [
   ['JWT rejected after login', 'jwt token rejected right after login'],
@@ -14,9 +14,9 @@ const EXAMPLES = [
 ];
 
 const ARMS = [
-  { id: 'vector', label: 'Vector', sub: 'toy embedding', real: 'reflect search --mode naive (all-mpnet-base-v2 over nano-graphrag chunks)', cls: 'arm-vector' },
+  { id: 'vector', label: 'Vector', sub: 'toy embedding', real: 'plugly-reflect-memory search --mode naive (all-mpnet-base-v2 over nano-graphrag chunks)', cls: 'arm-vector' },
   { id: 'bm25', label: 'BM25', sub: 'toy lexical', real: 'QMD lexical search (fetch_qmd)', cls: 'arm-bm25' },
-  { id: 'graph', label: 'Graph', sub: 'entity edges', real: 'reflect search --mode local (entity neighbourhood)', cls: 'arm-graph' },
+  { id: 'graph', label: 'Graph', sub: 'entity edges', real: 'plugly-reflect-memory search --mode local (entity neighbourhood)', cls: 'arm-graph' },
   { id: 'temporal', label: 'Temporal', sub: 'only with a date phrase', real: 'fetch_temporal: date-window scan of the corpus', cls: 'arm-temporal' },
 ];
 
@@ -334,7 +334,7 @@ function init(root, corpus) {
         );
       });
       put(
-        ...stageHeader(i, 'Each arm can drop its own weak candidates before fusion, using query-term coverage. recall.py ships every floor at 0 (off) because a non-zero floor changes the OOD gate contract; reflect calibrate-thresholds suggests the values below.', [
+        ...stageHeader(i, 'Each arm can drop its own weak candidates before fusion, using query-term coverage. recall.py ships every floor at 0 (off) because a non-zero floor changes the OOD gate contract; plugly-reflect-memory calibrate-thresholds suggests the values below.', [
           ['state', t.floors.on ? 'calibrated floors ON' : 'all floors 0 (default)'],
         ]),
         h('table', { class: 'xp-table' },

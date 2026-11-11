@@ -1,4 +1,4 @@
-// Toy re-implementation of the reflect recall pipeline, for the walkthrough.
+// Toy re-implementation of the plugly-reflect-memory recall pipeline, for the walkthrough.
 //
 // STRUCTURE, ORDER and CONSTANTS are the real ones, read from
 //   plugin/skills/recall/scripts/recall.py        (recall(), rrf_fuse, rerank_with_scores,
@@ -55,7 +55,7 @@ export const PROFILES = {
     ref: 'plugin/skills/recall/hooks/session_start_recall.py',
   },
   explicit: {
-    label: '/reflect:recall (defaults)',
+    label: '/plugly-reflect-memory:recall (defaults)',
     limit: 10, // DEFAULT_LIMIT
     minOverlap: 0,
     maxTokens: 0,

@@ -5,10 +5,10 @@ sidebar:
   order: 3
 ---
 
-reflect is configured in two ways: a layered TOML file (`reflect.toml`) and environment variables. Most day-to-day tuning is environment variables, because the hooks and the drain run as separate processes that the harness launches. Most `reflect.toml` keys are either read by the ingest and discovery scripts or are reserved. Both are listed in full below, with the status of each key checked against the code that consumes it.
+plugly-reflect-memory is configured in two ways: a layered TOML file (`reflect.toml`) and environment variables. Most day-to-day tuning is environment variables, because the hooks and the drain run as separate processes that the harness launches. Most `reflect.toml` keys are either read by the ingest and discovery scripts or are reserved. Both are listed in full below, with the status of each key checked against the code that consumes it.
 
 :::note
-Two different loaders read `reflect.toml`, and they search different places. See [Search order](#search-order-and-precedence). Hook behavior is in the [Hooks reference](/ainb-reflect-memory/reference/hooks/); CLI flags are in the [CLI reference](/ainb-reflect-memory/reference/cli/).
+Two different loaders read `reflect.toml`, and they search different places. See [Search order](#search-order-and-precedence). Hook behavior is in the [Hooks reference](/plugly-reflect-memory/reference/hooks/); CLI flags are in the [CLI reference](/plugly-reflect-memory/reference/cli/).
 :::
 
 ## Search order and precedence
@@ -31,7 +31,7 @@ The user override path is fixed at `~/.reflect/reflect.toml`; it does **not** fo
 
 ### Engine-side loader (`src/reflect_kb/reflect_config.py`)
 
-Used only by `reflect issues run`, which reads the `[issues]` table. **First existing file wins; there is no merging.**
+Used only by `plugly-reflect-memory issues run`, which reads the `[issues]` table. **First existing file wins; there is no merging.**
 
 | # | Path |
 |---|---|
@@ -40,7 +40,7 @@ Used only by `reflect issues run`, which reads the `[issues]` table. **First exi
 | 3 | `~/.reflect/reflect.toml` |
 | 4 | bundled `plugin/reflect.toml`, found by walking up from the module (editable checkouts only) |
 
-A missing or malformed file yields `{}`, so the CLI always has defaults. For `reflect issues run`, an explicit flag beats `[issues]`, which beats the built-in default.
+A missing or malformed file yields `{}`, so the CLI always has defaults. For `plugly-reflect-memory issues run`, an explicit flag beats `[issues]`, which beats the built-in default.
 
 ### Active mode precedence
 
@@ -69,7 +69,7 @@ Status column: **live** means code reads the key; **reserved** means it is parse
 | Key | Type | Default | Status | Effect |
 |---|---|---|---|---|
 | `db_path` | path | `"~/.reflect/reflect.db"` | live | SQLite DB for the structured store (`reflect_db.py`, `state_manager.py`). `~` and `$VAR` are expanded. Env `REFLECT_DB_PATH`. |
-| `artifacts_dir` | path (relative to project) | `"docs/solutions"` | live | Where `/reflect` writes per-project solution notes (`output_generator.py`). Env `REFLECT_ARTIFACTS_DIR`. |
+| `artifacts_dir` | path (relative to project) | `"docs/solutions"` | live | Where `/plugly-reflect-memory` writes per-project solution notes (`output_generator.py`). Env `REFLECT_ARTIFACTS_DIR`. |
 
 ### `[discovery]`
 
@@ -103,7 +103,7 @@ Each provider class reads its own table at construction. Paths are expanded with
 
 | Key | Type | Default | Status | Effect |
 |---|---|---|---|---|
-| `cli_path` | string | `"reflect"` | reserved | Intended indexer binary. Callers resolve `reflect` from `PATH` directly (`shutil.which("reflect")`); nothing reads this key. |
+| `cli_path` | string | `"plugly-reflect-memory"` | reserved | Intended indexer binary. Callers resolve `plugly-reflect-memory` from `PATH` directly (`shutil.which("plugly-reflect-memory")`); nothing reads this key. |
 | `auto_sidecar` | bool | `true` | reserved | Nothing reads it. |
 
 ### `[policies]`
@@ -137,7 +137,7 @@ Also declarative; the live control is the env var. Each boost is bounded: a hit'
 
 ### `[recall.arm.<name>]` (built-in default, absent from the shipped file)
 
-Calibrated per-arm out-of-domain floors (`reflect calibrate-thresholds`). They exist only in `_BUILTIN_DEFAULTS` and the env overlay. `recall.py` ignores them: its runtime default for every arm is `0` (off), and it only changes when you export the matching `RECALL_ARM_<NAME>_MIN_SCORE`.
+Calibrated per-arm out-of-domain floors (`plugly-reflect-memory calibrate-thresholds`). They exist only in `_BUILTIN_DEFAULTS` and the env overlay. `recall.py` ignores them: its runtime default for every arm is `0` (off), and it only changes when you export the matching `RECALL_ARM_<NAME>_MIN_SCORE`.
 
 | Key | Type | Built-in default | Status | Real control |
 |---|---|---|---|---|
@@ -163,7 +163,7 @@ Calibrated per-arm out-of-domain floors (`reflect calibrate-thresholds`). They e
 
 | Table | Loader | Keys | Effect |
 |---|---|---|---|
-| `[issues]` | engine-side | `repo` (default: `gh`'s cwd repo), `limit` (`20`), `model` (`"sonnet"`), `label` (`"reflect"`), `title_prefix` (`"reflect: "`) | Defaults for `reflect issues run`. Flags override. Empty string disables `label` and `title_prefix`. |
+| `[issues]` | engine-side | `repo` (default: `gh`'s cwd repo), `limit` (`20`), `model` (`"sonnet"`), `label` (`"plugly-reflect-memory"`), `title_prefix` (`"plugly-reflect-memory: "`) | Defaults for `plugly-reflect-memory issues run`. Flags override. Empty string disables `label` and `title_prefix`. |
 | `[events.on]` | plugin-side | `<event> = "<shell command>"` for `learning.created`, `learning.updated`, `skill.refreshed`, `consolidation.completed` | Runs the command (through the shell) after the event is appended to `events.jsonl`. Receives `REFLECT_EVENT` and `REFLECT_EVENT_PAYLOAD` (JSON) in its environment. Env `REFLECT_EVENTS_ON_<EVENT>` (dots become underscores, upper case) wins over the file. A failing hook never breaks the emitter. |
 
 ```toml
@@ -175,7 +175,7 @@ repo = "myorg/myrepo"
 limit = 10
 
 [events.on]
-"learning.created" = "notify-send reflect \"$REFLECT_EVENT\""
+"learning.created" = "notify-send plugly-reflect-memory \"$REFLECT_EVENT\""
 ```
 
 ## Environment variables
@@ -212,10 +212,10 @@ Plugin-side only. These overwrite the matching `reflect.toml` key after all file
 | `GLOBAL_LEARNINGS_PATH` | `~/.learnings` | Knowledge-base root; learnings live under `documents/`. Setting it **pins** recall to that KB and disables per-project shard selection. Also read by the CLI, the corpus filter and the maintenance watchdog. |
 | `REFLECT_LEARNINGS_DIR` | `~/.learnings/documents` | Directory hooks write mini-learnings and TodoWrite learnings into. Note this is the `documents/` directory itself, not the KB root. |
 | `RECALL_LEARNINGS_ROOT` | `~/.learnings` | Root that per-project shards (`shards/<project>/`, `shards/<project>/branches/<branch>/`) live under. |
-| `REFLECT_METRICS_PATH` | `~/.learnings/metrics.jsonl` | Recall follow-up metrics, `reflect_cost.py`, and Hermes shadow telemetry. The engine's own `reflect metrics` writer uses a fixed path and does not honor this. |
+| `REFLECT_METRICS_PATH` | `~/.learnings/metrics.jsonl` | Recall follow-up metrics, `reflect_cost.py`, and Hermes shadow telemetry. The engine's own `plugly-reflect-memory metrics` writer uses a fixed path and does not honor this. |
 | `REFLECT_SKILLS_DIR` | `~/.claude/skills` | Directory indexed for the skills tier of SessionStart recall. |
 | `REFLECT_MODES_DIR` | `<plugin>/references/modes` | Directory of mode JSON files. |
-| `REFLECT_POLICY_FILE` | unset | Extra policy-rules JSONL, read before `policy-rules.jsonl` and `permission-policy.jsonl` in the state dir. See [Policy rules file](/ainb-reflect-memory/reference/hooks/#policy-rules-file). |
+| `REFLECT_POLICY_FILE` | unset | Extra policy-rules JSONL, read before `policy-rules.jsonl` and `permission-policy.jsonl` in the state dir. See [Policy rules file](/plugly-reflect-memory/reference/hooks/#policy-rules-file). |
 | `CLAUDE_PROJECT_DIR` | unset (set by Claude Code) | Project root for the hooks, mode loader and artifact paths. Falls back to the stdin `cwd`, then the process cwd. |
 
 ### Kill switches and hook behavior
@@ -240,7 +240,7 @@ Plugin-side only. These overwrite the matching `reflect.toml` key after all file
 
 ### Recall engine
 
-Read by `plugin/skills/recall/scripts/recall.py`. These tune ranking and are safe to leave alone. See [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/) and [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/).
+Read by `plugin/skills/recall/scripts/recall.py`. These tune ranking and are safe to leave alone. See [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/) and [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/).
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -276,7 +276,7 @@ Shard precedence, highest first: an explicit `GLOBAL_LEARNINGS_PATH`, then `--gl
 
 ### Drain
 
-Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain](/ainb-reflect-memory/concepts/drain/) for the pipeline these cap.
+Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain](/plugly-reflect-memory/concepts/drain/) for the pipeline these cap.
 
 | Variable | Default | Effect |
 |---|---|---|
@@ -288,13 +288,13 @@ Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain]
 | `REFLECT_DRAIN_MAX_TURNS` | `16` | Turn budget per `claude -p` run. |
 | `REFLECT_DRAIN_TOKEN_MAX` | `2000000` | A completed run reporting more total tokens than this is poisoned so it cannot be retried. |
 | `REFLECT_DRAIN_MODEL` | `sonnet` | `--model` alias for the writer. |
-| `REFLECT_DRAIN_WRITER` | `extract` | `extract`: one tool-free call that emits JSON actions, executed deterministically (default since 5.2.5). `agentic`: legacy multi-turn `/reflect` loop. Entries with no slice fall back to `agentic`. |
+| `REFLECT_DRAIN_WRITER` | `extract` | `extract`: one tool-free call that emits JSON actions, executed deterministically (default since 5.2.5). `agentic`: legacy multi-turn `/plugly-reflect-memory` loop. Entries with no slice fall back to `agentic`. |
 | `REFLECT_DRAIN_CASCADE` | `1` | Gate and slice each transcript before spending. Any value other than `1` disables it. |
 | `REFLECT_DRAIN_MAX_INPUT_CHARS` | `60000` | Hard cap on writer input when no cascade slice bounded it; larger inputs are cut to a head-plus-tail window. |
 | `REFLECT_DRAIN_DEBOUNCE_SEC` | `600` | Minimum seconds between drain runs, collapsing a burst of session starts. The launchd plist sets it to `0`. |
 | `REFLECT_DRAIN_CWD` | `$HOME` | Working directory for `claude -p` (neutral, not the triggering repo). |
 | `REFLECT_DRAIN_CLAUDE_BIN` | `claude` | Path to the `claude` binary. |
-| `REFLECT_DRAIN_REFLECT_BIN` | `reflect` on `PATH`, else `~/.local/bin/reflect` | Path to the `reflect` binary for the writer's `reflect add` calls. |
+| `REFLECT_DRAIN_REFLECT_BIN` | `plugly-reflect-memory` on `PATH`, else `~/.local/bin/reflect` | Path to the `plugly-reflect-memory` binary for the writer's `plugly-reflect-memory add` calls. |
 | `REFLECT_DRAIN_INVALID_THRESHOLD` | `3` | Consecutive non-valid writer outputs before the writer-drift breaker poisons the transcript. |
 | `REFLECT_DRAIN_MAINTAIN_EVERY` | `10` | Run the graph-maintenance sweep (orphan and stale prune, relink) once per N reindexing drains. `0` disables. |
 | `REFLECT_DRAIN_SKIP_REINDEX` | `0` | `1` skips the incremental reindex after a drain. |
@@ -304,7 +304,7 @@ Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain]
 | `REFLECT_QUOTA_GATE` | `1` | Any value other than `1` skips the subscription-quota gate. When the gate is on, the queue is deferred (`quota_near_limit`) near a limit and replays later. |
 | `REFLECT_QUOTA_TTL_SEC` | `3600` | Freshness window for a quota snapshot; a stale snapshot opens the gate. |
 | `REFLECT_QUOTA_UTIL_THRESHOLD` | per-window | Single ceiling (greater than 0, up to 1) applied to every window. Defaults: five-hour 0.95, seven-day 0.93, seven-day Opus 0.93, seven-day Sonnet 0.92, overage 0.95. |
-| `REFLECT_QUIET_INSTALL_WARNING` | `0` | `1` suppresses the missing-`reflect`-CLI notice. |
+| `REFLECT_QUIET_INSTALL_WARNING` | `0` | `1` suppresses the missing-`plugly-reflect-memory`-CLI notice. |
 | `REFLECT_SYNTHESIS_AUTO_THRESHOLD` | `30` | New learnings since the last pass that trigger the synthesis job early. |
 | `REFLECT_DEDUP_THRESHOLD` | `0.97` | See `[cascade].dedup_threshold`. |
 | `ANTHROPIC_API_KEY` | unset | Read by the quota gate only: when set, the gate treats you as API-billed and never defers. |
@@ -326,17 +326,17 @@ Read by `plugin/hooks/reflect-drain-bg.sh` and a few helper scripts. See [Drain]
 | `REFLECT_WATCH_MAINTENANCE_LABEL` | `com.reflect.maintenance` | launchd label checked for the watchdog itself. |
 | `REFLECT_WATCH_SKIP_LAUNCHD` | `0` | `1` skips launchd label checks (they are always skipped off macOS). |
 | `REFLECT_WATCH_DISABLE_INGEST` | `0` | `1` skips the ingest-staleness check. |
-| `REFLECT_WATCH_FORCE_JSON_ERRORS` | `0` | `1` writes `errors.json` directly instead of through `reflect errors append`. |
+| `REFLECT_WATCH_FORCE_JSON_ERRORS` | `0` | `1` writes `errors.json` directly instead of through `plugly-reflect-memory errors append`. |
 
 `REFLECT_IDLE_TIMEOUT` is unrelated to the idle sweep; it belongs to the model daemon below.
 
 ### Engine and models
 
-Read by the `reflect` CLI (`reflect-kb`).
+Read by the `plugly-reflect-memory` CLI (`plugly-reflect-memory`).
 
 | Variable | Default | Effect |
 |---|---|---|
-| `REFLECT_EMBED_MODEL` | `all-mpnet-base-v2` | Embedding model for indexing and `reflect embed`. Changing it needs a fresh reindex, because similarity must stay in one vector space. |
+| `REFLECT_EMBED_MODEL` | `all-mpnet-base-v2` | Embedding model for indexing and `plugly-reflect-memory embed`. Changing it needs a fresh reindex, because similarity must stay in one vector space. |
 | `REFLECT_CE_MODEL` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Cross-encoder rerank model (about 90 MB, downloaded on first use). |
 | `REFLECT_NO_DAEMON` | unset | Exactly `1`: skip the model daemon and load models in-process every call. |
 | `REFLECT_IDLE_TIMEOUT` | `1800` | Seconds the model daemon idles before exiting (`0` means never). |
@@ -349,14 +349,14 @@ Read by the `reflect` CLI (`reflect-kb`).
 | `REFLECT_WORKSPACE_ID` | unset | Tenant scope for the Postgres backend. Required together with the DSN. |
 | `DATABASE_URL` | unset | Fallback DSN inside the Postgres nano-graphrag connection helper when no `pg_dsn` is passed. |
 | `CLAUDECODE`, `CODEX_CLI`, `GITHUB_COPILOT` | unset | Presence selects the harness label (`claude`, `codex`, `copilot`, else `other`) recorded on metrics lines. |
-| `CLAUDE_PLUGIN_ROOT` | unset (set by Claude Code) | `reflect timeline` uses it to find `scripts/reflect_timeline.sh`. |
+| `CLAUDE_PLUGIN_ROOT` | unset (set by Claude Code) | `plugly-reflect-memory timeline` uses it to find `scripts/reflect_timeline.sh`. |
 
 ### Lifecycle events and git hook
 
 | Variable | Default | Effect |
 |---|---|---|
 | `REFLECT_EVENTS_ON_<EVENT>` | unset | Shell command for an event, for example `REFLECT_EVENTS_ON_LEARNING_CREATED`. Beats `[events.on]`. |
-| `REFLECT_EVENT`, `REFLECT_EVENT_PAYLOAD` | set by reflect | Exported **to** event hook commands: the event name and its JSON payload. Not inputs. |
+| `REFLECT_EVENT`, `REFLECT_EVENT_PAYLOAD` | set by plugly-reflect-memory | Exported **to** event hook commands: the event name and its JSON payload. Not inputs. |
 | `REFLECT_SESSION_ID` | unset | Session id fallback for `post_commit.sh` (after `CLAUDE_SESSION_ID`) and `output_generator.py`. |
 | `CLAUDE_SESSION_ID` | unset (set by the harness) | Session anchor for recall follow-up tracking and the git post-commit link. |
 | `REFLECT_PYTHON` | `python3` | Interpreter `post_commit.sh` uses. |
@@ -381,7 +381,7 @@ Read by `plugin/scripts/reflect_timeline.sh`.
 
 | Variable | Default | Effect |
 |---|---|---|
-| `FLEET_MEMORY_BACKEND` | `shadow` | `bank`, `shadow` or `reflect`. See [Hermes shims](/ainb-reflect-memory/reference/hooks/#hermes-shims). |
+| `FLEET_MEMORY_BACKEND` | `shadow` | `bank`, `shadow` or `plugly-reflect-memory`. See [Hermes shims](/plugly-reflect-memory/reference/hooks/#hermes-shims). |
 | `REFLECT_FLEET_TIMEOUT` | `10` | Seconds allowed for the shim's recall subprocess. |
 | `REFLECT_RECALL_SCRIPT` | auto-located | Path to a deployed `recall.py` (if it does not exist, no recall runs). |
 | `REFLECT_RECALL_RUNNER` | `uv run --script` | Command prefix used to execute `recall.py`. For tests. |
@@ -392,5 +392,5 @@ Documented so you do not tune a dead knob:
 
 - Reserved `reflect.toml` keys: `discovery.staleness_days`, `indexers.graphrag.*`, `policies.*` (all three), `telemetry.*`, `providers.hermes.home_dir`, every `recall.*` key. Their overlay env vars also have no effect.
 - `hermes` in `discovery.enabled_providers` is accepted and skipped.
-- A malformed numeric value in `REFLECT_RECALL_MIN_OVERLAP`, `REFLECT_RECALL_MAX_TOKENS` or `REFLECT_SUBAGENT_RECALL_TIMEOUT` raises at import, before the hook's silent-fail wrapper. See the caution on the [Hooks reference](/ainb-reflect-memory/reference/hooks/#exit-code-and-output-contract).
+- A malformed numeric value in `REFLECT_RECALL_MIN_OVERLAP`, `REFLECT_RECALL_MAX_TOKENS` or `REFLECT_SUBAGENT_RECALL_TIMEOUT` raises at import, before the hook's silent-fail wrapper. See the caution on the [Hooks reference](/plugly-reflect-memory/reference/hooks/#exit-code-and-output-contract).
 - `REFLECT_DISABLED` gates only the drain family. To stop hooks, disable the plugin.

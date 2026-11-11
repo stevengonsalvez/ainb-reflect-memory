@@ -1,6 +1,6 @@
 ---
 title: Recall pipeline
-description: "End to end recall in reflect: hooks, query building, vector, BM25, graph and temporal arms, RRF, cross-encoder, MMR, budgets, and what gets injected or skipped."
+description: "End to end recall in plugly-reflect-memory: hooks, query building, vector, BM25, graph and temporal arms, RRF, cross-encoder, MMR, budgets, and what gets injected or skipped."
 sidebar:
   order: 5
 ---
@@ -8,14 +8,14 @@ sidebar:
 Recall turns "what is the agent about to do" into a few lines of prior learnings in its context. It is one Python script (`recall.py`) wrapped by three hooks. This page follows one recall from trigger to injected text and gives the defaults as they are in the code.
 
 :::note[Prefer to click through it?]
-There is an interactive version of this pipeline: [Recall walkthrough](/ainb-reflect-memory/interactive/recall-walkthrough/). For the optional pieces and their knobs see [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/).
+There is an interactive version of this pipeline: [Recall walkthrough](/plugly-reflect-memory/interactive/recall-walkthrough/). For the optional pieces and their knobs see [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/).
 :::
 
 ## The pipeline at a glance
 
 <div class="rp-diagram">
 <svg viewBox="0 0 680 734" style="color:var(--sl-color-gray-2);--rp-text:var(--sl-color-white);--rp-muted:var(--sl-color-gray-2);--rp-line:var(--sl-color-gray-4);--rp-accent:var(--sl-color-text-accent);--rp-arm:#4f9d6a;--rp-gate:#c9a227;--rp-ok:#4f9d6a;--rp-box-bg:var(--sl-color-gray-6);--rp-core-bg:var(--sl-color-gray-5);--rp-hook-bg:var(--sl-color-accent-low);--rp-arm-bg:color-mix(in srgb,#4f9d6a 14%,var(--sl-color-gray-7));--rp-gate-bg:color-mix(in srgb,#c9a227 14%,var(--sl-color-gray-7));--rp-out-bg:color-mix(in srgb,#4f9d6a 18%,var(--sl-color-gray-7));width:100%;height:auto;max-width:680px" font-family="var(--sl-font)" role="img" aria-labelledby="rp-t rp-d">
-<title id="rp-t">reflect recall pipeline</title>
+<title id="rp-t">plugly-reflect-memory recall pipeline</title>
 <desc id="rp-d">Stages of a recall from hook trigger to injected context: persona lookup, scope, cache, four parallel arms (vector, BM25, graph, temporal), RRF fusion, cross-encoder and embeddings, bounded-boost scoring, filters, OOD gate, MMR, token budget, injection.</desc>
 <style>
 .rp-box{stroke-width:1.4}
@@ -80,7 +80,7 @@ There is an interactive version of this pipeline: [Recall walkthrough](/ainb-ref
 <text x="568.0" y="194.0" class="rp-sub" text-anchor="middle">1 h TTL; hit skips arms + CE</text>
 <rect x="6" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="86.5" y="280.0" class="rp-title" text-anchor="middle">vector</text>
-<text x="86.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="86.5" y="295.0" class="rp-sub" text-anchor="middle">plugly-reflect-memory search</text>
 <text x="86.5" y="310.0" class="rp-sub" text-anchor="middle">--mode naive</text>
 <rect x="175" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="255.5" y="280.0" class="rp-title" text-anchor="middle">BM25</text>
@@ -88,7 +88,7 @@ There is an interactive version of this pipeline: [Recall walkthrough](/ainb-ref
 <text x="255.5" y="310.0" class="rp-sub" text-anchor="middle">-c learnings</text>
 <rect x="344" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="424.5" y="280.0" class="rp-title" text-anchor="middle">graph (R1)</text>
-<text x="424.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="424.5" y="295.0" class="rp-sub" text-anchor="middle">plugly-reflect-memory search</text>
 <text x="424.5" y="310.0" class="rp-sub" text-anchor="middle">--mode local</text>
 <rect x="513" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="593.5" y="280.0" class="rp-title" text-anchor="middle">temporal (R5)</text>
@@ -98,11 +98,11 @@ There is an interactive version of this pipeline: [Recall walkthrough](/ainb-ref
 <text x="340.0" y="381.0" class="rp-title" text-anchor="middle">3. RRF fusion, k = 60  (per-arm floors first, off by default)</text>
 <rect x="6" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
 <text x="169.0" y="434.0" class="rp-title" text-anchor="middle">4a. cross-encoder (R2)</text>
-<text x="169.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect rerank</text>
+<text x="169.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via plugly-reflect-memory rerank</text>
 <text x="169.0" y="464.0" class="rp-sub" text-anchor="middle">MiniLM-L-6-v2 logits</text>
 <rect x="348" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
 <text x="511.0" y="434.0" class="rp-title" text-anchor="middle">4b. embeddings (R3)</text>
-<text x="511.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect embed</text>
+<text x="511.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via plugly-reflect-memory embed</text>
 <text x="511.0" y="464.0" class="rp-sub" text-anchor="middle">all-mpnet-base-v2 vectors</text>
 <rect x="6" y="496" width="668" height="58" rx="8" class="rp-box rp-core"/>
 <text x="340.0" y="514.0" class="rp-title" text-anchor="middle">5. score = sigmoid(CE logit) x bounded boosts</text>
@@ -132,11 +132,11 @@ There is an interactive version of this pipeline: [Recall walkthrough](/ainb-ref
 </svg>
 </div>
 
-[Standalone SVG](/ainb-reflect-memory/diagrams/recall-pipeline.svg) (follows your OS light/dark setting).
+[Standalone SVG](/plugly-reflect-memory/diagrams/recall-pipeline.svg) (follows your OS light/dark setting).
 
-Everything after the arms is local: fusion, scoring, gates and MMR run in `recall.py`; the cross-encoder and embeddings are two small subprocess calls to the `reflect` engine (served by a warm model daemon when available). Every stage past the primary vector arm is a booster, not a blocker: on any failure it returns nothing and the pipeline continues with what it has.
+Everything after the arms is local: fusion, scoring, gates and MMR run in `recall.py`; the cross-encoder and embeddings are two small subprocess calls to the `plugly-reflect-memory` engine (served by a warm model daemon when available). Every stage past the primary vector arm is a booster, not a blocker: on any failure it returns nothing and the pipeline continues with what it has.
 
-Source: [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py), function `recall()`.
+Source: [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py), function `recall()`.
 
 ## Entry points
 
@@ -147,13 +147,13 @@ Four callers run `recall.py`. Each builds its own query and passes its own limit
 | `session_start_recall.py` | `SessionStart` | project + branch + commit tags (see below) | `--limit 3`, `--max-chars 1500` | `--min-overlap 0.2`, `--max-tokens 0`, `--no-gap-log`, `--no-followup` |
 | `user_prompt_submit_recall.py` | `UserPromptSubmit` | the prompt text | fetches `--limit 9`, keeps 3 not-yet-injected, `--max-chars 3000`, then fits up to 3 whole learnings into 1500 chars (a learning that does not fit is dropped, not cut, and is not marked injected) | passes `--session-id`; no min-overlap, no gap/followup suppression |
 | `subagent_start_recall.py` | `SubagentStart` | `subagent <type> \| cwd <cwd> \| agent_id <id> \| <task prompt>` | `--limit 3`, `--max-chars 1500` | `--no-gap-log`, `--no-followup`, 5 s timeout |
-| `/reflect:recall` skill | you type it | your query | `--limit 10`, `--max-chars 2000` | all flags available |
+| `/plugly-reflect-memory:recall` skill | you type it | your query | `--limit 10`, `--max-chars 2000` | all flags available |
 
 Hook subprocesses time out at 30 s (`REFLECT_RECALL_TIMEOUT`); the subagent hook at 5 s (`REFLECT_SUBAGENT_RECALL_TIMEOUT`). The SessionStart and UserPromptSubmit hooks set `HF_HUB_OFFLINE=1` and `TRANSFORMERS_OFFLINE=1` (via `setdefault`) because a cold model load that hits the network blows the timeout; models must already be cached under `~/.reflect/models/`.
 
 Env overrides for the callers: `REFLECT_RECALL_LIMIT` and `REFLECT_RECALL_MAX_CHARS` (explicit recall defaults), `REFLECT_RECALL_MIN_OVERLAP` and `REFLECT_RECALL_MAX_TOKENS` (SessionStart), `REFLECT_SUBAGENT_RECALL_LIMIT`, `REFLECT_SUBAGENT_RECALL_MAX_CHARS`, `REFLECT_SUBAGENT_CONTEXT` (replaces the recall result with a fixed string).
 
-The hooks are wired in [`plugin/.claude-plugin/plugin.json`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/.claude-plugin/plugin.json) for Claude Code, and in `codex-hooks.json` and `copilot-hooks.json` for the other harnesses. See [Hooks reference](/ainb-reflect-memory/reference/hooks/).
+The hooks are wired in [`plugin/.claude-plugin/plugin.json`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/.claude-plugin/plugin.json) for Claude Code, and in `codex-hooks.json` and `copilot-hooks.json` for the other harnesses. See [Hooks reference](/plugly-reflect-memory/reference/hooks/).
 
 :::caution[Copilot]
 Copilot ignores the output of its `userPromptSubmitted` hook, so on that harness the UserPromptSubmit script only runs for its capture side effects. Recall text reaches the model through SessionStart and SubagentStart only. This is documented in the hook source.
@@ -210,14 +210,14 @@ Run in a 4-worker thread pool. Each returns at most `fetched_limit` learnings, o
 
 | Arm | Command | Timeout | Runs when |
 |---|---|---|---|
-| Vector | `reflect search QUERY --mode naive --format json` | 60 s | always (the primary arm) |
+| Vector | `plugly-reflect-memory search QUERY --mode naive --format json` | 60 s | always (the primary arm) |
 | BM25 | `qmd search QUERY -c learnings` | 10 s | `qmd` is on `$PATH` |
-| Graph (R1) | `reflect search QUERY --mode local --format json` | 60 s | `RECALL_GRAPH_ARM` not `0` and mode is not already `local` |
+| Graph (R1) | `plugly-reflect-memory search QUERY --mode local --format json` | 60 s | `RECALL_GRAPH_ARM` not `0` and mode is not already `local` |
 | Temporal (R5) | scan `documents/*.md` for notes timestamped inside a parsed date window | n/a, capped at 5000 files | `RECALL_TEMPORAL_ARM` not `0` and the query contains a date phrase |
 
 Only if the vector arm fails and no other arm returned anything does `recall()` give up with an error (silent, shown only with `REFLECT_RECALL_DEBUG=1`).
 
-Note: `reflect search` accepts `--limit` but the engine call (`LearningsGraphEngine.search`) does not pass it on, so the vector and graph arms return whatever the engine's default `QueryParam` yields. The limit is enforced later, after MMR.
+Note: `plugly-reflect-memory search` accepts `--limit` but the engine call (`LearningsGraphEngine.search`) does not pass it on, so the vector and graph arms return whatever the engine's default `QueryParam` yields. The limit is enforced later, after MMR.
 
 Date phrases are extracted by a stdlib regex pass in `temporal_extraction.py`: `yesterday`, `N days ago`, `last week/month/year`, `last <weekday>`, `last 3 days`, ISO dates, `in march`, `march 2024`, `last sprint` (14 days), `recently`, and `before/until/since/after <anchor>` modifiers. A phrase with no resolvable date ("before the rewrite") returns nothing.
 
@@ -225,16 +225,16 @@ Date phrases are extracted by a stdlib regex pass in `temporal_extraction.py`: `
 
 Reciprocal rank fusion over the four lists: `score(doc) = sum of 1 / (60 + rank)` across arms (`RRF_K = 60`). Documents are matched by frontmatter `id` (else a hash of the first 256 chars). No score normalisation is needed, which is why it suits arms whose native scores are incomparable.
 
-Before fusion, each arm may drop candidates below its own query-term-coverage floor (R12). All four floors default to 0, which is off. See [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/#per-arm-floors-r12).
+Before fusion, each arm may drop candidates below its own query-term-coverage floor (R12). All four floors default to 0, which is off. See [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/#per-arm-floors-r12).
 
 ### 5. Cross-encoder and embeddings (R2, R3)
 
 For the top 20 fused candidates, two subprocess calls run concurrently, so added latency is the slower of the two:
 
-- `reflect rerank QUERY`: `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each (query, first 2000 chars) pair. Output is a raw logit per candidate.
-- `reflect embed QUERY`: unit-normalised `all-mpnet-base-v2` vectors for the query and the same 20 candidates, used by MMR.
+- `plugly-reflect-memory rerank QUERY`: `cross-encoder/ms-marco-MiniLM-L-6-v2` scores each (query, first 2000 chars) pair. Output is a raw logit per candidate.
+- `plugly-reflect-memory embed QUERY`: unit-normalised `all-mpnet-base-v2` vectors for the query and the same 20 candidates, used by MMR.
 
-Both need `sentence-transformers` (the `[graph]` extra of `reflect-kb`). On a slim install each returns `available: false` and recall silently continues without it.
+Both need `sentence-transformers` (the `[graph]` extra of `plugly-reflect-memory`). On a slim install each returns `available: false` and recall silently continues without it.
 
 ### 6. Scoring
 
@@ -267,7 +267,7 @@ Applied in this order after scoring:
 1. **Quarantine**: fleet-imported notes with `quarantine` set are dropped unless `--include-quarantined` (implied by `--format fleet-context`).
 2. **Confidence**: `--confidence HIGH|MEDIUM|LOW|ANY` (hooks use `ANY`).
 3. **OOD gate (R7)**: if the best of the top 5 notes covers less than `--min-overlap` of the query's content terms, the result is emptied and flagged `ood_gated`. Coverage is the fraction of the query's stopword-filtered tokens (3+ chars) found in the note text. `0` disables it. Defaults: `recall.py` 0.0, SessionStart 0.2.
-4. **MMR (R3)**: keep the top note, then repeatedly pick `argmax(lambda * rel - (1 - lambda) * max_sim_to_selected)`, with `lambda = 0.7` and `rel` the rerank score divided by the window max. Similarity is cosine between the `reflect embed` vectors. Notes outside the 20-note window only fill leftover slots. With no embeddings, this is plain `[:limit]`.
+4. **MMR (R3)**: keep the top note, then repeatedly pick `argmax(lambda * rel - (1 - lambda) * max_sim_to_selected)`, with `lambda = 0.7` and `rel` the rerank score divided by the window max. Similarity is cosine between the `plugly-reflect-memory embed` vectors. Notes outside the 20-note window only fill leftover slots. With no embeddings, this is plain `[:limit]`.
 5. **Token budget (R4)**: with `--max-tokens N > 0`, keep notes in order until the estimate (characters / 4) would exceed N. The first note is always kept. Default 0 (off).
 
 ### 8. Render and inject
@@ -304,7 +304,7 @@ On UserPromptSubmit the hook also dedupes: ids found in the output (`[lrn-...]`)
 | UserPromptSubmit with a prompt under 12 characters | no recall at all |
 | Best hit covers less than `--min-overlap` of the query terms | empty (on by default at SessionStart only) |
 | Persona hit | one persona line, no learnings |
-| `reflect` CLI not on `$PATH` | empty, silent |
+| `plugly-reflect-memory` CLI not on `$PATH` | empty, silent |
 | Vector arm fails and no other arm has hits | empty, silent (`REFLECT_RECALL_DEBUG=1` prints the reason) |
 | Recall subprocess exceeds its timeout | empty |
 | Any uncaught hook exception | empty context, exit 0, breadcrumb in `~/.reflect/last-event.json` |
@@ -312,7 +312,7 @@ On UserPromptSubmit the hook also dedupes: ids found in the output (`[lrn-...]`)
 
 Hooks never block the session: they always exit 0 with valid JSON.
 
-An empty final result from a real prompt (UserPromptSubmit or `/reflect:recall`) is appended to `~/.reflect/knowledge-gaps.jsonl` as a knowledge gap (`RECALL_GAP_LOG=0` disables). SessionStart and SubagentStart suppress this because their queries are synthetic. Infrastructure errors are not logged as gaps.
+An empty final result from a real prompt (UserPromptSubmit or `/plugly-reflect-memory:recall`) is appended to `~/.reflect/knowledge-gaps.jsonl` as a knowledge gap (`RECALL_GAP_LOG=0` disables). SessionStart and SubagentStart suppress this because their queries are synthetic. Infrastructure errors are not logged as gaps.
 
 ## SessionStart is tiered
 
@@ -336,7 +336,7 @@ Tier 2  recall.py --limit 3 (the full pipeline above)
 Two details worth knowing, both from `session_start_recall.py`:
 
 - The probe (R11) is not behind a flag. It always runs first. Its "score" is derived from the note's confidence tier (HIGH 1.0, MEDIUM 0.7, LOW 0.4), and `--confidence HIGH` already limits it to HIGH notes, so in practice a HIGH-confidence top hit whose `<!-- archived -->` header is at most 30 days old short-circuits the boot. A note with no such header has unknown age and never qualifies. The probe warms the cache, so the Tier 2 call that follows reuses the fetch.
-- The skills tier and slots are opt-in env flags (`REFLECT_TIERED_INJECT`, `REFLECT_SLOTS`), both off by default. See [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/#tiered-inject-r10-and-short-circuit-r11).
+- The skills tier and slots are opt-in env flags (`REFLECT_TIERED_INJECT`, `REFLECT_SLOTS`), both off by default. See [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/#tiered-inject-r10-and-short-circuit-r11).
 
 ## Where recall spends time
 
@@ -355,7 +355,7 @@ Related state, all under `~/.reflect/` unless `REFLECT_STATE_DIR` is set: `recal
 
 ## Next
 
-- [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/): every optional feature with default, key and cost.
-- [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/): what the arms read.
-- [Configuration reference](/ainb-reflect-memory/reference/configuration/): the TOML and env surface.
-- [Troubleshooting](/ainb-reflect-memory/guides/troubleshooting/): empty recall, slow recall.
+- [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/): every optional feature with default, key and cost.
+- [Index and storage](/plugly-reflect-memory/concepts/index-and-storage/): what the arms read.
+- [Configuration reference](/plugly-reflect-memory/reference/configuration/): the TOML and env surface.
+- [Troubleshooting](/plugly-reflect-memory/guides/troubleshooting/): empty recall, slow recall.

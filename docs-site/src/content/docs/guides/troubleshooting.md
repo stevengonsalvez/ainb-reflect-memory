@@ -1,18 +1,18 @@
 ---
 title: Troubleshooting
-description: Failure modes of the reflect hooks, drain, recall and memory browser, each with symptom, cause, fix and how to diagnose it.
+description: Failure modes of the plugly-reflect-memory hooks, drain, recall and memory browser, each with symptom, cause, fix and how to diagnose it.
 sidebar:
   order: 2
 ---
 
-reflect is built to fail quietly: hooks never block your session, and the background drain always exits 0. That keeps the agent usable, but it means problems show up as missing learnings, not as error dialogs. This page lists real failure modes found in the code and the [changelog](/ainb-reflect-memory/changelog/), with how to confirm each one.
+plugly-reflect-memory is built to fail quietly: hooks never block your session, and the background drain always exits 0. That keeps the agent usable, but it means problems show up as missing learnings, not as error dialogs. This page lists real failure modes found in the code and the [changelog](/plugly-reflect-memory/changelog/), with how to confirm each one.
 
 ## Where to look first
 
 ```text
 ┌──────────────┐   ┌────────────────────┐   ┌──────────────────────────┐
 │ hook / drain │──▶│ ~/.reflect/        │──▶│ statusline badge or      │
-│ fails        │   │  errors.json       │   │ `reflect timeline`       │
+│ fails        │   │  errors.json       │   │ `plugly-reflect-memory timeline`       │
 │ (exit 0)     │   │  last-event.json   │   │ ERR row                  │
 │              │   │  drain.log         │   └──────────────────────────┘
 └──────────────┘   │  logs/<hook>.log   │
@@ -38,24 +38,24 @@ State lives in `$REFLECT_STATE_DIR` (default `~/.reflect`). The knowledge base l
 Quick triage:
 
 ```bash
-reflect errors count                                  # unacked error count (the badge number)
+plugly-reflect-memory errors count                                  # unacked error count (the badge number)
 jq -r '.errors[] | select(.acked|not) | "\(.ts) \(.kind) \(.message)"' ~/.reflect/errors.json
-reflect timeline --explain ERR                        # last 2 h of unacked errors
+plugly-reflect-memory timeline --explain ERR                        # last 2 h of unacked errors
 tail -n 60 ~/.reflect/drain.log                       # what the drain just did
 cat ~/.reflect/last-event.json                        # last hook failure, if any
 ```
 
-Each error record has `id`, `ts`, `severity` (`error`, `warn`, `info`), `source`, `kind`, `message`, `context`, `count` and `acked`. After fixing the cause, clear the badge with `reflect errors ack` (or `/reflect:errors-ack`, which triages first).
+Each error record has `id`, `ts`, `severity` (`error`, `warn`, `info`), `source`, `kind`, `message`, `context`, `count` and `acked`. After fixing the cause, clear the badge with `plugly-reflect-memory errors ack` (or `/plugly-reflect-memory:errors-ack`, which triages first).
 
 :::note
-`reflect errors` has three subcommands: `count`, `ack [ids...]` and `append`. To list entries, read `errors.json` as shown above.
+`plugly-reflect-memory errors` has three subcommands: `count`, `ack [ids...]` and `append`. To list entries, read `errors.json` as shown above.
 :::
 
 ## Hooks are silent by design
 
 **Symptom.** Recall injects nothing, or learnings stop appearing, and no error is shown anywhere in the session.
 
-**Cause.** Every reflect hook must exit 0 on any uncaught exception, so a broken hook never blocks Claude Code, Codex or Copilot. On failure the hook writes a breadcrumb to `last-event.json` and a line to `logs/<hook>.log`, then emits empty output. Credentials in exception text are masked before being written.
+**Cause.** Every plugly-reflect-memory hook must exit 0 on any uncaught exception, so a broken hook never blocks Claude Code, Codex or Copilot. On failure the hook writes a breadcrumb to `last-event.json` and a line to `logs/<hook>.log`, then emits empty output. Credentials in exception text are masked before being written.
 
 **Diagnose.**
 
@@ -78,14 +78,14 @@ The harness status line reads `last-event.json` to render a recall-failed or ref
 
 ## Hooks not registering, or Skills (0)
 
-**Symptom.** Nothing fires at all, or `Unknown command: /reflect` appears in drain logs, or slash commands such as `/reflect:errors-ack` are not found.
+**Symptom.** Nothing fires at all, or `Unknown command: /plugly-reflect-memory` appears in drain logs, or slash commands such as `/plugly-reflect-memory:errors-ack` are not found.
 
 **Causes seen in releases.**
 
 | Release | Cause | Effect |
 |---|---|---|
-| 5.2.1 | Root manifest dropped the `skills` array; skills live at `plugin/skills/`, which is not an auto-discovery path | Plugin registered **Skills (0)** while 13 hooks kept loading. Every `claude -p "/reflect ..."` came back `Unknown command`, exit 0, zero turns. |
-| 5.0.3 | Skill `name:` fields carried a redundant `reflect:` prefix | Commands registered as `/reflect:reflect-errors-ack`. |
+| 5.2.1 | Root manifest dropped the `skills` array; skills live at `plugin/skills/`, which is not an auto-discovery path | Plugin registered **Skills (0)** while 13 hooks kept loading. Every `claude -p "/plugly-reflect-memory ..."` came back `Unknown command`, exit 0, zero turns. |
+| 5.0.3 | Skill `name:` fields carried a redundant `plugly-reflect-memory:` prefix | Commands registered as `/plugly-reflect-memory:reflect-errors-ack`. |
 | 5.0.2 | Whole-repo marketplace install resolved `CLAUDE_PLUGIN_ROOT` to the repo root, where no `.claude-plugin/plugin.json` existed | No lifecycle hooks fired. |
 
 **Fix.** Update to the current plugin (5.2.5). On Codex or Copilot, re-run the adapter install from the updated checkout:
@@ -124,14 +124,14 @@ daily cap reached (today=20 >= 20; successes=0 failures=20); exiting
 grep -E "daily cap|WARNING|SIZE QUARANTINE|poison|NO-OP" ~/.reflect/drain.log | tail -n 20
 ```
 
-Then group spend by outcome. Use the `/reflect:cost` skill (for example `/reflect:cost 7d`), or run the reporter directly from a checkout:
+Then group spend by outcome. Use the `/plugly-reflect-memory:cost` skill (for example `/plugly-reflect-memory:cost 7d`), or run the reporter directly from a checkout:
 
 ```bash
 uv run plugin/scripts/reflect_cost.py --since 7d --by outcome
 ```
 
 :::note
-The drain's own warning text suggests `reflect cost --by outcome`. There is no `reflect cost` subcommand in the CLI; use the skill or the script above.
+The drain's own warning text suggests `plugly-reflect-memory cost --by outcome`. There is no `plugly-reflect-memory cost` subcommand in the CLI; use the skill or the script above.
 :::
 
 ### Drain outcomes
@@ -219,11 +219,11 @@ To trial a change without spending tokens, set `REFLECT_DRAIN_DRY_RUN=1`; the dr
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| New learnings are on disk but `reflect search` does not find them | The GraphRAG index is rebuilt by `reflect reindex`; the drain runs it after successful entries, but skips it when `reflect` is not on its `PATH` (`reindex SKIP: 'reflect' CLI not on PATH`) | `reflect reindex`, and put `reflect` (default `~/.local/bin`) on the PATH the hooks see. |
-| `reindex_fail` error | `reflect reindex` exited non-zero | Run `reflect reindex` by hand and read the output. |
-| `graphml_corrupt` error | Entity graph file corrupt and not repairable by truncation | `reflect reindex --force` (clears the cache and rebuilds from scratch). The drain self-heals the common doubled-close-tag corruption before reindexing. |
-| Recall returns empty right after changing `REFLECT_EMBED_MODEL` | Indexing and query-time embedding must share one vector space; the recall hook also pins `HF_HUB_OFFLINE=1`, so an uncached model cannot download | Run `reflect reindex` from a shell with the variable set (only the hooks pin offline mode, so a shell can download the model), then retry. |
-| Archived or re-scored notes still appear in `reflect search` | The `reflect serve` curation actions edit files only; the semantic cache is rebuilt by a full reindex | `reflect reindex`. |
+| New learnings are on disk but `plugly-reflect-memory search` does not find them | The GraphRAG index is rebuilt by `plugly-reflect-memory reindex`; the drain runs it after successful entries, but skips it when `plugly-reflect-memory` is not on its `PATH` (`reindex SKIP: 'plugly-reflect-memory' CLI not on PATH`) | `plugly-reflect-memory reindex`, and put `plugly-reflect-memory` (default `~/.local/bin`) on the PATH the hooks see. |
+| `reindex_fail` error | `plugly-reflect-memory reindex` exited non-zero | Run `plugly-reflect-memory reindex` by hand and read the output. |
+| `graphml_corrupt` error | Entity graph file corrupt and not repairable by truncation | `plugly-reflect-memory reindex --force` (clears the cache and rebuilds from scratch). The drain self-heals the common doubled-close-tag corruption before reindexing. |
+| Recall returns empty right after changing `REFLECT_EMBED_MODEL` | Indexing and query-time embedding must share one vector space; the recall hook also pins `HF_HUB_OFFLINE=1`, so an uncached model cannot download | Run `plugly-reflect-memory reindex` from a shell with the variable set (only the hooks pin offline mode, so a shell can download the model), then retry. |
+| Archived or re-scored notes still appear in `plugly-reflect-memory search` | The `plugly-reflect-memory serve` curation actions edit files only; the semantic cache is rebuilt by a full reindex | `plugly-reflect-memory reindex`. |
 | Recall slow or empty on the first session of the day | Cold model load of 10 to 30 s exceeds the hook timeout | Raise `REFLECT_RECALL_TIMEOUT` (default 30). Since 5.2.0 a persistent daemon keeps models warm. |
 
 Per-project and branch shards fall back to the global KB when a shard has no documents (5.0.2); `RECALL_GLOBAL` still overrides.
@@ -233,36 +233,36 @@ Per-project and branch shards fall back to the global KB when a shard has no doc
 | Missing | What happens | Fix |
 |---|---|---|
 | `uv` | Hooks use `uv run --script`; the recall hook emits nothing | Install `uv` and make sure it is on the hook environment's `PATH`. |
-| `reflect` CLI | Capture still works; drain logs `reindex SKIP` and new learnings are not recallable until a manual reindex. | `uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'` |
+| `plugly-reflect-memory` CLI | Capture still works; drain logs `reindex SKIP` and new learnings are not recallable until a manual reindex. | `uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'` |
 | `claude` CLI | The drain's writer cannot run | Install it, or point `REFLECT_DRAIN_CLAUDE_BIN` at it. |
-| `[graph]` extra (sentence-transformers, nano-graphrag) | Search raises `sentence-transformers not installed` or `nano-graphrag not installed`. `reflect rerank` returns `{"available": false, "error": "sentence-transformers not installed (slim build)"}`. Cross-encoder rerank degrades to the legacy scoring formula. | Install with the `[graph]` extra as above. |
+| `[graph]` extra (sentence-transformers, nano-graphrag) | Search raises `sentence-transformers not installed` or `nano-graphrag not installed`. `plugly-reflect-memory rerank` returns `{"available": false, "error": "sentence-transformers not installed (slim build)"}`. Cross-encoder rerank degrades to the legacy scoring formula. | Install with the `[graph]` extra as above. |
 | Postgres extras | With both `REFLECT_PG_DSN` and `REFLECT_WORKSPACE_ID` set but the `[postgres]` extra missing, the graph engine raises an error naming the extra | Install the `[postgres]` extra, or unset the variables to use the local backend. |
-| Plugin not found (for `reflect timeline`) | `reflect timeline --explain` prints `error: reflect plugin not found.` | `claude plugin install reflect@ainb-reflect-memory` |
+| Plugin not found (for `plugly-reflect-memory timeline`) | `plugly-reflect-memory timeline --explain` prints `error: plugly-reflect-memory plugin not found.` | `claude plugin install plugly-reflect-memory@plugly-reflect-memory` |
 
-**Disk space.** The `[graph]` extra pulls torch. The default CUDA build is about 5 GB of `nvidia-*` wheels and fails on small disks with `No space left on device`. reflect embeds on CPU, so install with `--torch-backend cpu` (about 1.5 GB), as in the command above.
+**Disk space.** The `[graph]` extra pulls torch. The default CUDA build is about 5 GB of `nvidia-*` wheels and fails on small disks with `No space left on device`. plugly-reflect-memory embeds on CPU, so install with `--torch-backend cpu` (about 1.5 GB), as in the command above.
 
-**Memory.** Before 5.2.0, every `reflect search`, `embed` or `rerank` cold-booted torch and both models (about 3.5 GB RSS, 10 to 30 s), and parallel session-start recalls could OOM an 8 GB machine. Models now load once into an auto-spawned unix-socket daemon. To bypass it, set `REFLECT_NO_DAEMON=1`. `REFLECT_IDLE_TIMEOUT` (default 1800 s, 0 = never) and `REFLECT_DAEMON_TIMEOUT` (default 120 s) tune it.
+**Memory.** Before 5.2.0, every `plugly-reflect-memory search`, `embed` or `rerank` cold-booted torch and both models (about 3.5 GB RSS, 10 to 30 s), and parallel session-start recalls could OOM an 8 GB machine. Models now load once into an auto-spawned unix-socket daemon. To bypass it, set `REFLECT_NO_DAEMON=1`. `REFLECT_IDLE_TIMEOUT` (default 1800 s, 0 = never) and `REFLECT_DAEMON_TIMEOUT` (default 120 s) tune it.
 
 ## Slash commands do nothing under Codex
 
 Skills anchor their files on `${CLAUDE_PLUGIN_ROOT}`, which Codex does not set. The Codex adapter rewrites those anchors when it copies each `SKILL.md`. Re-run `python3 plugin/adapters/codex/codex_adapter.py install` after updating. Known limitation (5.2.2): non-SKILL resource files that cite the anchor keep it literal, and the Copilot and Hermes adapters do not rewrite yet.
 
-## Memory browser (`reflect serve`)
+## Memory browser (`plugly-reflect-memory serve`)
 
 | Symptom | Cause | Fix |
 |---|---|---|
 | HTTP 403 `forbidden: non-loopback Host` | The server only answers requests whose `Host` is `127.0.0.1`, `localhost` or `[::1]` (DNS-rebinding defence). A reverse proxy that forwards the original `Host` header is rejected. | Browse from the same machine, or tunnel with `ssh -L 8377:127.0.0.1:8377 host` and open `http://localhost:8377`. |
 | HTTP 403 `forbidden: missing X-Reflect header` | A mutation was sent without the `X-Reflect` header (for example by `curl`) | Use the bundled UI, or send the header. |
-| `Address already in use` | Port 8377 is taken | `reflect serve --port N`. |
-| Empty list | Wrong KB | Check the path printed at startup (`reflect serve --repo PATH`, or `GLOBAL_LEARNINGS_PATH`). |
+| `Address already in use` | Port 8377 is taken | `plugly-reflect-memory serve --port N`. |
+| Empty list | Wrong KB | Check the path printed at startup (`plugly-reflect-memory serve --repo PATH`, or `GLOBAL_LEARNINGS_PATH`). |
 | `compress needs at least two live memories` | A compress group needs at least two notes that still exist | Select two or more notes. |
 | `archive already contains <file>` | A note with the same filename is already in `archived/` | Restore or rename the existing one. |
 | `compress-queue.yaml is malformed` | The queue file is not valid YAML or not a mapping; the server refuses to overwrite it | Fix or move the file. |
 
-See the [memory browser guide](/ainb-reflect-memory/guides/memory-browser/) for the full behavior.
+See the [memory browser guide](/plugly-reflect-memory/guides/memory-browser/) for the full behavior.
 
 ## Still stuck
 
 1. Run the quick triage block at the top and note the error `kind`.
-2. Re-run the failing step by hand (`reflect reindex`, or a drain with `REFLECT_DRAIN_DRY_RUN=1`).
-3. Open an issue at [github.com/stevengonsalvez/ainb-reflect-memory/issues](https://github.com/stevengonsalvez/ainb-reflect-memory/issues) with the relevant `drain.log` lines and the `errors.json` records (check them for private content first).
+2. Re-run the failing step by hand (`plugly-reflect-memory reindex`, or a drain with `REFLECT_DRAIN_DRY_RUN=1`).
+3. Open an issue at [github.com/stevengonsalvez/plugly-reflect-memory/issues](https://github.com/stevengonsalvez/plugly-reflect-memory/issues) with the relevant `drain.log` lines and the `errors.json` records (check them for private content first).

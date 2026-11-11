@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::note[Draft, tied to unmerged PR #47]
-This note is distilled from `research/2026-09-24_09-44-37_okf-vs-reflect.md` and `explainers/okf-vs-reflect.html` on the `stevengonsalvez/okf` branch (research pinned to `main` at `48968dd`). The profile it led to is [proposed in PR #47](/ainb-reflect-memory/reference/okf-profile/) and is not on `main`. Figures marked "author measurement" come from the author's live KB and cannot be reproduced from the repository.
+This note is distilled from `research/2026-09-24_09-44-37_okf-vs-reflect.md` and `explainers/okf-vs-reflect.html` on the `stevengonsalvez/okf` branch (research pinned to `main` at `48968dd`). The profile it led to is [proposed in PR #47](/plugly-reflect-memory/reference/okf-profile/) and is not on `main`. Figures marked "author measurement" come from the author's live KB and cannot be reproduced from the repository.
 :::
 
 ## Decision
@@ -40,7 +40,7 @@ OKF's unit is the concept: one `.md` file, id equal to its path, a bundle being 
 |---|---|---|---|
 | Unit | concept `.md` + YAML | learning `.md` + YAML | tie |
 | Required keys | `type` only | `reflect add`: `title`, `category`, `key_insight` | OKF is looser |
-| Identity | file path | `id` field, but several id schemes ([see KB format](/ainb-reflect-memory/reference/kb-format/#ids-and-file-names)) | OKF is simpler |
+| Identity | file path | `id` field, but several id schemes ([see KB format](/plugly-reflect-memory/reference/kb-format/#ids-and-file-names)) | OKF is simpler |
 | Relations | untyped markdown links | 14 typed relationship kinds in the sidecar, with `tcommit`, `tvalid`, `tvalid_end` clocks | reflect |
 | Supersession | `status: deprecated` plus prose | DB `is_latest` and `superseded_by_learning_id`; frontmatter `superseded_by` and `status` are honoured by recall (`filter_superseded()`), ledger links are weak | reflect |
 | Trust | `generated` and `verified` actors, derived tiers | `confidence_num`, `proof_count`, `authority`, `quarantine` | OKF has clearer semantics |
@@ -67,7 +67,7 @@ These are hypotheses until the benchmark runs. Each states what would falsify it
 | Evidence | golden set (20 queries): recall at 5 of 1.0, MRR 0.9375, p50 12.773 s (`tests/eval/results/baseline.json`) | none published |
 | Falsified if | | an index-browsing agent reaches recall at 5 of 0.95 or more using 1.5k tokens or less per query |
 
-The token estimate assumes a flat root index would cost about 25 tokens per entry (about 195k for roughly 7.8k notes, so navigation must be hierarchical), then a three-level walk of three indexes of about 50 entries plus 2 to 3 concept reads. Both numbers are inference. The hook caps are in `user_prompt_submit_recall.py` (`USER_PROMPT_MAX_CHARS = 1500`) and `session_start_recall.py` (3 results, 1500 chars). The LOCOMO pilot (J = 0.80 on 50 questions, run on 4.1.0, see [Benchmarks](/ainb-reflect-memory/evals/benchmarks/)) is a small sample.
+The token estimate assumes a flat root index would cost about 25 tokens per entry (about 195k for roughly 7.8k notes, so navigation must be hierarchical), then a three-level walk of three indexes of about 50 entries plus 2 to 3 concept reads. Both numbers are inference. The hook caps are in `user_prompt_submit_recall.py` (`USER_PROMPT_MAX_CHARS = 1500`) and `session_start_recall.py` (3 results, 1500 chars). The LOCOMO pilot (J = 0.80 on 50 questions, run on 4.1.0, see [Benchmarks](/plugly-reflect-memory/evals/benchmarks/)) is a small sample.
 
 ## How to measure
 

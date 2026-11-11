@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Derive the compact corpus the recall-walkthrough explainer runs on.
 //
-//   input   src/data/api-snapshot.json            (real `reflect serve` payloads over the invented sample KB)
+//   input   src/data/api-snapshot.json            (real `plugly-reflect-memory serve` payloads over the invented sample KB)
 //           data/sample-kb/documents/<id>.md      (optional enrichment: confidence_num, discovery_tokens,
 //                                                  problem/root_cause/fix/rule, which serve does not return)
 //   output  src/data/recall-corpus.json

@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-Capture is what hooks do while you work. Hooks cannot run a model, so they do two cheap things: write a small note when an event is unambiguous, and queue the transcript path for the [drain](/ainb-reflect-memory/concepts/drain/) when it might hold something worth a model call.
+Capture is what hooks do while you work. Hooks cannot run a model, so they do two cheap things: write a small note when an event is unambiguous, and queue the transcript path for the [drain](/plugly-reflect-memory/concepts/drain/) when it might hold something worth a model call.
 
 ```
  event ──▶ hook ──┬─▶ deterministic signal ──▶ note in ~/.learnings/documents/   (direct write)
@@ -67,7 +67,7 @@ Before any line is appended, `reflect_gate.should_enqueue` runs a $0 regex check
 |---|---|
 | Skip | `dup-already-queued`: the path is already in the queue |
 | Skip | `dup-already-processed`: the cost ledger has a terminal outcome for this path |
-| Skip | `reflect-on-reflect`: the transcript is itself a `/reflect` run (machine markers in the opening records) |
+| Skip | `reflect-on-reflect`: the transcript is itself a `/plugly-reflect-memory` run (machine markers in the opening records) |
 | Skip | `no-signal`: no pattern matched anywhere in the first 600,000 characters of dialogue |
 | Enqueue | `has-signal`: any signal, including LOW |
 
@@ -99,7 +99,7 @@ The sweep ships as a launchd template (`plugin/launchd/com.reflect.idle.plist`),
 | Memory slots | At `Stop`, a regex pass over the transcript updates `pending_items` (TODO lines, unfinished todos), `session_patterns` (command and error counts), and `project_context` (files touched) | `REFLECT_SLOTS=1` |
 | Policy rules | `PreToolUse` and `PermissionRequest` read `REFLECT_POLICY_FILE`, `~/.reflect/policy-rules.jsonl`, and `~/.reflect/permission-policy.jsonl`. A matching high-confidence `deny` rule blocks the call. Other matches inject up to three context lines | Create the rules file |
 | Error breadcrumbs | Copilot `errorOccurred` appends to `~/.reflect/errors.jsonl` | Copilot only |
-| `/reflect:ingest` | Sweeps existing memory files from other tools into the KB with an approval table | Manual skill |
+| `/plugly-reflect-memory:ingest` | Sweeps existing memory files from other tools into the KB with an approval table | Manual skill |
 
 ## Privacy
 
@@ -112,14 +112,14 @@ Two filters run before anything is written to a note or handed to a model. Both 
 
 | Path | Written by | Contents |
 |---|---|---|
-| `~/.learnings/documents/lrn-*.md` | Direct-write hooks | Notes. `REFLECT_LEARNINGS_DIR` overrides the directory. They are picked up by the next `reflect reindex` |
+| `~/.learnings/documents/lrn-*.md` | Direct-write hooks | Notes. `REFLECT_LEARNINGS_DIR` overrides the directory. They are picked up by the next `plugly-reflect-memory reindex` |
 | `~/.reflect/pending_reflections.jsonl` | Queue producers | Pending transcripts |
 | `~/.reflect/armed/`, `permission-armed/` | Arming hooks | One JSON file per session |
 | `~/.reflect/test-state/`, `loops/`, `todo-state/` | `PostToolUse` | Per-session state, 6 hour TTL |
 | `~/.reflect/last-event.json`, `~/.reflect/logs/` | All hooks | Last error breadcrumb and forensics log |
 | `$REFLECT_STATE_DIR/commits.jsonl` | Post-commit hook | One line per commit |
 
-Notes written by hooks carry only `id`, `confidence`, `source`, `session_id`, and a capture time in frontmatter. They have no entity sidecar and no `title`, `category`, or `key_insight`, so `reflect add` would reject them. They stay in `documents/` and `reflect reindex` indexes any note that has frontmatter, with heuristic entity extraction. Field-level detail is in [KB format](/ainb-reflect-memory/reference/kb-format/).
+Notes written by hooks carry only `id`, `confidence`, `source`, `session_id`, and a capture time in frontmatter. They have no entity sidecar and no `title`, `category`, or `key_insight`, so `plugly-reflect-memory add` would reject them. They stay in `documents/` and `plugly-reflect-memory reindex` indexes any note that has frontmatter, with heuristic entity extraction. Field-level detail is in [KB format](/plugly-reflect-memory/reference/kb-format/).
 
 ## Turning capture off
 
@@ -130,4 +130,4 @@ Notes written by hooks carry only `id`, `confidence`, `source`, `session_id`, an
 | `REFLECT_IDLE_DISABLED=1` | Idle sweep no-op |
 | Remove or disable the plugin | Removes all hooks |
 
-Events, matchers, and payload fields for each hook are in the [Hooks reference](/ainb-reflect-memory/reference/hooks/).
+Events, matchers, and payload fields for each hook are in the [Hooks reference](/plugly-reflect-memory/reference/hooks/).

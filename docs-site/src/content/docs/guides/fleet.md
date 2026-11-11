@@ -1,17 +1,17 @@
 ---
 title: Fleet and Hermes import
-description: Import fleet-lambda patterns, discoveries and corrections into reflect as quarantined learnings, and wire the Hermes shims for shadow recall and capture.
+description: Import fleet-lambda patterns, discoveries and corrections into plugly-reflect-memory as quarantined learnings, and wire the Hermes shims for shadow recall and capture.
 sidebar:
   order: 30
 ---
 
-`reflect fleet` brings memory from a fleet-lambda (Hermes) deployment into the reflect knowledge base. Imported notes are typed, deduplicated by content, counted, and **quarantined**: they stay out of normal Claude Code and Codex recall until something explicitly lifts the quarantine. A second piece, the Hermes adapter, lets a fleet-lambda hook call reflect for recall and capture without reflect owning the hook wiring.
+`plugly-reflect-memory fleet` brings memory from a fleet-lambda (Hermes) deployment into the plugly-reflect-memory knowledge base. Imported notes are typed, deduplicated by content, counted, and **quarantined**: they stay out of normal Claude Code and Codex recall until something explicitly lifts the quarantine. A second piece, the Hermes adapter, lets a fleet-lambda hook call plugly-reflect-memory for recall and capture without plugly-reflect-memory owning the hook wiring.
 
 ```
-fleet-lambda artifacts                reflect
+fleet-lambda artifacts                plugly-reflect-memory
 ──────────────────────                ───────
 patterns.jsonl          ┐
-discoveries(-archive)   ├─ reflect fleet ingest ─▶ ~/.learnings/documents/*.md
+discoveries(-archive)   ├─ plugly-reflect-memory fleet ingest ─▶ ~/.learnings/documents/*.md
 corrections.md / jsonl  ┘        │                    (quarantine: true)
                                  ├─▶ ~/.reflect/fleet-ledger.json (counts)
                                  └─▶ one reindex
@@ -20,13 +20,13 @@ Hermes hook ─▶ pre_llm_recall.py ─▶ recall.py --format fleet-context
 Hermes hook ─▶ post_llm_capture.py ─▶ ~/.reflect/pending_reflections.jsonl
 ```
 
-## Import: `reflect fleet ingest`
+## Import: `plugly-reflect-memory fleet ingest`
 
 ```bash
-reflect fleet ingest --root ~/.clan/learnings --dry-run   # parse and classify, write nothing
-reflect fleet ingest --root ~/.clan/learnings             # import, then one reindex
-reflect fleet ingest --root ./fleet-export --kinds patterns,corrections --no-reindex
-reflect fleet status                                       # ledger stats
+plugly-reflect-memory fleet ingest --root ~/.clan/learnings --dry-run   # parse and classify, write nothing
+plugly-reflect-memory fleet ingest --root ~/.clan/learnings             # import, then one reindex
+plugly-reflect-memory fleet ingest --root ./fleet-export --kinds patterns,corrections --no-reindex
+plugly-reflect-memory fleet status                                       # ledger stats
 ```
 
 | Flag | Meaning |
@@ -52,7 +52,7 @@ Malformed JSON lines and non-object lines are counted as skipped, with the file 
 
 ### What it writes
 
-Each entry becomes a Markdown note in the KB `documents/` directory (default `~/.learnings`, override with `$GLOBAL_LEARNINGS_PATH`), named `<slug>-<hash6>.md`. That is the same content-addressed id `reflect add` uses, so a re-import maps to the same file. An entity sidecar (`<id>.entities.yaml`) is generated best-effort.
+Each entry becomes a Markdown note in the KB `documents/` directory (default `~/.learnings`, override with `$GLOBAL_LEARNINGS_PATH`), named `<slug>-<hash6>.md`. That is the same content-addressed id `plugly-reflect-memory add` uses, so a re-import maps to the same file. An entity sidecar (`<id>.entities.yaml`) is generated best-effort.
 
 Frontmatter on every imported note:
 
@@ -79,10 +79,10 @@ Re-importing the same content does not create a new file. The importer increment
 
 - The ledger maps `content_hash` to `{doc_id, count, first_seen, last_seen}`.
 - Updates are serialised with a file lock and written atomically (temp file plus replace), so parallel ingests cannot lose increments or leave a torn file.
-- When a hash reaches a count of 3, a `fleet_promotion_candidate` metric is written once to `~/.learnings/metrics.jsonl`. reflect never promotes anything itself; that decision belongs to Fleet.
-- `reflect fleet status` prints documents, total occurrences and promotion candidates, plus the ledger path.
+- When a hash reaches a count of 3, a `fleet_promotion_candidate` metric is written once to `~/.learnings/metrics.jsonl`. plugly-reflect-memory never promotes anything itself; that decision belongs to Fleet.
+- `plugly-reflect-memory fleet status` prints documents, total occurrences and promotion candidates, plus the ledger path.
 
-The importer writes all files first and then runs **one** full reindex. Per-document incremental indexing fragments the graph communities, so do not script `reflect add` in a loop for bulk loads.
+The importer writes all files first and then runs **one** full reindex. Per-document incremental indexing fragments the graph communities, so do not script `plugly-reflect-memory add` in a loop for bulk loads.
 
 ## Quarantine and recall
 
@@ -112,7 +112,7 @@ recall.py --format fleet-context --domain-hint personal --limit 5 -- "weekly pla
 
 ## Hermes adapter
 
-Hermes has no plugin runtime of its own, and fleet-lambda owns hook registration, so the adapter only **deploys files**: the reflect skills, `reflect.toml`, and two shim scripts into `~/.hermes/skills/`. It writes no `hooks.json`.
+Hermes has no plugin runtime of its own, and fleet-lambda owns hook registration, so the adapter only **deploys files**: the plugly-reflect-memory skills, `reflect.toml`, and two shim scripts into `~/.hermes/skills/`. It writes no `hooks.json`.
 
 ```bash
 python plugin/adapters/hermes/hermes_adapter.py install --dry-run   # show the plan
@@ -121,7 +121,7 @@ python plugin/adapters/hermes/hermes_adapter.py install --force     # overwrite 
 python plugin/adapters/hermes/hermes_adapter.py uninstall
 ```
 
-Installed `SKILL.md` files carry a `managed_by: reflect-kb/adapters/hermes` marker so uninstall leaves hand-written siblings alone. For the per-harness install steps see [Install on Hermes](/ainb-reflect-memory/install/hermes/).
+Installed `SKILL.md` files carry a `managed_by: reflect-kb/adapters/hermes` marker so uninstall leaves hand-written siblings alone. For the per-harness install steps see [Install on Hermes](/plugly-reflect-memory/install/hermes/).
 
 ### `pre_llm_recall.py`
 
@@ -131,17 +131,17 @@ A fleet-lambda hook pipes `{"prompt", "agent_id", "domain_hint", "session_id"}` 
 |---|---|
 | `bank` | Exit immediately, no output. Fleet's own bank owns recall. |
 | `shadow` (default) | Run recall, log telemetry, print **nothing**. Measurement mode for a rollout. |
-| `reflect` | Run recall and print the `fleet-context/v1` block to stdout. |
+| `plugly-reflect-memory` | Run recall and print the `fleet-context/v1` block to stdout. |
 
-Recall is a subprocess call to the deployed `recall.py` with `--format fleet-context --include-quarantined --limit 5 --no-followup --no-gap-log`, plus `--domain-hint` when given. The wall-clock limit is `REFLECT_FLEET_TIMEOUT` seconds (default 10). Every run in `shadow` or `reflect` mode appends an `op: "fleet_shadow_recall"` event to `~/.learnings/metrics.jsonl` with `hits`, `tokens_est`, `latency_ms`, `agent` and `mode`; `reflect metrics stats` aggregates these into event count, average hits, average and p95 latency, and average tokens.
+Recall is a subprocess call to the deployed `recall.py` with `--format fleet-context --include-quarantined --limit 5 --no-followup --no-gap-log`, plus `--domain-hint` when given. The wall-clock limit is `REFLECT_FLEET_TIMEOUT` seconds (default 10). Every run in `shadow` or `plugly-reflect-memory` mode appends an `op: "fleet_shadow_recall"` event to `~/.learnings/metrics.jsonl` with `hits`, `tokens_est`, `latency_ms`, `agent` and `mode`; `plugly-reflect-memory metrics stats` aggregates these into event count, average hits, average and p95 latency, and average tokens.
 
 ### `post_llm_capture.py`
 
-A hook pipes `{"last_user_msg", "last_assistant_msg", "transcript_tail", "session_id", "agent_id"}` after a turn. The shim appends the turn to `~/.reflect/hermes-transcripts/<session>.jsonl` and enqueues one entry per pending session on `~/.reflect/pending_reflections.jsonl`, the same queue the Claude Code `Stop` hook feeds, so the background [drain](/ainb-reflect-memory/concepts/drain/) processes it later. The entry carries `source: "hermes"` and `agent_id`. If the user message contains a correction word (`no`, `wrong`, `actually`, `stop`, `don't`, `should be`) the entry is tagged `priority: "high"`; classification itself still happens in `/reflect`.
+A hook pipes `{"last_user_msg", "last_assistant_msg", "transcript_tail", "session_id", "agent_id"}` after a turn. The shim appends the turn to `~/.reflect/hermes-transcripts/<session>.jsonl` and enqueues one entry per pending session on `~/.reflect/pending_reflections.jsonl`, the same queue the Claude Code `Stop` hook feeds, so the background [drain](/plugly-reflect-memory/concepts/drain/) processes it later. The entry carries `source: "hermes"` and `agent_id`. If the user message contains a correction word (`no`, `wrong`, `actually`, `stop`, `don't`, `should be`) the entry is tagged `priority: "high"`; classification itself still happens in `/plugly-reflect-memory`.
 
 ### Failure behaviour
 
-Both shims always exit 0. Any exception becomes a silent exit plus a scrubbed breadcrumb at `~/.reflect/last-event.json` (credential-shaped strings are masked), so a reflect fault never blocks or pollutes a Hermes turn.
+Both shims always exit 0. Any exception becomes a silent exit plus a scrubbed breadcrumb at `~/.reflect/last-event.json` (credential-shaped strings are masked), so a plugly-reflect-memory fault never blocks or pollutes a Hermes turn.
 
 ## Limits
 
@@ -150,4 +150,4 @@ Both shims always exit 0. Any exception becomes a silent exit plus a scrubbed br
 - The shims do not rewrite `${CLAUDE_PLUGIN_ROOT}` anchors inside the copied `SKILL.md` files, unlike the Codex adapter.
 - Hook wiring and the `FLEET_MEMORY_BACKEND` switch live in the fleet-lambda repo, not here.
 
-Design background: [Fleet/Hermes adapter plan](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/docs/design/fleet-hermes-adapter.md) and [spec](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/docs/design/fleet-hermes-adapter-spec.md). Related: [CLI reference](/ainb-reflect-memory/reference/cli/), [Configuration](/ainb-reflect-memory/reference/configuration/), [KB format](/ainb-reflect-memory/reference/kb-format/).
+Design background: [Fleet/Hermes adapter plan](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/docs/design/fleet-hermes-adapter.md) and [spec](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/docs/design/fleet-hermes-adapter-spec.md). Related: [CLI reference](/plugly-reflect-memory/reference/cli/), [Configuration](/plugly-reflect-memory/reference/configuration/), [KB format](/plugly-reflect-memory/reference/kb-format/).

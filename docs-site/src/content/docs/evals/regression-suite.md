@@ -27,13 +27,13 @@ reflect has to stay provably stable while its recall features and storage backen
 | Unit tests | `tests/test_*.py`, `tests/postgres/` (no-DB files) | Frontmatter schema, write flow, metrics, model daemon, fleet import, domain boost, recency, issues pipeline, `reflect serve` curation, Postgres SQL builders and models | `[dev]` install only | CI job `test`, Python 3.11 and 3.12 (**gate**) |
 | Fleet guards | `test_fleet_importer.py`, `test_domain_boost.py`, `test_fleet_context_format.py`, `test_recency_norm.py` | Fleet importer and recall ranking inputs stay deterministic | `[dev]` install | CI job `fleet-guards` (**gate**) |
 | Fleet proofs F1 to F3 | `tests/eval/behavioral/proofs/proof_F*.py` | Fleet ingest isolation, domain boost ranking, quarantine enforcement against the real engine | `[graph]` + model | Same job, **non-blocking** (skips or fails on slim) |
-| e2e | `tests/e2e/` (Playwright) | Every [memory browser](/ainb-reflect-memory/guides/memory-browser/) flow against a fixture KB | Node 20, Chromium | CI job `e2e` (**gate**) |
+| e2e | `tests/e2e/` (Playwright) | Every [memory browser](/plugly-reflect-memory/guides/memory-browser/) flow against a fixture KB | Node 20, Chromium | CI job `e2e` (**gate**) |
 | Plugin contract | `scripts/check_plugin_contract.py`, manifest JSON checks | Manifests are valid JSON with name and version; every `${CLAUDE_PLUGIN_ROOT}` path exists (and shell scripts are executable); files external consumers rely on (for example the statusline's `plugin/scripts/reflect_timeline.sh`) are still at their contracted paths | stdlib | CI job `plugin-manifest` (**gate**) |
 | Behavioral proofs | `tests/eval/behavioral/proofs/` | Each ported feature has an observable, deterministic invariant on a real-engine KB | `[graph]`, embedding model, full-stack `reflect` | **Manual** |
 | Golden snapshot diff | `tests/eval/snapshot_diff.py`, `tests/eval/results/baseline.json` | Ranking quality on 20 golden queries has not regressed | `[graph]` + model | CI job `golden-diff`, **`workflow_dispatch` only**, never blocks a PR |
 | Backend parity | `tests/postgres/nanographrag/` | Local and Postgres backends return identical evidence | Live Postgres with pgvector | **Manual** (skips cleanly without a database) |
 | Plugin tests | `plugin/tests/`, `plugin/adapters/tests/` | Drain, hooks, recall scripts, cascade, adapters | `[dev]` install; some tests shell out to `uv` and the recall script, so they are slow on a cold machine | **Not run by any CI workflow** (see [gaps](#known-gaps)) |
-| LOCOMO benchmark | `tests/eval/locomo/` | Answer quality, not regression | Heavy, costs money | Manual, see [benchmarks](/ainb-reflect-memory/evals/benchmarks/) |
+| LOCOMO benchmark | `tests/eval/locomo/` | Answer quality, not regression | Heavy, costs money | Manual, see [benchmarks](/plugly-reflect-memory/evals/benchmarks/) |
 
 At the time of writing, the CI gate command passes locally on a slim install with `278 passed, 18 skipped` (the skips are database-backed and graph-stack tests that need extra dependencies).
 
@@ -116,7 +116,7 @@ There are **60** proof files. 57 are the recall-upgrade ports, plus 3 fleet proo
 | `O` | 3 | Open-domain (observations layer, conventions doc, persona fields) |
 | `F` | 3 | Fleet (ingest isolation, domain boost, quarantine) |
 
-The feature behind each family is described on the [retrieval features](/ainb-reflect-memory/concepts/retrieval-features/) page and the 4.1.0 entry of the [changelog](/ainb-reflect-memory/changelog/).
+The feature behind each family is described on the [retrieval features](/plugly-reflect-memory/concepts/retrieval-features/) page and the 4.1.0 entry of the [changelog](/plugly-reflect-memory/changelog/).
 
 `run_proofs.py` runs each file in its own pytest process (a crash in one cannot poison the rest), takes the verdict from the pytest return code (0 pass, 1 test failure, anything else error), writes `tests/eval/behavioral/results/matrix.json` and prints a markdown table. The `matrix.json` committed in the repo covers only 11 ports, so it is a sample from an earlier run, not a current full result.
 
@@ -161,7 +161,7 @@ Database tests read `DATABASE_URL` or `REFLECT_TEST_DATABASE_URL`, apply the two
 
 ## Known gaps
 
-- **`plugin/tests/` and `plugin/adapters/tests/` are not run by CI.** The CI test job runs `pytest -q tests --ignore=tests/eval`, and no other workflow invokes the plugin test directories. That includes the drain regression tests behind the fixes in [5.2.1 to 5.2.5](/ainb-reflect-memory/changelog/), so run them locally before release.
+- **`plugin/tests/` and `plugin/adapters/tests/` are not run by CI.** The CI test job runs `pytest -q tests --ignore=tests/eval`, and no other workflow invokes the plugin test directories. That includes the drain regression tests behind the fixes in [5.2.1 to 5.2.5](/plugly-reflect-memory/changelog/), so run them locally before release.
 - **Behavioral proofs are not a PR gate.** Only F1 to F3 run in CI, and non-blocking. The other 57 rely on a manual run with the full stack.
 - **The golden diff is manual** (`workflow_dispatch`) because it installs about 2 GB of torch plus a model download.
 - **Ruff and mypy are advisory.** Both run in CI with `continue-on-error` while a style and typing backlog is cleared.

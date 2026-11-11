@@ -92,13 +92,13 @@ for (const id of Object.keys(ep.memory)) {
   check(`GET memories/${id}`, () => near(live.memory(id), ep.memory[id], id));
 }
 check('routing + 404', () => {
-  const r = live.route('GET', '/ainb-reflect-memory/demo/api/memories/does-not-exist', new URLSearchParams(), {}, {});
+  const r = live.route('GET', '/plugly-reflect-memory/demo/api/memories/does-not-exist', new URLSearchParams(), {}, {});
   assert.equal(r.status, 404);
   assert.equal(live.route('GET', '/api/nope', new URLSearchParams(), {}, {}).status, 404);
   assert.equal(live.route('POST', '/api/compress-queue', new URLSearchParams(), { ids: [] }, {}).status, 403);
 });
 check('routing under a base path', () => {
-  const r = live.route('GET', '/ainb-reflect-memory/demo/api/search', new URLSearchParams('q=postgres'), {}, {});
+  const r = live.route('GET', '/plugly-reflect-memory/demo/api/search', new URLSearchParams('q=postgres'), {}, {});
   assert.equal(r.status, 200);
   assert.deepEqual(slim(r.body), expected.queries.postgres);
 });

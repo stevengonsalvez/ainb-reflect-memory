@@ -1,31 +1,31 @@
 ---
 title: Retrieval features
-description: Every optional recall feature in reflect with its default (on or off), config key, cost and latency impact, and what breaks without it.
+description: Every optional recall feature in plugly-reflect-memory with its default (on or off), config key, cost and latency impact, and what breaks without it.
 sidebar:
   order: 6
 ---
 
-Each stage of the [recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/) is a separate feature with its own switch. This page lists them all: default state, the exact key, what it costs, and a short note on what it buys. Defaults were read from `recall.py` and confirmed by importing it with a clean environment.
+Each stage of the [recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/) is a separate feature with its own switch. This page lists them all: default state, the exact key, what it costs, and a short note on what it buys. Defaults were read from `recall.py` and confirmed by importing it with a clean environment.
 
 :::note[Try it first]
-The [Recall walkthrough](/ainb-reflect-memory/interactive/recall-walkthrough/) steps through these stages on a sample query.
+The [Recall walkthrough](/plugly-reflect-memory/interactive/recall-walkthrough/) steps through these stages on a sample query.
 :::
 
 ## How the switches work
 
 - Almost every switch is an **environment variable** read once when `recall.py` starts. Set them in your harness's env block (for Claude Code, the `env` stanza of `settings.json`) and the hooks inherit them.
 - Boolean gates are "on unless the value is `0`": `RECALL_MMR=0` disables, anything else (or unset) enables. Numeric values that fail to parse fall back to the default, so a typo cannot crash the always-on path.
-- CLI flags on `recall.py` (and so on `/reflect:recall`) override the env for one call.
-- The `[recall.*]` keys in [`plugin/reflect.toml`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/reflect.toml) (`cross_encoder`, `boost`) and the `recall.arm.*` defaults in `reflect_config.py` are declarative only. Nothing in the shipped scripts reads them to drive recall: `recall.py` reads the `RECALL_*` env vars directly. Treat the TOML keys as documentation of intent, and set the env vars.
+- CLI flags on `recall.py` (and so on `/plugly-reflect-memory:recall`) override the env for one call.
+- The `[recall.*]` keys in [`plugin/reflect.toml`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/reflect.toml) (`cross_encoder`, `boost`) and the `recall.arm.*` defaults in `reflect_config.py` are declarative only. Nothing in the shipped scripts reads them to drive recall: `recall.py` reads the `RECALL_*` env vars directly. Treat the TOML keys as documentation of intent, and set the env vars.
 
 ## Summary
 
-Cost is relative to a recall that uses none of the optional stages. "Subprocess" means one extra `reflect` or `qmd` process, running in parallel where noted.
+Cost is relative to a recall that uses none of the optional stages. "Subprocess" means one extra `plugly-reflect-memory` or `qmd` process, running in parallel where noted.
 
 | Feature | Default | Key | Cost / latency |
 |---|---|---|---|
 | BM25 arm (QMD) | on if `qmd` installed | none (presence of `qmd`) | one subprocess, 10 s cap, parallel with the others |
-| Graph arm (R1) | on | `RECALL_GRAPH_ARM` | one `reflect search --mode local`, 60 s cap, parallel |
+| Graph arm (R1) | on | `RECALL_GRAPH_ARM` | one `plugly-reflect-memory search --mode local`, 60 s cap, parallel |
 | Temporal arm (R5) | on, only fires on a date phrase | `RECALL_TEMPORAL_ARM` | reads up to 5000 note files when it fires |
 | Date parsing (R6) | on | `RECALL_TEMPORAL` | sub-millisecond regex |
 | Cross-encoder rerank (R2) | on | `RECALL_CROSS_ENCODER`, `RECALL_CE_TIMEOUT` (60) | one subprocess over the top 20, needs the `[graph]` extra |
@@ -52,7 +52,7 @@ Cost is relative to a recall that uses none of the optional stages. "Subprocess"
 | HyDE query expansion | off | `REFLECT_RECALL_HYDE=1`, `REFLECT_DRAIN_MODEL` | one headless `claude -p` call per recall, 60 s cap |
 | Knowledge-gap log (SG6) | on | `RECALL_GAP_LOG`, `--no-gap-log` | one file append on empty results |
 | Follow-up diagnostic (A4) | on | `RECALL_FOLLOWUP`, `RECALL_FOLLOWUP_WINDOW_SECONDS` (30), `--no-followup` | small state file write |
-| Corpus Q&A (M7) | on demand | `recall.py --corpus NAME` / `/reflect:corpus` | no models loaded |
+| Corpus Q&A (M7) | on demand | `recall.py --corpus NAME` / `/plugly-reflect-memory:corpus` | no models loaded |
 | Fleet-context output (F3) | on demand | `--format fleet-context`, `--include-quarantined` | hermes shim only |
 | Bitemporal edge filter (A2) | helper only | `RECALL_BITEMPORAL_EDGES` | not called by `recall()` |
 
@@ -74,7 +74,7 @@ The JSON output (`--format json`) carries the parsed range under `temporal`.
 
 ### Superseded and archived filter
 
-Not an arm: a filter on the fused candidates, applied before ranking and final selection. A note is dropped when its frontmatter has `superseded_by` set or a `status` of `superseded` or `archived`, when its id matches a note in the KB's `archived/` or `documents/.forgotten/` directory, or when the ledger marks the matching row `is_latest = 0` (or status `superseded` or `archived`). A query that matches both an old note and the note that replaced it injects only the replacement. The cache stores the unfiltered fetch, so the filter also runs on a cache hit. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off for debugging. Without a ledger file only the file-level signals apply. See [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/) for how ledger rows are linked to notes and the limits of that link.
+Not an arm: a filter on the fused candidates, applied before ranking and final selection. A note is dropped when its frontmatter has `superseded_by` set or a `status` of `superseded` or `archived`, when its id matches a note in the KB's `archived/` or `documents/.forgotten/` directory, or when the ledger marks the matching row `is_latest = 0` (or status `superseded` or `archived`). A query that matches both an old note and the note that replaced it injects only the replacement. The cache stores the unfiltered fetch, so the filter also runs on a cache hit. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` turns it off for debugging. Without a ledger file only the file-level signals apply. See [Index and storage](/plugly-reflect-memory/concepts/index-and-storage/) for how ledger rows are linked to notes and the limits of that link.
 
 ## Ranking
 
@@ -82,7 +82,7 @@ Not an arm: a filter on the fused candidates, applied before ranking and final s
 
 `RECALL_CROSS_ENCODER=0` disables; `RECALL_CE_TIMEOUT` (default 60 s) bounds the call; `REFLECT_CE_MODEL` swaps the model (default `cross-encoder/ms-marco-MiniLM-L-6-v2`). It rescores the top 20 fused candidates by reading query and note together, then multiplies that score with the boosts. Example: for "flaky test in the auth suite", a keyword-heavy note about "auth token format" drops below "auth integration test is flaky under parallel xdist".
 
-Needs `sentence-transformers` (the `[graph]` extra); a slim install degrades to the boost formula alone. Because hooks pin `HF_HUB_OFFLINE=1`, the model has to be cached already. Run a recall once from a shell (for example `/reflect:recall`) so the download happens outside a hook.
+Needs `sentence-transformers` (the `[graph]` extra); a slim install degrades to the boost formula alone. Because hooks pin `HF_HUB_OFFLINE=1`, the model has to be cached already. Run a recall once from a shell (for example `/plugly-reflect-memory:recall`) so the download happens outside a hook.
 
 ### MMR diversity (R3)
 
@@ -90,7 +90,7 @@ Needs `sentence-transformers` (the `[graph]` extra); a slim install degrades to 
 
 ### Bounded boosts (R8) and affinity boosts
 
-Confidence, recency, tags and proof count (R8, S3, S4), project affinity (R16), domain affinity and authority tier (F3), and the speculative down-rank (SG3) all use one shape, `1 + alpha * (norm - 0.5)`. Each factor can move a score by at most plus or minus alpha/2, so they break ties and never override a decisive relevance gap. The full table of alphas and norms is in [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/#6-scoring). Set any alpha to `0` to remove the factor.
+Confidence, recency, tags and proof count (R8, S3, S4), project affinity (R16), domain affinity and authority tier (F3), and the speculative down-rank (SG3) all use one shape, `1 + alpha * (norm - 0.5)`. Each factor can move a score by at most plus or minus alpha/2, so they break ties and never override a decisive relevance gap. The full table of alphas and norms is in [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/#6-scoring). Set any alpha to `0` to remove the factor.
 
 Two behaviours that are easy to miss:
 
@@ -123,13 +123,13 @@ It samples up to 40 notes, probes each arm with a note's own title and key insig
 
 ### Exact and fuzzy cache (R9)
 
-The exact cache is on with a 1 h TTL (`--no-cache`, `--cache-ttl`). The fuzzy tier (`RECALL_FUZZY_CACHE=0` disables) reuses a cached fetch when the new query's token set is within Jaccard 0.85 of an earlier one (`RECALL_FUZZY_THRESHOLD`). "How do I debounce search input" and "debouncing the search-as-you-type box" share a fetch. Both are invalidated when the KB changes. Details in [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/#2-cache-r9).
+The exact cache is on with a 1 h TTL (`--no-cache`, `--cache-ttl`). The fuzzy tier (`RECALL_FUZZY_CACHE=0` disables) reuses a cached fetch when the new query's token set is within Jaccard 0.85 of an earlier one (`RECALL_FUZZY_THRESHOLD`). "How do I debounce search input" and "debouncing the search-as-you-type box" share a fetch. Both are invalidated when the KB changes. Details in [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/#2-cache-r9).
 
 ### Project and branch shards (R15, A6)
 
 Recall reads `~/.learnings/shards/<project>/branches/<branch>/`, then the project shard, then falls back to the pooled `~/.learnings`. Flags: `--global` / `RECALL_GLOBAL=1` (pooled across projects), `--all-branches` / `RECALL_ALL_BRANCHES=1`, `RECALL_BRANCH` (override branch), `RECALL_LEARNINGS_ROOT` (move the root). `main`, `master` and a detached HEAD map to the project shard.
 
-A search of `src/` and `plugin/` finds nothing that creates shard directories; only the read side exists. Until you populate them, every recall falls back to the pooled KB and this feature has no effect. See the caution in [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/#1-scope-which-kb-gets-read-r15-a6).
+A search of `src/` and `plugin/` finds nothing that creates shard directories; only the read side exists. Until you populate them, every recall falls back to the pooled KB and this feature has no effect. See the caution in [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/#1-scope-which-kb-gets-read-r15-a6).
 
 ## SessionStart tiers
 
@@ -141,7 +141,7 @@ The R11 probe is separate and has no flag. SessionStart always runs one `recall.
 
 ### Memory slots (A1)
 
-`REFLECT_SLOTS=1` injects pinned, agent-editable scratchpad slots (per project, seeded with 8 defaults) ahead of everything else, up to 4000 characters. They are working memory, not retrieval, so they are prepended to whatever the rest produces and never suppress it. Manage them with `/reflect:slots`.
+`REFLECT_SLOTS=1` injects pinned, agent-editable scratchpad slots (per project, seeded with 8 defaults) ahead of everything else, up to 4000 characters. They are working memory, not retrieval, so they are prepended to whatever the rest produces and never suppress it. Manage them with `/plugly-reflect-memory:slots`.
 
 ## Output shape
 
@@ -155,11 +155,11 @@ uv run plugin/skills/recall/scripts/recall_stages.py timeline --anchor <ID> --de
 uv run plugin/skills/recall/scripts/recall_stages.py hydrate <ID> [<ID> ...]
 ```
 
-`index` returns id, title, score, project and date (about 50 to 100 tokens per hit, default limit 20). `timeline` shows chronological neighbours of an anchor (default depth 3 each way). `hydrate` returns full bodies plus entity sidecars for the ids you picked, about 500 to 1000 tokens each. There are no `reflect index` or `reflect hydrate` CLI subcommands; the script is the interface.
+`index` returns id, title, score, project and date (about 50 to 100 tokens per hit, default limit 20). `timeline` shows chronological neighbours of an anchor (default depth 3 each way). `hydrate` returns full bodies plus entity sidecars for the ids you picked, about 500 to 1000 tokens each. There are no `plugly-reflect-memory index` or `plugly-reflect-memory hydrate` CLI subcommands; the script is the interface.
 
 ### Token economics (M8)
 
-On by default. Each row gets a glyph from the active mode plus `D:<discovery> -> R:<read> (-pct%)`, the header rolls up totals, and SessionStart appends a `memory:` footer. Discovery cost comes from the note's `discovery_tokens` frontmatter, else its provenance, else a per-type average (bug-fix 3000, anti-pattern 2500, correction 2000, pattern 1500, decision 1200; default 1500). `RECALL_ECONOMICS=0` restores the plain format. See [Token economics](/ainb-reflect-memory/interactive/token-economics/).
+On by default. Each row gets a glyph from the active mode plus `D:<discovery> -> R:<read> (-pct%)`, the header rolls up totals, and SessionStart appends a `memory:` footer. Discovery cost comes from the note's `discovery_tokens` frontmatter, else its provenance, else a per-type average (bug-fix 3000, anti-pattern 2500, correction 2000, pattern 1500, decision 1200; default 1500). `RECALL_ECONOMICS=0` restores the plain format. See [Token economics](/plugly-reflect-memory/interactive/token-economics/).
 
 ### Field projection (S1)
 
@@ -177,11 +177,11 @@ Always on. An aggregate-shaped query answered by a high-confidence `project_pers
 
 ### Knowledge-gap log (SG6) and follow-up diagnostic (A4)
 
-An empty result from a real query is appended to `~/.reflect/knowledge-gaps.jsonl` (`RECALL_GAP_LOG=0` disables). A second, different query within 30 seconds whose results are fully disjoint from the first counts as a follow-up, logged to the engine's `metrics.jsonl` for `/reflect:cost` (`RECALL_FOLLOWUP=0` disables; window `RECALL_FOLLOWUP_WINDOW_SECONDS`). SessionStart and SubagentStart pass `--no-gap-log` and `--no-followup` because their queries are synthetic.
+An empty result from a real query is appended to `~/.reflect/knowledge-gaps.jsonl` (`RECALL_GAP_LOG=0` disables). A second, different query within 30 seconds whose results are fully disjoint from the first counts as a follow-up, logged to the engine's `metrics.jsonl` for `/plugly-reflect-memory:cost` (`RECALL_FOLLOWUP=0` disables; window `RECALL_FOLLOWUP_WINDOW_SECONDS`). SessionStart and SubagentStart pass `--no-gap-log` and `--no-followup` because their queries are synthetic.
 
 ### Corpus Q&A (M7)
 
-`recall.py --corpus NAME --corpus-filter "tag:auth since:2026-01-01"` snapshots every matching learning into `~/.reflect/corpora/NAME.json` and prints a primed context document; `--corpus-rebuild` re-applies the saved filter. It loads no models. The `/reflect:corpus` skill drives it.
+`recall.py --corpus NAME --corpus-filter "tag:auth since:2026-01-01"` snapshots every matching learning into `~/.reflect/corpora/NAME.json` and prints a primed context document; `--corpus-rebuild` re-applies the saved filter. It loads no models. The `/plugly-reflect-memory:corpus` skill drives it.
 
 ### Fleet-context output (F3)
 
@@ -197,4 +197,4 @@ Not a recall feature but it governs latency. `reflect_kb/model_daemon.py` keeps 
 
 ## Behavioural proofs
 
-Each numbered feature has a proof under [`tests/eval/behavioral/proofs/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/tests/eval/behavioral/proofs) (for example `proof_R2_cross_encoder_rerank.py`, `proof_R7_ood_gate.py`). The proofs seed notes and assert the observable outcome with the feature engaged. See [Regression suite](/ainb-reflect-memory/evals/regression-suite/).
+Each numbered feature has a proof under [`tests/eval/behavioral/proofs/`](https://github.com/stevengonsalvez/plugly-reflect-memory/tree/main/tests/eval/behavioral/proofs) (for example `proof_R2_cross_encoder_rerank.py`, `proof_R7_ood_gate.py`). The proofs seed notes and assert the observable outcome with the feature engaged. See [Regression suite](/plugly-reflect-memory/evals/regression-suite/).
