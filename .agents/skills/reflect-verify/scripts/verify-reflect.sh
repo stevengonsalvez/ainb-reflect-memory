@@ -150,8 +150,8 @@ run_live_readonly() {
   say "live: queue_depth=${qdepth}"
   [[ -d "${state}/drain.lock.d" ]] && say "live: drain_lock=present pid=$(cat "${state}/drain.lock.d/pid" 2>/dev/null || echo '?')" || say "live: drain_lock=absent"
   [[ -f "$drain_log" ]] && say "live: latest_drain=$(tail -1 "$drain_log" 2>/dev/null)" || say "live: drain_log=missing"
-  if command -v reflect >/dev/null 2>&1; then
-    say "live: unacked_errors=$(reflect errors count 2>/dev/null || echo '?')"
+  if command -v plugly-reflect-memory >/dev/null 2>&1; then
+    say "live: unacked_errors=$(plugly-reflect-memory errors count 2>/dev/null || echo '?')"
   elif [[ -f "$errors" ]]; then
     say "live: errors_json=${errors}"
   fi

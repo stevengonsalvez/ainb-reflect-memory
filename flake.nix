@@ -1,5 +1,5 @@
 {
-  description = "reflect-kb — universal cross-harness retrieval + learning KB for AI coding agents";
+  description = "plugly-reflect-memory , universal cross-harness retrieval + learning KB for AI coding agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -38,7 +38,7 @@
         # at runtime (pure networkx) to satisfy nano-graphrag's imports, so
         # we strip those declared deps here. `pythonRemoveDeps` rewrites the
         # dist-info install_requires so pip's runtime dep check passes inside
-        # the reflect-kb buildPythonApplication below.
+        # the plugly-reflect-memory buildPythonApplication below.
         nano-graphrag = pyPkgs.buildPythonPackage rec {
           pname = "nano-graphrag";
           version = "0.0.8.2";
@@ -56,9 +56,9 @@
             "llvmlite"
             "future"
           ];
-          # The surviving set is the subset reflect-kb actually imports — see
+          # The surviving set is the subset plugly-reflect-memory actually imports , see
           # global-learnings/cli/requirements.txt (authoritative) and the
-          # reflect-kb pyproject.toml `dependencies` block.
+          # plugly-reflect-memory pyproject.toml `dependencies` block.
           dependencies = with pyPkgs; [
             openai
             tenacity
@@ -72,14 +72,14 @@
             nano-vectordb
           ];
           doCheck = false;
-          # Skip import check — nano-graphrag imports graspologic at top
+          # Skip import check , nano-graphrag imports graspologic at top
           # level and only our runtime shim can satisfy that. The real
           # import happens via reflect_kb.cli.graspologic_shim before
           # any nano_graphrag code loads.
           pythonImportsCheck = [ ];
         };
 
-        # ── Python environment with every reflect-kb runtime dep ───────────
+        # ── Python environment with every plugly-reflect-memory runtime dep ───────────
         # Built once, shared by the app and the dev shell. All deps listed
         # explicitly so the dep graph is auditable.
         pythonEnv = python.withPackages (ps: with ps; [
@@ -106,12 +106,12 @@
           nano-graphrag
         ]);
 
-        # ── reflect-kb application ─────────────────────────────────────────
-        # Base CLI deps + the full `[graph]` extra so `nix run .#reflect-kb`
+        # ── plugly-reflect-memory application ─────────────────────────────────────────
+        # Base CLI deps + the full `[graph]` extra so `nix run .#plugly-reflect-memory`
         # gets a working `reflect search` out of the box. pipx users on
         # macOS/Linux skip the heavy chain (see pyproject.toml comment).
-        reflect-kb = pyPkgs.buildPythonApplication {
-          pname = "reflect-kb";
+        plugly-reflect-memory = pyPkgs.buildPythonApplication {
+          pname = "plugly-reflect-memory";
           version = "0.1.0";
           pyproject = true;
           src = ./.;
@@ -138,20 +138,21 @@
           pythonImportsCheck = [ "reflect_kb" ];
           meta = with lib; {
             description = "Universal cross-harness retrieval + learning KB for AI coding agents";
-            homepage = "https://github.com/stevengonsalvez/reflect-kb";
+            homepage = "https://github.com/stevengonsalvez/plugly-reflect-memory";
             license = licenses.mit;
-            mainProgram = "reflect";
+            mainProgram = "plugly-reflect-memory";
           };
         };
       in {
         packages = {
-          default = reflect-kb;
-          reflect-kb = reflect-kb;
+          default = plugly-reflect-memory;
+          plugly-reflect-memory = plugly-reflect-memory;
+          reflect-kb = plugly-reflect-memory; # Legacy flake output alias.
         };
 
         apps.default = {
           type = "app";
-          program = "${reflect-kb}/bin/reflect";
+          program = "${plugly-reflect-memory}/bin/plugly-reflect-memory";
         };
 
         devShells.default = pkgs.mkShell {
@@ -164,8 +165,8 @@
           ];
 
           shellHook = ''
-            echo "reflect-kb dev shell (python=${python.version})"
-            echo "nano-graphrag override active — graspologic/hyppo/numba/llvmlite stripped."
+            echo "plugly-reflect-memory dev shell (python=${python.version})"
+            echo "nano-graphrag override active , graspologic/hyppo/numba/llvmlite stripped."
             echo "For editable install over the nix env:  pip install -e . --no-deps --prefix $PWD/.venv-editable"
             echo "Spec: plans/reflect-v4-universal-install-spec.md"
           '';

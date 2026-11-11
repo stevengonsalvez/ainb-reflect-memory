@@ -1,11 +1,11 @@
 ---
 name: reflect-verify
-description: Verify Reflect end-to-end health, especially drain, ingest/consolidate maintenance, launchd timers, statusline error surfacing, and real Claude/Codex harness smoke checks. Use when Reflect seems stuck, drain is not clearing pending reflections, ingest has gone quiet, statusline ERR needs proof, or a change needs tmux-backed validation.
+description: Verify Plugly Reflect Memory end-to-end health, especially drain, ingest/consolidate maintenance, launchd timers, statusline error surfacing, and real Claude/Codex harness smoke checks. Use when Plugly Reflect Memory seems stuck, drain is not clearing pending reflections, ingest has gone quiet, statusline ERR needs proof, or a change needs tmux-backed validation.
 ---
 
-# Reflect Verify
+# Plugly Reflect Memory Verify
 
-Run Reflect validation in layers: static checks, isolated queue/drain smoke,
+Run Plugly Reflect Memory validation in layers: static checks, isolated queue/drain smoke,
 live read-only health, then optional real Claude tmux smoke. Do not run full
 ingest or consolidate as part of verification unless the user explicitly asks;
 the watchdog only surfaces due/malfunction states.
@@ -28,7 +28,7 @@ the watchdog only surfaces due/malfunction states.
    ```
    This uses a temp `REFLECT_STATE_DIR` and a stub Claude binary. It must prove
    timeout/no-output entries are quarantined and removed from the queue without
-   touching live Reflect state.
+   touching live Plugly Reflect Memory state.
 
 4. Run live read-only health.
    ```bash
@@ -60,7 +60,7 @@ the watchdog only surfaces due/malfunction states.
 
 - Static checks pass.
 - Isolated drain smoke proves bad entries cannot head-of-line block the queue.
-- Live read-only check explains current Reflect state with exact queue depth,
+- Live read-only check explains current Plugly Reflect Memory state with exact queue depth,
   launchd labels, and latest drain/error timestamps.
 - If real Claude smoke is run, a tmux log proves `claude -p` produced a result
   or captures the exact failure mode.
@@ -68,7 +68,7 @@ the watchdog only surfaces due/malfunction states.
 
 ## Safety Rules
 
-- Do not run full `/reflect:ingest` or `/reflect:consolidate` inside automated
+- Do not run full `/plugly-reflect-memory:ingest` or `/plugly-reflect-memory:consolidate` inside automated
   smoke checks.
 - Do not delete queue files. Use isolated temp state for destructive proofs.
 - Do not use `tmux kill-server`, `pkill tmux`, wildcard tmux kills, or process

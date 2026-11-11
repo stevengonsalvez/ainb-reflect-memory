@@ -68,7 +68,7 @@ LEAKY_ENV_VARS = (
     "XDG_DATA_HOME",
     "XDG_STATE_HOME",
 )
-RUNTIME_MARK = "reflect/.apm/hooks/rt/"  # every reflect hook command contains this
+RUNTIME_MARK = "plugly-reflect-memory/.apm/hooks/rt/"  # every reflect hook command contains this
 USER_STOP = "echo user-stop-hook"
 
 
@@ -208,7 +208,7 @@ class Sandbox:
 @pytest.fixture(scope="module")
 def package(tmp_path_factory) -> Path:
     # The leaf dir name becomes the package name APM installs under.
-    return _build(tmp_path_factory.mktemp("apm-build") / "reflect")
+    return _build(tmp_path_factory.mktemp("apm-build") / "plugly-reflect-memory")
 
 
 @pytest.fixture(scope="module")
@@ -224,7 +224,7 @@ def installed(package, tmp_path_factory) -> Sandbox:
 
 
 def test_generator_is_idempotent_and_overwrites(tmp_path):
-    out = tmp_path / "reflect"
+    out = tmp_path / "plugly-reflect-memory"
     _build(out)
     first = _tree_digest(out)
     (out / "stale.txt").write_text("left over from an older build")
@@ -250,11 +250,11 @@ def test_generator_refuses_to_wipe_an_unrelated_directory(tmp_path):
 
 
 def test_generator_wipes_only_what_it_marked(tmp_path):
-    out = tmp_path / "reflect"
+    out = tmp_path / "plugly-reflect-memory"
     _build(out)
-    assert (out / ".reflect-apm-build").is_file()
+    assert (out / ".plugly-reflect-memory-apm-build").is_file()
     (out / "stale.txt").write_text("x")
-    (out / ".reflect-apm-build").unlink()  # no marker: no longer provably ours
+    (out / ".plugly-reflect-memory-apm-build").unlink()  # no marker: no longer provably ours
     res = subprocess.run(
         [sys.executable, str(GENERATOR), "--out", str(out)],
         capture_output=True,
@@ -304,7 +304,7 @@ def test_generator_honours_the_plugin_dir_argument(package, tmp_path):
     gen = _load_generator()
     copy = tmp_path / "plugin-copy"
     shutil.copytree(REPO_ROOT / "plugin", copy, ignore=shutil.ignore_patterns("__pycache__"))
-    out = gen.build(tmp_path / "out" / "reflect", plugin_dir=copy)
+    out = gen.build(tmp_path / "out" / "plugly-reflect-memory", plugin_dir=copy)
     assert _tree_digest(out) == _tree_digest(package)
 
 
@@ -383,7 +383,8 @@ def test_install_event_counts_per_target(installed):
 @pytest.mark.skipif(shutil.which("apm") is None, reason=NO_APM)
 def test_install_deploys_skills(installed):
     names = _skill_names()
-    assert len(names) == 10
+    assert "plugly-reflect-memory" in names
+    assert "reflect" in names  # Legacy skill redirect remains installable.
     for root in (".claude/skills", ".agents/skills"):
         got = sorted(p.name for p in (installed.home / root).iterdir())
         assert got == names, f"{root}: {got}"
@@ -404,7 +405,7 @@ def test_installed_hook_commands_point_at_files_that_exist(installed):
             assert p.startswith(str(installed.home)), f"hook path escapes the fake HOME: {p}"
             assert Path(p).is_file(), f"hook points at a missing file: {p}"
     for target in (".claude", ".codex", ".cursor"):
-        rt = installed.home / target / "hooks" / "reflect" / ".apm" / "hooks" / "rt"
+        rt = installed.home / target / "hooks" / "plugly-reflect-memory" / ".apm" / "hooks" / "rt"
         assert (rt / "scripts" / "hook_input.py").is_file(), (
             f"{target}: runtime scripts/ not deployed"
         )
@@ -447,7 +448,7 @@ def test_uninstall_is_clean(package, tmp_path):
         left = [n for n in names if (box.home / root / n).exists()]
         assert left == [], f"{root} still has {left}"
     for target in (".claude", ".codex", ".cursor"):
-        assert not (box.home / target / "hooks" / "reflect").exists()
+        assert not (box.home / target / "hooks" / "plugly-reflect-memory").exists()
     assert not [f for f in (box.home / ".copilot" / "hooks").iterdir() if f.name != "user.json"]
 
 
@@ -472,3 +473,13 @@ def test_sandbox_ignores_config_relocating_env_vars(package, tmp_path, monkeypat
     assert _all_reflect_commands(box.home) == []
     # The install itself did land in the fake HOME (not vacuous).
     assert (box.home / ".apm").is_dir()
+
+
+def test_generator_accepts_legacy_owned_build(tmp_path):
+    out = tmp_path / "legacy-build"
+    out.mkdir()
+    (out / ".reflect-apm-build").write_text("legacy generator marker")
+    (out / "stale.txt").write_text("old artifact")
+    _build(out)
+    assert not (out / "stale.txt").exists()
+    assert (out / ".plugly-reflect-memory-apm-build").exists()
