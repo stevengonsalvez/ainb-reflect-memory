@@ -31,7 +31,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import sqlite3
 import subprocess
@@ -52,6 +51,8 @@ from domain.enums import (
     SourceStatus,
 )
 from reflect_config import get_config, resolve_path
+
+from identity_env import getenv
 
 
 def _quoted_csv(values: tuple[str, ...]) -> str:
@@ -1173,7 +1174,7 @@ def _commits_jsonl_path(conn: sqlite3.Connection) -> Optional[Path]:
     spec pins); otherwise falls back to the directory holding the DB file —
     the same ``~/.reflect/`` default ``events.jsonl`` uses.
     """
-    override = os.environ.get("REFLECT_STATE_DIR")
+    override = getenv("REFLECT_STATE_DIR")
     if override:
         return Path(override)
     return _conn_state_dir(conn)
@@ -3527,7 +3528,7 @@ def followup_window_seconds() -> float:
     a zero/negative window would disable detection silently instead of
     erroring; unparseable values fall back to the default.
     """
-    raw = os.environ.get(FOLLOWUP_WINDOW_ENV)
+    raw = getenv(FOLLOWUP_WINDOW_ENV)
     if raw is None or not str(raw).strip():
         return DEFAULT_FOLLOWUP_WINDOW_SECONDS
     try:

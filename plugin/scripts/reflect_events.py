@@ -46,6 +46,8 @@ import time
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from identity_env import getenv, subprocess_env
+
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -76,7 +78,7 @@ def state_dir() -> Path:
     Per-call resolution mirrors ``silent_fail.state_dir`` so callers and tests
     can repoint the env after import without restarting the process.
     """
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def events_path() -> Path:
@@ -94,7 +96,7 @@ def _env_override_for(event: str) -> Optional[str]:
     hook without writing a reflect.toml.
     """
     key = "REFLECT_EVENTS_ON_" + event.upper().replace(".", "_")
-    val = os.environ.get(key)
+    val = getenv(key)
     return val if val else None
 
 
@@ -131,9 +133,11 @@ def _run_hook(event: str, payload: Mapping[str, Any]) -> None:
         return
     try:
         env = {
-            **os.environ,
+            **subprocess_env(),
             "REFLECT_EVENT": event,
+            "PLUGLY_REFLECT_MEMORY_EVENT": event,
             "REFLECT_EVENT_PAYLOAD": json.dumps(payload, sort_keys=True, default=str),
+            "PLUGLY_REFLECT_MEMORY_EVENT_PAYLOAD": json.dumps(payload, sort_keys=True, default=str),
         }
         subprocess.run(cmd, shell=True, env=env, check=False)
     except Exception:

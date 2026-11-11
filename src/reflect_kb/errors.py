@@ -7,11 +7,13 @@ import argparse, fcntl, hashlib, json, os, sys, tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
+from reflect_kb.identity import getenv
+
 MAX_RECORDS = 200
 DEDUPE_WINDOW_SEC = 86400  # 24h
 
 def _state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))).expanduser()
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))).expanduser()
 
 def _path() -> Path:
     return _state_dir() / "errors.json"

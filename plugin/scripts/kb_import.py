@@ -160,7 +160,7 @@ def _validate_archive(tar: tarfile.TarFile, manifest: dict) -> None:
 
 def _reindex(learnings_home: Path) -> bool:
     """Rebuild GraphRAG/vector index via the reflect CLI. Best-effort."""
-    cli = shutil.which("reflect")
+    cli = shutil.which("plugly-reflect-memory") or shutil.which("reflect")
     if not cli:
         print("reindex skipped: 'reflect' CLI not on PATH", file=sys.stderr)
         return False

@@ -31,12 +31,13 @@ session's file is fresh and survives the sweep).
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from identity_env import getenv
 
 __all__ = [
     "TEST_RUNNERS",
@@ -175,7 +176,7 @@ def parse_test_output(text: str) -> Optional[TestOutcome]:
 # --- Per-session state machine ----------------------------------------------
 
 def _state_dir() -> Path:
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "test-state"
 
 
@@ -256,7 +257,7 @@ def record_outcome(session_id: str, outcome: TestOutcome) -> Optional[dict]:
 def _learnings_dir() -> Path:
     """Where learnings get written. Honors REFLECT_LEARNINGS_DIR override;
     defaults to ~/.learnings/documents/ (same as the recall hooks)."""
-    custom = os.environ.get("REFLECT_LEARNINGS_DIR")
+    custom = getenv("REFLECT_LEARNINGS_DIR")
     if custom:
         return Path(custom).expanduser()
     return Path.home() / ".learnings" / "documents"

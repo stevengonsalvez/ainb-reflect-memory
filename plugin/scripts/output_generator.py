@@ -32,6 +32,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+from identity_env import getenv
+
 # Ensure sibling imports work when run standalone
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -60,7 +62,7 @@ def _build_provenance(
     return {
         "source_tool": source_tool or "reflect",
         "source_path": source_path,
-        "session_id": session_id or os.environ.get("REFLECT_SESSION_ID", ""),
+        "session_id": session_id or getenv("REFLECT_SESSION_ID", ""),
         "content_hash": content_hash,
         "detected_at": datetime.now().isoformat(),
     }

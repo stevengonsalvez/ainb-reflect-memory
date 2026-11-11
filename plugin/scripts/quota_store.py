@@ -76,6 +76,8 @@ import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
+from identity_env import getenv
+
 # Quota windows the SDK reports, in gate-priority order. The four *status*
 # windows (five_hour, seven_day, seven_day_opus, seven_day_sonnet) are what
 # `status` must always print; `overage` is the billing cushion on top.
@@ -148,11 +150,11 @@ class GateDecision:
 def state_dir(override: str = "") -> Path:
     if override:
         return Path(override).expanduser()
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def ttl_sec() -> int:
-    raw = os.environ.get("REFLECT_QUOTA_TTL_SEC", "")
+    raw = getenv("REFLECT_QUOTA_TTL_SEC", "")
     try:
         n = int(raw)
         return n if n > 0 else DEFAULT_TTL_SEC
@@ -163,7 +165,7 @@ def ttl_sec() -> int:
 def thresholds() -> dict:
     """Per-window utilization ceilings, with optional global env override."""
     out = dict(DEFAULT_THRESHOLDS)
-    raw = os.environ.get("REFLECT_QUOTA_UTIL_THRESHOLD", "")
+    raw = getenv("REFLECT_QUOTA_UTIL_THRESHOLD", "")
     if raw:
         try:
             v = float(raw)

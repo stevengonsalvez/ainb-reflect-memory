@@ -42,11 +42,11 @@ global_md = "~/.gemini/GEMINI.md"
 home_dir = "~/.hermes"
 
 [indexers.graphrag]
-# Canonical CLI is `reflect` (from reflect-kb, installed via
-# `uv tool install reflect-kb`). Resolved through $PATH so any install
+# Canonical CLI is `plugly-reflect-memory` (installed via
+# `uv tool install plugly-reflect-memory`). Resolved through $PATH so any install
 # location works; the bare name is intentional. Override here only if you
 # need to pin a specific binary.
-cli_path = "reflect"
+cli_path = "plugly-reflect-memory"
 auto_sidecar = true
 
 [policies]

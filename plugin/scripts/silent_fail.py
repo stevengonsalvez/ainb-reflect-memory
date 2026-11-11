@@ -28,11 +28,12 @@ restarting.
 from __future__ import annotations
 
 import json
-import os
 import re
 import time
 from pathlib import Path
 from typing import Literal
+
+from identity_env import getenv
 
 
 # --- Paths (resolved at call-time, NOT import-time) -----------------------
@@ -44,7 +45,7 @@ def state_dir() -> Path:
     after this module has been imported — previously the path was bound
     at import time and was effectively immutable in-process.
     """
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def last_event_path() -> Path:

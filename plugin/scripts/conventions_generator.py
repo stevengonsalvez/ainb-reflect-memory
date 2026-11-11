@@ -55,6 +55,8 @@ from typing import Any, Optional
 
 import reflect_db
 
+from identity_env import getenv
+
 DOC_FILENAME = "CONVENTIONS.md"
 
 # The observe CLI's default scope bucket (reflect_cascade observes with
@@ -76,7 +78,7 @@ def _now_iso() -> str:
 
 def state_dir() -> Path:
     """Reflect state directory (REFLECT_STATE_DIR override > ~/.reflect)."""
-    raw = os.environ.get("REFLECT_STATE_DIR", "")
+    raw = getenv("REFLECT_STATE_DIR", "")
     return Path(raw).expanduser() if raw else Path.home() / ".reflect"
 
 

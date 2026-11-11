@@ -47,6 +47,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+from identity_env import getenv
+
 # Ensure sibling imports work when run standalone
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
@@ -97,7 +99,7 @@ class ModeError(Exception):
 
 def modes_dir() -> Path:
     """Directory holding ``*.json`` mode files (env REFLECT_MODES_DIR override)."""
-    env = os.environ.get("REFLECT_MODES_DIR", "").strip()
+    env = getenv("REFLECT_MODES_DIR", "").strip()
     if env:
         return Path(env).expanduser()
     return _SCRIPTS_DIR.parent / "references" / "modes"
@@ -232,7 +234,7 @@ def list_modes() -> list[str]:
 
 def resolve_active_mode_id() -> str:
     """Active mode id: env > project .reflect/config.json > TOML cascade > default."""
-    env = os.environ.get("REFLECT_MODE", "").strip()
+    env = getenv("REFLECT_MODE", "").strip()
     if env:
         return env
 
