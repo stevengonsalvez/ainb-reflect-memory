@@ -1,11 +1,11 @@
-# Reflect regression suite — proving "nothing changed"
+# Reflect regression suite, proving "nothing changed"
 
-Two things must stay provably stable as the Postgres backend lands and reflect's
+Two things must stay provably stable as the Postgres backend lands and plugly-reflect-memory's
 4.1.0 "57 ports" evolve:
 
-1. **The backend swap changed nothing** — the shared-Postgres nano-graphrag arm
+1. **The backend swap changed nothing**, the shared-Postgres nano-graphrag arm
    returns the same evidence the local arm always did.
-2. **The 57 ported lookup features still behave** — none drifted.
+2. **The 57 ported lookup features still behave**, none drifted.
 
 This suite covers (1) deterministically and now; (2) is covered by the existing
 57 behavioral proofs plus the manifest below, with a full-stack golden tier for
@@ -32,20 +32,20 @@ absolute ranking stability.
 | 13 | per-project sharding / global scope (R15/R16) | recall | no | plugin `recall.py` |
 
 **Backend-coupled lookups (1, 2, 3, 5, 9)** are the only ones the Postgres swap
-can affect. The rest invoke `reflect search` as a subprocess and are
-backend-agnostic — pinned by `tests/test_recall_backend_independence.py`.
+can affect. The rest invoke `plugly-reflect-memory search` as a subprocess and are
+backend-agnostic, pinned by `tests/test_recall_backend_independence.py`.
 
 ---
 
-## The 57 ports (reflect 4.1.0)
+## The 57 ports (plugly-reflect-memory 4.1.0)
 
 Source of truth: the companion gist (Hindsight · ByteRover · agentmemory ·
-claude-mem · reflect, 57 ports) + GitHub Discussion #227. Each port ships an
-**Acceptance** block — those are the regression cases.
+claude-mem · plugly-reflect-memory, 57 ports) + GitHub Discussion #227. Each port ships an
+**Acceptance** block, those are the regression cases.
 
 | Wave | Ports | Theme |
 |------|-------|-------|
-| 1 | 6 | freebies / wire-an-asset (incl. **R1 graph-arm** — the only backend-coupled port) |
+| 1 | 6 | freebies / wire-an-asset (incl. **R1 graph-arm**, the only backend-coupled port) |
 | 2 | 17 | ML upgrades (R2 rerank, R3 MMR, M1 staged, …) |
 | 3 | 22 | storage structuring (S/A/M/O series) |
 | 4 | 12 | lifecycle / maintenance (C series, M7 corpus, …) |
@@ -63,9 +63,9 @@ backend-agnostic. The change is inert unless `REFLECT_PG_DSN`
 
 ## Suite tiers
 
-### Tier A — backend parity (shipped, deterministic, no model/qmd)
+### Tier A, backend parity (shipped, deterministic, no model/qmd)
 
-`tests/nanographrag/test_backend_parity.py` — seeds an identical corpus into the
+`tests/nanographrag/test_backend_parity.py`, seeds an identical corpus into the
 **local-default** backend and the **Postgres** backend (same pinned embedding +
 canned LLM), runs naive/local/global for fixed queries, and asserts the
 **evidence set is identical** on both. Also asserts the local backend writes
@@ -73,17 +73,17 @@ canned LLM), runs naive/local/global for fixed queries, and asserts the
 
 > Tie-break note: the two ANN engines (NanoVectorDB vs pgvector) may order
 > equal-scoring items differently. Parity is asserted at evidence-set level, not
-> byte level — reflect re-ranks (RRF/MMR/cross-encoder) downstream, so tie order
+> byte level, plugly-reflect-memory re-ranks (RRF/MMR/cross-encoder) downstream, so tie order
 > doesn't reach the user. This is expected, not a regression.
 
-Plus `tests/test_recall_backend_independence.py` (no DB) — proves the 56
+Plus `tests/test_recall_backend_independence.py` (no DB), proves the 56
 recall-layer ports never reference the backend.
 
-### Tier B — full-stack golden (scaffold; CI / full env)
+### Tier B, full-stack golden (scaffold; CI / full env)
 
 Absolute ranking stability for all 13 lookups using the **real** stack
 (all-mpnet-base-v2 model + `qmd` binary + the plugin recall harness). Seeds a
-fixed corpus via the real save path (`reflect add` + `reflect reindex`), runs
+fixed corpus via the real save path (`plugly-reflect-memory add` + `plugly-reflect-memory reindex`), runs
 each lookup, snapshots top-k to a checked-in golden JSON, and fails on drift.
 Encodes each port's Acceptance block as a case.
 
@@ -107,5 +107,5 @@ DATABASE_URL=... PYTHONPATH=src pytest -m integration tests/postgres    # tier A
   release-over-release with the real model.
 
 Together they answer "did porting 57 features + adding the PG backend change
-anything?" — Tier A says the backend didn't; the 57 proofs + Tier B golden say
+anything?", Tier A says the backend didn't; the 57 proofs + Tier B golden say
 the ports didn't.

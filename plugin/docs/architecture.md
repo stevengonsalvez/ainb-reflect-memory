@@ -1,19 +1,19 @@
-# Reflect + Retrieval System — Architecture Reference
+# Reflect + Retrieval System, Architecture Reference
 
 > **Audience**: Engineers joining the project with no prior context on reflect.
 > **Date**: 2026-04-25
-> **Repos**: `ai-coder-rules` (toolkit) · `reflect-kb` (standalone CLI + KB)
+> **Repos**: `ai-coder-rules` (toolkit) · `plugly-reflect-memory` (standalone CLI + KB)
 >
 > **v4.0.0 update (cost rearchitecture)**: the auto-drain is now gated + sliced
-> + capped and runs on **Sonnet** by default — see [`../CHANGELOG.md`](../CHANGELOG.md)
-> for the full diff. §5.4–§5.5 below reflect v4; the rest of this doc predates it
+> + capped and runs on **Sonnet** by default, see [`../CHANGELOG.md`](../CHANGELOG.md)
+> for the full diff. §5.4–§5.5 below plugly-reflect-memory v4; the rest of this doc predates it
 > and stays accurate for everything outside the drain.
 
 ---
 
 ## 1. TL;DR
 
-The reflect + retrieval system is a personal knowledge-management layer that sits on top of every AI coding assistant you use — Claude Code, Codex CLI, and GitHub Copilot. Every time you correct the assistant, discover a root cause, or make a design decision, `/reflect` captures it as a structured learning note with an entity graph sidecar. Those notes are indexed into a hybrid search engine (nano-graphrag vector search fused with BM25 lexical search via `qmd`). From that point forward, every new session automatically surfaces the top-three most relevant prior learnings before the first token is generated, so the assistant already knows what you have already figured out. You stop re-explaining the same things and the assistant stops making the same mistakes.
+The plugly-reflect-memory + retrieval system is a personal knowledge-management layer that sits on top of every AI coding assistant you use, Claude Code, Codex CLI, and GitHub Copilot. Every time you correct the assistant, discover a root cause, or make a design decision, `/plugly-reflect-memory` captures it as a structured learning note with an entity graph sidecar. Those notes are indexed into a hybrid search engine (nano-graphrag vector search fused with BM25 lexical search via `qmd`). From that point forward, every new session automatically surfaces the top-three most relevant prior learnings before the first token is generated, so the assistant already knows what you have already figured out. You stop re-explaining the same things and the assistant stops making the same mistakes.
 
 ---
 
@@ -31,14 +31,14 @@ flowchart TD
         BA["base.py\nAdapterBase"]
         CA["claude_adapter.py\n(uninstall only)"]
         XA["codex_adapter.py\n+ hooks.json hook merge"]
-        PA["copilot_adapter.py\n+ hooks/reflect.json drop-in"]
+        PA["copilot_adapter.py\n+ hooks/plugly-reflect-memory.json drop-in"]
         BA --> CA
         BA --> XA
         BA --> PA
     end
 
     subgraph Skills["SKILL.md Pointers (per harness)"]
-        SR["reflect"]
+        SR["plugly-reflect-memory"]
         SRC["recall"]
         SI["ingest"]
         SC["consolidate"]
@@ -66,7 +66,7 @@ flowchart TD
     end
 
     subgraph CapturePipeline["Capture Pipeline"]
-        RF["/reflect skill\nSignal Detection"]
+        RF["/plugly-reflect-memory skill\nSignal Detection"]
         CR["Confidence Router\nwrite_flow.py"]
         HIGH["HIGH → commit main\n+ push"]
         MED["MED → draft PR\nknowledge/slug branch"]
@@ -130,16 +130,16 @@ flowchart TD
 When you open Claude Code in any project directory, the `SessionStart` hook fires automatically (wired by the plugin runtime from `.claude-plugin/plugin.json`). It runs `session_start_recall.py`, which:
 
 1. Reads `CLAUDE_PROJECT_DIR` (or `cwd`) and calls `git remote get-url origin` to derive a project name.
-2. Reads the current branch and the last five commit subjects, extracting tokens (filtering stopwords) to assemble a focused query such as `"ai-coder-rules reflect retrieval-phase".`
+2. Reads the current branch and the last five commit subjects, extracting tokens (filtering stopwords) to assemble a focused query such as `"ai-coder-rules plugly-reflect-memory retrieval-phase".`
 3. Calls `recall.py` with a 3-result cap, 10-second timeout, and `--confidence ANY`.
 4. Returns the result as a `hookSpecificOutput.additionalContext` JSON object to Claude.
 
-You see something like this at the top of your new session (invisibly injected into context — no UI chrome):
+You see something like this at the top of your new session (invisibly injected into context, no UI chrome):
 
 ```
-## Prior learnings relevant to `ai-coder-rules reflect retrieval`
+## Prior learnings relevant to `ai-coder-rules plugly-reflect-memory retrieval`
 
-- **[lrn-nano-graphrag-multi-insert-79d7b2]** Never call graph.insert() sequentially — batching required.
+- **[lrn-nano-graphrag-multi-insert-79d7b2]** Never call graph.insert() sequentially, batching required.
   How to apply: Use insert_documents_batch() for all multi-doc ingest runs.
 - **[lrn-graspologic-shim-abc123]** graspologic has broken transitive deps; install shim before nano-graphrag import.
 ```
@@ -152,30 +152,30 @@ The recall SKILL.md instructs the assistant to run `recall.py` as a preamble whe
 
 ### Context is about to compact
 
-When Claude Code's context window approaches its limit, the `PreCompact` hook fires. By default (`--remind` mode) it injects a reminder: _"Context compaction triggered. Consider running `/reflect` before compaction."_ If you have previously run `/reflect on` (enabling `auto_reflect: true` in `~/.reflect/reflect-state.yaml`), the hook instead creates a minimal episode placeholder and runs signal detection automatically.
+When Claude Code's context window approaches its limit, the `PreCompact` hook fires. By default (`--remind` mode) it injects a reminder: _"Context compaction triggered. Consider running `/plugly-reflect-memory` before compaction."_ If you have previously run `/plugly-reflect-memory on` (enabling `auto_reflect: true` in `~/.reflect/reflect-state.yaml`), the hook instead creates a minimal episode placeholder and runs signal detection automatically.
 
-### Running `/reflect`
+### Running `/plugly-reflect-memory`
 
-You run `/reflect` after a session where something interesting happened. The skill:
+You run `/plugly-reflect-memory` after a session where something interesting happened. The skill:
 
 1. Scans the conversation for behavioral signals ("never do X", "always Y") and knowledge signals (root causes, fixed bugs, architecture decisions).
 2. Classifies them by confidence: HIGH / MEDIUM / LOW.
 3. Proposes agent file diffs and knowledge notes with entity sidecars.
 4. Shows you a diff and asks for approval (`Y / N / modify / 1,3 / k1,k2`).
-5. On approval: writes `docs/solutions/<category>/<slug>.md` and `.entities.yaml`, validates the sidecar, runs `reflect add --entities --force`, and commits.
+5. On approval: writes `docs/solutions/<category>/<slug>.md` and `.entities.yaml`, validates the sidecar, runs `plugly-reflect-memory add --entities --force`, and commits.
 
-### Running `/reflect:ingest`
+### Running `/plugly-reflect-memory:ingest`
 
-You run `/reflect:ingest` periodically (weekly recommended) to sweep all memory sources across every tool and project into the global KB. It discovers `~/.claude/projects/*/memory/*.md`, `~/.codex/memories/*.md`, `~/.copilot/AGENTS.md`, `~/.gemini/GEMINI.md`, and project-local `docs/solutions/**/*.md` — deduplicates against the ingest log — and presents an approval table before writing. Nothing is indexed without your approval.
+You run `/plugly-reflect-memory:ingest` periodically (weekly recommended) to sweep all memory sources across every tool and project into the global KB. It discovers `~/.claude/projects/*/memory/*.md`, `~/.codex/memories/*.md`, `~/.copilot/AGENTS.md`, `~/.gemini/GEMINI.md`, and project-local `docs/solutions/**/*.md`, deduplicates against the ingest log, and presents an approval table before writing. Nothing is indexed without your approval.
 
-### Running `reflect search` and `reflect stats`
+### Running `plugly-reflect-memory search` and `plugly-reflect-memory stats`
 
 ```bash
 # Semantic search
 learnings search "tokio runtime panic" --mode local
 
 # Stats overview
-reflect metrics stats
+plugly-reflect-memory metrics stats
 ```
 
 Stats output:
@@ -231,17 +231,17 @@ Live filesystem as of the time this document was written:
 │   └── <slug>.yaml                    # pointer record queued for human promotion
 ├── metrics.jsonl                      # append-only JSONL (rotates at 10 MB)
 ├── config.toml                        # optional: [dashboard] endpoint + token
-├── .memory-ingest-log.yaml            # dedup tracking for reflect:ingest
-└── team-config.yaml                   # team KB path (set by `reflect team clone`)
+├── .memory-ingest-log.yaml            # dedup tracking for plugly-reflect-memory:ingest
+└── team-config.yaml                   # team KB path (set by `plugly-reflect-memory team clone`)
 
 ~/.cache/qmd/                          # qmd BM25 index (managed by qmd CLI)
 ├── index.sqlite
 └── (collections: learnings, obsidian, blog, writing)
 
-~/.reflect/                            # reflect state (toolkit side)
+~/.reflect/                            # plugly-reflect-memory state (toolkit side)
 ├── reflect-state.yaml                 # auto_reflect flag, last_reflection ts
 ├── reflect-metrics.yaml               # aggregate counts (sessions, signals, etc.)
-├── reflect.db                         # SQLite: reflect provider discovery cache
+├── reflect.db                         # SQLite: plugly-reflect-memory provider discovery cache
 ├── recall_cache/                      # per-query JSON cache files (1h TTL)
 │   └── <sha1-16>.json
 ├── recall_log.jsonl                   # every recall event (ts, query, mode, count, cached)
@@ -254,7 +254,7 @@ Live filesystem as of the time this document was written:
 │   │   └── session_start_recall.py    # SessionStart hook
 │   └── scripts/
 │       └── recall.py                  # recall engine (hybrid search)
-├── reflect/
+├── plugly-reflect-memory/
 │   ├── SKILL.md                       # pointer → toolkit plugin source
 │   ├── hooks/
 │   │   ├── precompact_reflect.py      # PreCompact hook
@@ -285,14 +285,14 @@ Live filesystem as of the time this document was written:
 
 ~/.codex/skills/                       # Codex skills (full SKILL.md content); hooks wired in ~/.codex/hooks.json
 ├── recall/SKILL.md                    # managed_by: reflect-kb/adapters/codex
-├── reflect/SKILL.md
+├── plugly-reflect-memory/SKILL.md
 ├── ingest/SKILL.md
 ├── consolidate/SKILL.md
 └── status/SKILL.md
 
-~/.copilot/skills/                     # Copilot skills (full SKILL.md content); hooks wired in ~/.copilot/hooks/reflect.json
+~/.copilot/skills/                     # Copilot skills (full SKILL.md content); hooks wired in ~/.copilot/hooks/plugly-reflect-memory.json
 ├── recall/SKILL.md                    # managed_by: reflect-kb/adapters/copilot
-├── reflect/SKILL.md
+├── plugly-reflect-memory/SKILL.md
 ├── ingest/SKILL.md
 ├── consolidate/SKILL.md
 └── status/SKILL.md
@@ -302,19 +302,19 @@ Live filesystem as of the time this document was written:
 
 ## 5. Sequence Diagrams
 
-### 5.1 Capture Flow (`/reflect` → write to KB)
+### 5.1 Capture Flow (`/plugly-reflect-memory` → write to KB)
 
 ```mermaid
 sequenceDiagram
     participant U as User
-    participant A as Agent (/reflect skill)
+    participant A as Agent (/plugly-reflect-memory skill)
     participant SD as signal_detector.py
     participant V as validate_sidecar.py
     participant LC as learnings CLI
     participant WF as write_flow.py
     participant KB as ~/.learnings/
 
-    U->>A: /reflect (or PreCompact fires)
+    U->>A: /plugly-reflect-memory (or PreCompact fires)
     A->>SD: scan conversation transcript
     SD-->>A: signals[] (behavioral + knowledge, with confidence)
     A->>U: propose diffs, notes, sidecars
@@ -324,7 +324,7 @@ sequenceDiagram
     A->>V: validate_sidecar.py --strict <sidecar>
     V-->>A: ok / schema error
     alt validation passes
-        A->>LC: reflect add <doc> --entities <sidecar> --force
+        A->>LC: plugly-reflect-memory add <doc> --entities <sidecar> --force
         LC->>KB: copy to documents/learnings/<id>.md + sidecar
         LC->>KB: nano-graphrag insert (batch)
         LC->>KB: qmd update + embed
@@ -333,11 +333,11 @@ sequenceDiagram
         WF-->>A: RouteResult (route, branch, pr_url, queue_path)
         A->>A: write metrics, episode note, commit
     else validation fails
-        A->>U: error — sidecar schema violation, re-run
+        A->>U: error, sidecar schema violation, re-run
     end
 ```
 
-### 5.2 Recall Flow (explicit `/reflect:recall`)
+### 5.2 Recall Flow (explicit `/plugly-reflect-memory:recall`)
 
 ```mermaid
 sequenceDiagram
@@ -345,12 +345,12 @@ sequenceDiagram
     participant A as Agent
     participant R as recall.py
     participant C as Cache (~/.reflect/recall_cache/)
-    participant GR as reflect CLI (GraphRAG)
+    participant GR as plugly-reflect-memory CLI (GraphRAG)
     participant QM as qmd (BM25)
     participant RRF as RRF fuse
     participant RR as rerank
 
-    U->>A: /reflect:recall "tokio runtime panic"
+    U->>A: /plugly-reflect-memory:recall "tokio runtime panic"
     A->>R: query="tokio runtime panic" --limit 10 --mode naive
     R->>C: read_cache(sha1(query|mode|limit))
     alt cache hit (< 1h, KB not modified)
@@ -359,7 +359,7 @@ sequenceDiagram
         RR-->>R: ranked results
     else cache miss
         par parallel fetch
-            R->>GR: reflect search query --format json --limit 20
+            R->>GR: plugly-reflect-memory search query --format json --limit 20
             GR-->>R: graph_results[]
         and
             R->>QM: qmd search query -c learnings --limit 20
@@ -391,7 +391,7 @@ sequenceDiagram
     SS->>G: git remote get-url origin → project_name
     SS->>G: git branch --show-current → branch (skip if main/master)
     SS->>G: git log -5 --format=%s → commit tokens
-    SS->>SS: build_query() → "ai-coder-rules reflect retrieval"
+    SS->>SS: build_query() → "ai-coder-rules plugly-reflect-memory retrieval"
     SS->>R: recall.py query --limit 3 --confidence ANY --format markdown --max-chars 1500 --tags [...]
     Note over R,KB: recall engine runs (cache read or parallel fetch)
     R-->>SS: markdown (≤1500 chars)
@@ -414,7 +414,7 @@ sequenceDiagram
     PC-->>CC: { additionalContext: reminder } (does not block compaction)
 ```
 
-**Why a queue, not synchronous reflection?** Hooks are shell commands —
+**Why a queue, not synchronous reflection?** Hooks are shell commands ,
 they cannot invoke an LLM. The agent that captured the conversation is
 already exiting (its context is being compacted away). The only honest
 move is to **queue and hand off** to a future agent that *does* have an
@@ -436,25 +436,25 @@ sequenceDiagram
     participant LCK as ~/.reflect/drain.lock
     participant Q as ~/.reflect/pending_reflections.jsonl
     participant CASC as reflect_cascade.py (gate+slice, $0)
-    participant CP as claude -p "/reflect $SLICE" --model sonnet --max-turns 8
+    participant CP as claude -p "/plugly-reflect-memory $SLICE" --model sonnet --max-turns 8
     participant DOC as ~/.learnings/documents/<slug>.md
     participant SC as <slug>.entities.yaml
-    participant IDX as reflect reindex --incremental
+    participant IDX as plugly-reflect-memory reindex --incremental
     participant GR as nano_graphrag_cache + qmd
 
     CC->>H: SessionStart fires
-    H->>DRN: ( nohup ./drain.sh & ) — detach, return in <100ms
+    H->>DRN: ( nohup ./drain.sh & ), detach, return in <100ms
     DRN->>LCK: atomic mkdir lock (skip if held; reclaim if stale) + debounce
     DRN->>Q: read up to REFLECT_DRAIN_MAX entries (default 3)
     loop per entry (cap REFLECT_DRAIN_DAILY_MAX/day, sums $0 skips out)
         alt transcript missing on disk
             DRN-->>Q: archive as "stale", drop from queue
         else transcript present
-            DRN->>CASC: prepare(transcript) — gate + slice (no model)
+            DRN->>CASC: prepare(transcript), gate + slice (no model)
             alt cascade verdict = skip (reflect-on-reflect / no-signal / dup)
-                CASC-->>DRN: {action: skip} — $0, entries=0
+                CASC-->>DRN: {action: skip}, $0, entries=0
                 DRN-->>Q: drop from queue (never spent a token)
-            else cascade verdict = reflect
+            else cascade verdict = plugly-reflect-memory
                 CASC-->>DRN: {action: reflect, slice_path} (~10x smaller input)
                 DRN->>CP: --model sonnet, bypassPermissions, neutral cwd ($HOME)
                 alt exit 0 (success, tokens <= REFLECT_DRAIN_TOKEN_MAX)
@@ -474,7 +474,7 @@ sequenceDiagram
             end
         end
     end
-    DRN->>IDX: graphml_repair.py (self-heal) then reflect reindex --incremental
+    DRN->>IDX: graphml_repair.py (self-heal) then plugly-reflect-memory reindex --incremental
     IDX->>GR: update graphml + vdb_entities + kv_store_full_docs
     DRN-->>LCK: release on EXIT/INT/TERM trap
 ```
@@ -483,15 +483,15 @@ sequenceDiagram
 
 - **Non-blocking**: hook returns in milliseconds; drain runs detached
   (`(nohup ... &) >/dev/null 2>&1`).
-- **Idempotent**: atomic `mkdir` lock with stale-lock reclaim (v4 —
+- **Idempotent**: atomic `mkdir` lock with stale-lock reclaim (v4 ,
   replaced the racy check-then-write PID file that let two concurrent
   spawns each pass the daily cap), plus a debounce
   (`REFLECT_DRAIN_DEBOUNCE_SEC`, default 600) so a burst of session
   starts collapses to one drain.
 - **Gated + sliced (v4)**: before any model spend, `reflect_cascade.py`
-  gates the transcript ($0 regex via `reflect_gate.py` — skips
+  gates the transcript ($0 regex via `reflect_gate.py`, skips
   reflect-on-reflect / no-signal / already-captured) and slices it to the
-  signal-bearing windows (~10x smaller) so `/reflect` runs cheap. Default
+  signal-bearing windows (~10x smaller) so `/plugly-reflect-memory` runs cheap. Default
   on (`REFLECT_DRAIN_CASCADE=1`).
 - **Sonnet by default (v4)**: `REFLECT_DRAIN_MODEL` defaults to `sonnet`;
   Opus is reserved for rare escalation and the weekly synthesis pass.
@@ -512,12 +512,12 @@ sequenceDiagram
   failing.
 - **Self-healing reindex (v4)**: before reindex, `graphml_repair.py`
   validates and repairs the GraphRAG `graphml` (a doubled-close-tag
-  corruption is what the incident agent spent ~200 turns chasing — here
-  it's a cheap batch step). Then runs `reflect reindex --incremental` so
+  corruption is what the incident agent spent ~200 turns chasing, here
+  it's a cheap batch step). Then runs `plugly-reflect-memory reindex --incremental` so
   new docs land in GraphRAG (`graphml` + `vdb_entities`) **and** QMD
   without manual intervention. Recall in the *next* session sees the
   freshly-captured learnings.
-- **Neutral cwd (v4)**: the drain runs `/reflect` in `REFLECT_DRAIN_CWD`
+- **Neutral cwd (v4)**: the drain runs `/plugly-reflect-memory` in `REFLECT_DRAIN_CWD`
   (default `$HOME`), not whatever repo triggered it, so it can't touch a
   random project tree.
 - **Sole queue consumer (v4)**: the SessionStart surfacer
@@ -537,13 +537,13 @@ sequenceDiagram
 | `REFLECT_DRAIN_MAX` | `3` | Max transcripts processed per session-start fire |
 | `REFLECT_DRAIN_DAILY_MAX` | `20` | Hard daily entry cap (sums `entries`; $0 skips excluded) |
 | `REFLECT_DRAIN_MODEL` | `sonnet` | Model alias for `claude -p` (Opus reserved for escalation/synthesis) |
-| `REFLECT_DRAIN_MAX_TURNS` | `16` | Per-`/reflect` LLM turn limit (was 25 pre-v4, 8 in v4) |
+| `REFLECT_DRAIN_MAX_TURNS` | `16` | Per-`/plugly-reflect-memory` LLM turn limit (was 25 pre-v4, 8 in v4) |
 | `REFLECT_DRAIN_TIMEOUT` | `300` | Per-entry `claude -p` wall-clock cap, seconds (was 600 pre-v4, 180 in v4) |
 | `REFLECT_DRAIN_TOKEN_MAX` | `2000000` | Post-hoc poison: archive a run reporting more total tokens than this |
-| `REFLECT_DRAIN_CASCADE` | `1` | Gate + slice the transcript before `/reflect` (set `0` to disable) |
+| `REFLECT_DRAIN_CASCADE` | `1` | Gate + slice the transcript before `/plugly-reflect-memory` (set `0` to disable) |
 | `REFLECT_DRAIN_DEBOUNCE_SEC` | `600` | Min seconds between drain runs (collapse session-start bursts) |
 | `REFLECT_DRAIN_CWD` | `$HOME` | Neutral cwd for the `claude -p` call |
-| `REFLECT_DISABLED` | unset | Set `1` for a hard kill switch — drainer is a no-op |
+| `REFLECT_DISABLED` | unset | Set `1` for a hard kill switch, drainer is a no-op |
 | `REFLECT_DRAIN_SKIP_REINDEX` | unset | Set `1` to skip the post-drain reindex (tests) |
 | `REFLECT_DRAIN_DRY_RUN` | unset | Set `1` to log intent without spending (side-effect-free) |
 
@@ -555,7 +555,7 @@ sequenceDiagram
 | `~/.reflect/drain.lock.d/` | Atomic mkdir lock dir (single drain at a time) |
 | `~/.reflect/drain.last-run` | Debounce marker (epoch of last drain start) |
 | `~/.reflect/drain.log` | Run log, rotates at 10 MB |
-| `~/.reflect/drain-cost.jsonl` | Daily-cap accounting + per-run token/cost envelope (read by `reflect cost`) |
+| `~/.reflect/drain-cost.jsonl` | Daily-cap accounting + per-run token/cost envelope (read by `plugly-reflect-memory cost`) |
 | `~/.reflect/retry-count.jsonl` | Per-transcript retry counters |
 | `~/.reflect/poison-reflections.jsonl` | Transcripts archived as poison (retry/budget exceeded) |
 | `~/.reflect/pending_reflections.jsonl.processed-YYYYMMDD` | Archive of successful drains |
@@ -566,10 +566,10 @@ sequenceDiagram
 
 | Module | Repo | Path | Purpose |
 |--------|------|------|---------|
-| `base.py` | toolkit | `adapters/base.py` | Shared `AdapterBase` — pointer write, sentinel guard, uninstall, argparse CLI skeleton |
+| `base.py` | toolkit | `adapters/base.py` | Shared `AdapterBase`, pointer write, sentinel guard, uninstall, argparse CLI skeleton |
 | `claude_adapter.py` | toolkit | `adapters/claude/` | Claude harness: `install` refused (use `claude plugin install`); `uninstall` removes old adapter-written skills and SessionStart hook |
 | `codex_adapter.py` | toolkit | `adapters/codex/` | Codex harness: full skill deploy + 6-hook merge into `~/.codex/hooks.json` |
-| `copilot_adapter.py` | toolkit | `adapters/copilot/` | Copilot harness: full skill deploy + copilot-native drop-in `~/.copilot/hooks/reflect.json` |
+| `copilot_adapter.py` | toolkit | `adapters/copilot/` | Copilot harness: full skill deploy + copilot-native drop-in `~/.copilot/hooks/plugly-reflect-memory.json` |
 | `session_start_recall.py` | toolkit | `skills/recall/hooks/` | SessionStart hook: builds git-context query, calls recall.py, emits additionalContext JSON |
 | `recall.py` (skills) | toolkit | `skills/recall/scripts/` | Hybrid recall engine: GraphRAG + qmd BM25 fan-out, RRF fuse, rerank, 1h cache |
 | `precompact_reflect.py` | toolkit | `hooks/` | PreCompact hook: reminder or auto-episode mode depending on reflect-state.yaml |
@@ -581,23 +581,23 @@ sequenceDiagram
 | `metrics_updater.py` | toolkit | `scripts/` | Append to `~/.reflect/reflect-metrics.yaml` (aggregate session counts) |
 | `validate_sidecar.py` | toolkit | `scripts/` | JSON Schema validation of `.entities.yaml` sidecars before ingest |
 | `reflect.toml` | toolkit | `reflect.toml` | Plugin-bundled config defaults (layer 1 of the config cascade) |
-| `learnings_cli.py` | reflect-kb | `src/reflect_kb/cli/` | Click CLI entry-point: `search`, `add`, `reindex`, `share`, `stats`, `team`, `metrics` |
-| `graph_engine.py` | reflect-kb | `src/reflect_kb/cli/` | nano-graphrag wrapper: lazy model load, passthrough LLM, `insert_documents_batch()` |
-| `entity_store.py` | reflect-kb | `src/reflect_kb/cli/` | Sidecar parse, GraphRAG tuple format, heuristic auto-extraction |
-| `graspologic_shim.py` | reflect-kb | `src/reflect_kb/cli/` | Pure-networkx graspologic shim (avoids broken `llvmlite` dep chain) |
-| `team.py` | reflect-kb | `src/reflect_kb/cli/` | `reflect team clone/init/push` — provision and sync team KB git repo |
-| `write_flow.py` | reflect-kb | `src/reflect_kb/` | Confidence-gated document router: HIGH→commit, MED→draft PR, LOW→review-queue |
-| `metrics.py` | reflect-kb | `src/reflect_kb/` | Best-effort JSONL metrics writer (auto-rotate at 10 MB) |
-| `metrics_stats.py` | reflect-kb | `src/reflect_kb/` | Linear-scan JSONL aggregator: all-time + 7-day `StatsReport` |
-| `metrics_cli.py` | reflect-kb | `src/reflect_kb/cli/` | `reflect metrics stats` + `reflect metrics dashboard sync` CLI |
-| `dashboard.py` | reflect-kb | `src/reflect_kb/` | Opt-in POST client: builds envelope, retries once on 5xx/transport error |
-| `frontmatter.schema.json` | reflect-kb | `schemas/` | JSON Schema v2020-12 for learning document frontmatter validation |
+| `learnings_cli.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | Click CLI entry-point: `search`, `add`, `reindex`, `share`, `stats`, `team`, `metrics` |
+| `graph_engine.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | nano-graphrag wrapper: lazy model load, passthrough LLM, `insert_documents_batch()` |
+| `entity_store.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | Sidecar parse, GraphRAG tuple format, heuristic auto-extraction |
+| `graspologic_shim.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | Pure-networkx graspologic shim (avoids broken `llvmlite` dep chain) |
+| `team.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | `plugly-reflect-memory team clone/init/push`, provision and sync team KB git repo |
+| `write_flow.py` | plugly-reflect-memory | `src/reflect_kb/` | Confidence-gated document router: HIGH→commit, MED→draft PR, LOW→review-queue |
+| `metrics.py` | plugly-reflect-memory | `src/reflect_kb/` | Best-effort JSONL metrics writer (auto-rotate at 10 MB) |
+| `metrics_stats.py` | plugly-reflect-memory | `src/reflect_kb/` | Linear-scan JSONL aggregator: all-time + 7-day `StatsReport` |
+| `metrics_cli.py` | plugly-reflect-memory | `src/reflect_kb/cli/` | `plugly-reflect-memory metrics stats` + `plugly-reflect-memory metrics dashboard sync` CLI |
+| `dashboard.py` | plugly-reflect-memory | `src/reflect_kb/` | Opt-in POST client: builds envelope, retries once on 5xx/transport error |
+| `frontmatter.schema.json` | plugly-reflect-memory | `schemas/` | JSON Schema v2020-12 for learning document frontmatter validation |
 
 ---
 
 ## 7. Configuration Surface
 
-### `~/.learnings/config.toml` — dashboard (opt-in)
+### `~/.learnings/config.toml`, dashboard (opt-in)
 
 ```toml
 [dashboard]
@@ -607,11 +607,11 @@ token    = "your-bearer-token"
 # client_id = "my-machine"
 ```
 
-Without this section, all dashboard commands exit 0 with "dashboard not configured". The section is entirely opt-in — the rest of the system does not require it.
+Without this section, all dashboard commands exit 0 with "dashboard not configured". The section is entirely opt-in, the rest of the system does not require it.
 
 ### Claude Code hooks (wired by the plugin runtime)
 
-As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.json`; installing the plugin auto-wires the lifecycle hooks (no manual settings.json editing required). The core entries are:
+As a Claude Code plugin, plugly-reflect-memory declares its hooks in `.claude-plugin/plugin.json`; installing the plugin auto-wires the lifecycle hooks (no manual settings.json editing required). The core entries are:
 
 ```json
 {
@@ -654,11 +654,11 @@ As a Claude Code plugin, reflect declares its hooks in `.claude-plugin/plugin.js
 }
 ```
 
-The PreCompact hook IS auto-installed via `plugin.json` and runs `precompact_reflect.py --auto --verbose`, so PreCompact reflection capture is on by default — no manual settings.json edit is needed. The standalone snippet in `hooks/settings-snippet.json` is only a reference for users hand-wiring the hook outside the plugin install path.
+The PreCompact hook IS auto-installed via `plugin.json` and runs `precompact_reflect.py --auto --verbose`, so PreCompact reflection capture is on by default, no manual settings.json edit is needed. The standalone snippet in `hooks/settings-snippet.json` is only a reference for users hand-wiring the hook outside the plugin install path.
 
-### `reflect.toml` — plugin defaults (toolkit-bundled, layer 1)
+### `reflect.toml`, plugin defaults (toolkit-bundled, layer 1)
 
-Located at `plugins/reflect/reflect.toml`. This is the base layer of the four-layer config cascade. Users never need to edit this directly.
+Located at `plugin/reflect.toml`. This is the base layer of the four-layer config cascade. Users never need to edit this directly.
 
 ```toml
 [storage]
@@ -670,7 +670,7 @@ enabled_providers = ["claude", "codex", "copilot", "gemini"]
 staleness_days    = 30
 
 [indexers.graphrag]
-cli_path    = "reflect"   # reflect-kb; resolved via $PATH
+cli_path    = "plugly-reflect-memory"   # reflect-kb; resolved via $PATH
 auto_sidecar = true
 
 [policies]
@@ -683,12 +683,12 @@ max_memory_lines       = 200
 
 | Layer | Location | Typical use |
 |-------|----------|-------------|
-| 1 — plugin defaults | `reflect.toml` (in repo) | Bundled, never user-edited |
-| 2 — user override | `~/.reflect/reflect.toml` | Machine-level preferences |
-| 3 — project override | `.reflect.toml` (cwd) | Repo-specific overrides |
-| 4 — env vars | `REFLECT_DB_PATH`, `REFLECT_PROVIDERS`, `REFLECT_STALENESS_DAYS`, `REFLECT_LOG_LEVEL`, `REFLECT_RETENTION_DAYS`, `REFLECT_AUTO_APPROVE` | CI / per-run injection |
+| 1, plugin defaults | `reflect.toml` (in repo) | Bundled, never user-edited |
+| 2, user override | `~/.reflect/reflect.toml` | Machine-level preferences |
+| 3, project override | `.reflect.toml` (cwd) | Repo-specific overrides |
+| 4, env vars | `REFLECT_DB_PATH`, `REFLECT_PROVIDERS`, `REFLECT_STALENESS_DAYS`, `REFLECT_LOG_LEVEL`, `REFLECT_RETENTION_DAYS`, `REFLECT_AUTO_APPROVE` | CI / per-run injection |
 
-### `schemas/frontmatter.schema.json` — learning document schema
+### `schemas/frontmatter.schema.json`, learning document schema
 
 JSON Schema 2020-12. Required fields: `title`, `created`, `confidence`. All others optional but encouraged.
 
@@ -712,15 +712,15 @@ JSON Schema 2020-12. Required fields: `title`, `created`, `confidence`. All othe
 
 ### Pre-commit hook (team KB repos)
 
-Team KB repos provisioned via `reflect team init/clone` include a `.pre-commit-config.yaml` that runs `validate_sidecar.py --strict` on every staged `.entities.yaml`. This catches malformed sidecars at commit time before they reach the GraphRAG ingest pipeline.
+Team KB repos provisioned via `plugly-reflect-memory team init/clone` include a `.pre-commit-config.yaml` that runs `validate_sidecar.py --strict` on every staged `.entities.yaml`. This catches malformed sidecars at commit time before they reach the GraphRAG ingest pipeline.
 
-### Environment variables — quick reference
+### Environment variables, quick reference
 
 | Variable | Default | Effect |
 |----------|---------|--------|
 | `REFLECT_STATE_DIR` | `~/.reflect` | Relocate state dir (recall cache, metrics) |
 | `REFLECT_DB_PATH` | `~/.reflect/reflect.db` | SQLite DB path |
-| `REFLECT_ARTIFACTS_DIR` | `docs/solutions` | Where `/reflect` writes knowledge notes |
+| `REFLECT_ARTIFACTS_DIR` | `docs/solutions` | Where `/plugly-reflect-memory` writes knowledge notes |
 | `REFLECT_PROVIDERS` | `claude,codex,copilot,gemini` | Active providers for ingest discovery |
 | `REFLECT_STALENESS_DAYS` | `30` | Age threshold for stale source detection |
 | `REFLECT_LOG_LEVEL` | `info` | Telemetry log level |
@@ -740,13 +740,13 @@ defaults and purpose.
 
 ## 8. Multi-Harness Mechanics
 
-All three harnesses — Claude Code, Codex CLI, GitHub Copilot — read from the **same** `~/.learnings/` content directory. The harness-specific adapters only manage _pointer_ `SKILL.md` files that redirect each harness's skill discovery to the canonical plugin source. No knowledge is duplicated; only the discovery layer is per-harness.
+All three harnesses, Claude Code, Codex CLI, GitHub Copilot, read from the **same** `~/.learnings/` content directory. The harness-specific adapters only manage _pointer_ `SKILL.md` files that redirect each harness's skill discovery to the canonical plugin source. No knowledge is duplicated; only the discovery layer is per-harness.
 
 ```
-plugins/reflect/
+plugin/
 └── skills/
     ├── recall/SKILL.md          ← canonical source
-    ├── reflect/SKILL.md
+    ├── plugly-reflect-memory/SKILL.md
     ├── ingest/SKILL.md
     ├── consolidate/SKILL.md
     └── status/SKILL.md
@@ -758,36 +758,36 @@ plugins/reflect/
 
 ### Sentinel-aware collision protection
 
-Every pointer contains a `managed_by:` YAML field unique to its harness (`reflect-kb/adapters/claude`, `/codex`, `/copilot`). Before writing, `_write_pointer()` in `base.py` checks whether an existing file at the destination lacks this sentinel — if so, it refuses to overwrite and returns a "refused to overwrite non-pointer file" message. The user must pass `--force` to replace hand-written siblings. This protects users who happen to have named their own skill `recall` or `reflect`.
+Every pointer contains a `managed_by:` YAML field unique to its harness (`reflect-kb/adapters/claude`, `/codex`, `/copilot`). Before writing, `_write_pointer()` in `base.py` checks whether an existing file at the destination lacks this sentinel, if so, it refuses to overwrite and returns a "refused to overwrite non-pointer file" message. The user must pass `--force` to replace hand-written siblings. This protects users who happen to have named their own skill `recall` or `plugly-reflect-memory`.
 
 ### Hook parity
 
-All three harnesses now have lifecycle hook systems, and each adapter wires reflect into its own:
+All three harnesses now have lifecycle hook systems, and each adapter wires plugly-reflect-memory into its own:
 
-- **Claude Code** — plugin runtime autowires the full manifest from `.claude-plugin/plugin.json`.
-- **Codex CLI** — `codex_adapter.py` deploys full skill content into `~/.codex/skills/` and merges reflect-managed hooks into `~/.codex/hooks.json`: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, and `Stop`.
-- **GitHub Copilot CLI** — `copilot_adapter.py` deploys full skill content into `~/.copilot/skills/` and writes ONE copilot-native drop-in `~/.copilot/hooks/reflect.json` (`version:1`, flat per-event arrays, camelCase events, `timeoutSec`). It wires `sessionStart`, `userPromptSubmitted`, `preToolUse`, `permissionRequest`, `postToolUse`, `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`, `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
+- **Claude Code**, plugin runtime autowires the full manifest from `.claude-plugin/plugin.json`.
+- **Codex CLI**, `codex_adapter.py` deploys full skill content into `~/.codex/skills/` and merges reflect-managed hooks into `~/.codex/hooks.json`: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop`, and `Stop`.
+- **GitHub Copilot CLI**, `copilot_adapter.py` deploys full skill content into `~/.copilot/skills/` and writes ONE copilot-native drop-in `~/.copilot/hooks/plugly-reflect-memory.json` (`version:1`, flat per-event arrays, camelCase events, `timeoutSec`). It wires `sessionStart`, `userPromptSubmitted`, `preToolUse`, `permissionRequest`, `postToolUse`, `postToolUseFailure`, `notification`, `preCompact`, `subagentStart`, `subagentStop`, `agentStop`, `sessionEnd`, and `errorOccurred`.
 
-Divergences worth knowing: Copilot per-prompt auto-recall works on current CLI builds; `userPromptSubmitted` hook `additionalContext` is surfaced into model-visible prompt context (validated on GitHub Copilot CLI 1.0.66). Older builds may still need manual `/recall` as a fallback. Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
+Divergences worth knowing: Copilot per-prompt auto-recall works on current CLI builds; `userPromptSubmitted` hook `additionalContext` is surfaced into model-visible prompt context (validated on GitHub Copilot CLI 1.0.66). Older builds may still need manual `/plugly-reflect-memory:recall` as a fallback. Codex has **no command-driven status line** (only the built-in `/statusline` item picker), so the rich status line ports to Copilot (same `statusLine.command` shape as Claude) but not to Codex.
 
-Reflect keeps `/reflect` execution centralized: lookup hooks inject context only before model/tool action, queue hooks append deduped work only, and `PostCompact` is bookkeeping only. The detached `SessionStart` drain remains the sole hook path that runs `/reflect`.
+Reflect keeps `/plugly-reflect-memory` execution centralized: lookup hooks inject context only before model/tool action, queue hooks append deduped work only, and `PostCompact` is bookkeeping only. The detached `SessionStart` drain remains the sole hook path that runs `/plugly-reflect-memory`.
 
 ### Upgrading pointer content
 
-When the canonical `SKILL.md` in the toolkit plugin changes, no reinstall is needed — the pointer files just contain the path to the source file; the harness reads it at skill-scan time. Only structural changes (new skills added to `PLUGIN_SKILLS`, hook command path changes) require a reinstall via the Codex/Copilot adapter; Claude Code updates via `claude plugin update`.
+When the canonical `SKILL.md` in the toolkit plugin changes, no reinstall is needed, the pointer files just contain the path to the source file; the harness reads it at skill-scan time. Only structural changes (new skills added to `PLUGIN_SKILLS`, hook command path changes) require a reinstall via the Codex/Copilot adapter; Claude Code updates via `claude plugin update`.
 
 ---
 
 ## 9. Confidence Routing Detail
 
-Every learning captured via `/reflect` or `learnings share` is classified by the `confidence` field in its YAML frontmatter. The routing decision is made by `write_flow.classify_confidence()`.
+Every learning captured via `/plugly-reflect-memory` or `learnings share` is classified by the `confidence` field in its YAML frontmatter. The routing decision is made by `write_flow.classify_confidence()`.
 
 | Confidence | Aliases accepted | Route | Git action | PR | Review queue |
 |------------|-----------------|-------|------------|----|----|
-| `high` / `h` / `HIGH` | `high` | `route_high()` | Commit `feat(knowledge): <title> [HIGH]` to `main`, push to `origin HEAD:main` | No PR — direct to main | No |
+| `high` / `h` / `HIGH` | `high` | `route_high()` | Commit `feat(knowledge): <title> [HIGH]` to `main`, push to `origin HEAD:main` | No PR, direct to main | No |
 | `medium` / `med` / `m` / `MED` / `MEDIUM` | `medium` | `route_medium()` | Create / reset `knowledge/<slug>` branch, commit `docs(knowledge): <title> [MED]`, push with `-u` | `gh pr create --draft` (requires `gh` CLI) | No |
-| `low` / `l` / `LOW` | `low` | `route_low()` | No git operation | No | Yes — writes `~/.learnings/review-queue/<slug>.yaml` |
-| (missing) | — | defaults to `medium` | Same as MED | Same as MED | No |
+| `low` / `l` / `LOW` | `low` | `route_low()` | No git operation | No | Yes, writes `~/.learnings/review-queue/<slug>.yaml` |
+| (missing) |, | defaults to `medium` | Same as MED | Same as MED | No |
 
 **Review queue record format** (`~/.learnings/review-queue/<slug>.yaml`):
 
@@ -805,9 +805,9 @@ tags:
 title: React hydration mismatch tricky case
 ```
 
-**Graceful fallback**: If `team_root` is `None` (no team KB configured), HIGH and MED routes fall back silently to the review queue with a note: "no team KB configured (run `reflect team clone <url>`); queued for review". No content is dropped.
+**Graceful fallback**: If `team_root` is `None` (no team KB configured), HIGH and MED routes fall back silently to the review queue with a note: "no team KB configured (run `plugly-reflect-memory team clone <url>`); queued for review". No content is dropped.
 
-**To promote from queue**: Users run `learnings share <source_path>` or manually run `reflect team push` once a team KB is configured.
+**To promote from queue**: Users run `learnings share <source_path>` or manually run `plugly-reflect-memory team push` once a team KB is configured.
 
 ---
 
@@ -815,7 +815,7 @@ title: React hydration mismatch tricky case
 
 ### JSONL metrics line shape
 
-`~/.learnings/metrics.jsonl` — one JSON object per line, appended by `metrics.py:write_metric()`:
+`~/.learnings/metrics.jsonl`, one JSON object per line, appended by `metrics.py:write_metric()`:
 
 ```json
 {
@@ -834,7 +834,7 @@ Other ops: `"search"`, `"share"`, `"add"`. The harness field is auto-detected fr
 
 ### Recall log shape
 
-`~/.reflect/recall_log.jsonl` — logged by `recall.py:log_recall()`:
+`~/.reflect/recall_log.jsonl`, logged by `recall.py:log_recall()`:
 
 ```json
 {
@@ -849,7 +849,7 @@ Other ops: `"search"`, `"share"`, `"add"`. The harness field is auto-detected fr
 ### Stats CLI output
 
 ```bash
-reflect metrics stats
+plugly-reflect-memory metrics stats
 # table output (rich):
 #
 #    last-7d
@@ -866,7 +866,7 @@ reflect metrics stats
 #    all-time
 #  ... (same shape, all records)
 
-reflect metrics stats --format json   # machine-parseable
+plugly-reflect-memory metrics stats --format json   # machine-parseable
 ```
 
 ### Dashboard POST payload contract
@@ -896,7 +896,7 @@ The payload schema is `reflect-kb.dashboard.ingest/v1`. Receiving servers should
 }
 ```
 
-The `run_id` is a fresh UUID4 per sync call — servers use it to deduplicate retried requests.
+The `run_id` is a fresh UUID4 per sync call, servers use it to deduplicate retried requests.
 
 ---
 
@@ -906,41 +906,41 @@ The system is designed to degrade silently rather than block the user's session.
 
 | Failure | Detection | Graceful degrade |
 |---------|-----------|-----------------|
-| `reflect` CLI not installed | `find_learnings_cli()` returns `None` (neither `shutil.which("reflect")` nor the legacy `~/.learnings/cli/learnings` resolves) | `recall()` returns `RecallResult([], error="reflect CLI not found on $PATH (install with \`uv tool install reflect-kb\`)")`. Session starts with empty context. If `REFLECT_RECALL_DEBUG` is set, the error prints to stderr. |
+| `plugly-reflect-memory` CLI not installed | `find_learnings_cli()` returns `None` (neither `shutil.which("plugly-reflect-memory")` nor the legacy `~/.learnings/cli/learnings` resolves) | `recall()` returns `RecallResult([], error="plugly-reflect-memory CLI not found on $PATH (install with \`uv tool install plugly-reflect-memory\`)")`. Session starts with empty context. If `REFLECT_RECALL_DEBUG` is set, the error prints to stderr. |
 | `qmd` not installed | `shutil.which("qmd")` returns `None` | `fetch_qmd()` returns `[]`. RRF proceeds with only the GraphRAG leg. Hybrid recall degrades to vector-only recall. |
 | `qmd` times out (> 10s) | `subprocess.TimeoutExpired` | Caught; returns `[]`. Same as not installed. |
-| GraphRAG cache stale / corrupted | `graph_engine.search()` raises `GraphEngineError` | `recall.py` returns `RecallResult([], error=...)`. User can run `reflect reindex --force` to rebuild. |
-| nano-graphrag sequential-insert bug | Community reports dropped on N+1 `insert()` calls | `insert_documents_batch()` in `graph_engine.py` is the canonical API. `reflect add` uses single-insert (safe for one doc); `reindex` uses batch. This is documented in `MEMORY.md`. Do not call `graph.insert()` sequentially in a loop. |
+| GraphRAG cache stale / corrupted | `graph_engine.search()` raises `GraphEngineError` | `recall.py` returns `RecallResult([], error=...)`. User can run `plugly-reflect-memory reindex --force` to rebuild. |
+| nano-graphrag sequential-insert bug | Community reports dropped on N+1 `insert()` calls | `insert_documents_batch()` in `graph_engine.py` is the canonical API. `plugly-reflect-memory add` uses single-insert (safe for one doc); `reindex` uses batch. This is documented in `MEMORY.md`. Do not call `graph.insert()` sequentially in a loop. |
 | `git` not on PATH | `OSError` in `session_start_recall.py:git_capture()` | Returns `""`. Query falls back to cwd basename only. Session starts with degraded query quality but no crash. |
-| SessionStart hook takes > 10s | `subprocess.TimeoutExpired` in `session_start_recall.py` | `emit("")` is called — session starts with empty context. The 10s cap is intentional ("SessionStart must feel instant"). The recall cache makes repeat sessions fast; the first cold miss is absorbed silently. |
+| SessionStart hook takes > 10s | `subprocess.TimeoutExpired` in `session_start_recall.py` | `emit("")` is called, session starts with empty context. The 10s cap is intentional ("SessionStart must feel instant"). The recall cache makes repeat sessions fast; the first cold miss is absorbed silently. |
 | `uv` not on PATH | `shutil.which("uv")` returns `None` in hook | `UV_BIN = None` → hook calls `emit("")`. Session starts empty. |
 | `settings.json` contains invalid JSON | `json.JSONDecodeError` in `_merge_session_start_hook()` | `RuntimeError` is re-raised and printed to stderr; `execute_extra()` returns exit code 2. The file is never touched. User must fix the JSON manually. |
 | Adapter install collides with hand-written `SKILL.md` | `POINTER_MANAGED_BY` sentinel absent in existing file | `_write_pointer()` returns `(False, "refused to overwrite ...")`. Install continues with the other skills; exit code is 1. The user sees the warning and can re-run with `--force`. |
-| Dashboard endpoint unreachable | `httpx.TransportError` | `post_stats()` retries once. On second failure, exception propagates to `sync()`, which returns `(1, "dashboard POST failed: ...")`. Exit code 1 is surfaced by the CLI. The metrics JSONL is never deleted — the next sync attempt will include all accumulated events. |
+| Dashboard endpoint unreachable | `httpx.TransportError` | `post_stats()` retries once. On second failure, exception propagates to `sync()`, which returns `(1, "dashboard POST failed: ...")`. Exit code 1 is surfaced by the CLI. The metrics JSONL is never deleted, the next sync attempt will include all accumulated events. |
 | Dashboard returns 4xx | `response.status_code >= 400` | No retry (4xx = client/config bug). `sync()` returns exit code 1 with HTTP status in the message. |
-| Team KB `gh` not installed | `shutil.which("gh")` returns `None` | `route_medium()` skips PR creation, appends "gh not available — branch pushed; open the PR manually" to `RouteResult.notes`. Branch is still committed and pushed. |
+| Team KB `gh` not installed | `shutil.which("gh")` returns `None` | `route_medium()` skips PR creation, appends "gh not available, branch pushed; open the PR manually" to `RouteResult.notes`. Branch is still committed and pushed. |
 | Team KB push fails (no remote, auth issue) | `subprocess.CalledProcessError` | `_safe_push()` appends the stderr to `RouteResult.notes` and returns `pushed=False`. The document remains in the local team-kb clone; user can push manually. |
-| Sidecar schema validation fails | `validate_sidecar.py --strict` exits non-zero | `/reflect` skill prints "ERROR: sidecar validation failed" and halts ingest for that document. The `.md` is still written; only the index step is skipped. User fixes the sidecar and re-runs `reflect add`. |
+| Sidecar schema validation fails | `validate_sidecar.py --strict` exits non-zero | `/plugly-reflect-memory` skill prints "ERROR: sidecar validation failed" and halts ingest for that document. The `.md` is still written; only the index step is skipped. User fixes the sidecar and re-runs `plugly-reflect-memory add`. |
 
 ---
 
-## 12. Boundaries — What This Is Not
+## 12. Boundaries, What This Is Not
 
 **Not a vector database service.** There is no daemon, no server, no port. The retrieval pipeline is a subprocess fan-out to the `learnings` CLI and `qmd` binary. Latency is 200ms–2s per query (often cached to ~5ms). It is not appropriate for sub-10ms real-time lookup in production applications.
 
 **Not a team chat layer.** There is no real-time sharing, no notification system, no webhook. The "team KB" feature is a git-based async sharing model: learnings flow into a shared git repo via PRs. Synchronization is pull-based.
 
-**Not a long-term memory replacement.** The KB stores _explicit_ structured learnings — things you consciously reflect on and approve. It does not automatically record every session. The `~/.claude/projects/*/memory/MEMORY.md` files (written by Claude's own memory system) are inputs that `/reflect:ingest` can harvest, but they are distinct from the reflect KB itself.
+**Not a long-term memory replacement.** The KB stores _explicit_ structured learnings, things you consciously reflect on and approve. It does not automatically record every session. The `~/.claude/projects/*/memory/MEMORY.md` files (written by Claude's own memory system) are inputs that `/plugly-reflect-memory:ingest` can harvest, but they are distinct from the plugly-reflect-memory KB itself.
 
-**Not multi-tenant.** All paths are `~/<user>` rooted. There is no concept of workspace isolation, user namespacing, or per-project KB separation within a single machine. A team KB is a shared _git repo_ that multiple users each clone locally — there is no shared server.
+**Not multi-tenant.** All paths are `~/<user>` rooted. There is no concept of workspace isolation, user namespacing, or per-project KB separation within a single machine. A team KB is a shared _git repo_ that multiple users each clone locally, there is no shared server.
 
-**Not a replacement for project documentation.** Knowledge notes live in `docs/solutions/<category>/` within each project repo. They are versioned alongside the code they describe and are part of the normal PR review flow. The reflect system is a _discovery layer_ on top of these files, not a substitute for writing them.
+**Not a replacement for project documentation.** Knowledge notes live in `docs/solutions/<category>/` within each project repo. They are versioned alongside the code they describe and are part of the normal PR review flow. The plugly-reflect-memory system is a _discovery layer_ on top of these files, not a substitute for writing them.
 
 **Not AI-generated content.** The entity sidecars, confidence classifications, and write routing are the result of explicit human approval at each capture step. The agent _proposes_; the user _approves_. Nothing is committed to the KB or to git without a `Y` from the user.
 
 ---
 
-## Appendix A — Recall Scoring Formula
+## Appendix A, Recall Scoring Formula
 
 ```
 score(learning) = confidence_weight × recency × (1 + tag_bonus)
@@ -965,7 +965,7 @@ Documents appearing in both the GraphRAG result list and the qmd result list get
 
 ---
 
-## Appendix B — Entity Sidecar Format
+## Appendix B, Entity Sidecar Format
 
 ```yaml
 document_id: lrn-react-hydration-mismatch-79d7b2
@@ -995,18 +995,18 @@ relationships:
 
 Valid `type` values for entities: `technology`, `error`, `pattern`, `function`, `concept`, `tool`, `artifact`, `code`, `config`, `service`, `platform`, `framework`, `library`.
 
-Valid `type` values for relationships — typed causal links (S2): `caused_by`, `causes`, `enables`, `prevents`, `contradicts`, `supersedes`, `part_of`, `uses`; legacy: `solves`, `requires`, `relates_to`, `implements`, `configures`, `triggers`. Prefer a typed causal link over `relates_to` when the direction of effect is known.
+Valid `type` values for relationships, typed causal links (S2): `caused_by`, `causes`, `enables`, `prevents`, `contradicts`, `supersedes`, `part_of`, `uses`; legacy: `solves`, `requires`, `relates_to`, `implements`, `configures`, `triggers`. Prefer a typed causal link over `relates_to` when the direction of effect is known.
 
 Strength scale: 9–10 = direct/causal, 5–7 = moderate, 1–4 = weak.
 
 ---
 
-## Appendix C — Pre-commit Schema Check (Team KB)
+## Appendix C, Pre-commit Schema Check (Team KB)
 
-Team KB repos provisioned by `reflect team init` contain a `.pre-commit-config.yaml` that runs `validate_sidecar.py --strict` on staged `.entities.yaml` files. The same validator is run by `/reflect` before calling `reflect add`, so the pre-commit check is a belt-and-suspenders guard for directly-committed files.
+Team KB repos provisioned by `plugly-reflect-memory team init` contain a `.pre-commit-config.yaml` that runs `validate_sidecar.py --strict` on staged `.entities.yaml` files. The same validator is run by `/plugly-reflect-memory` before calling `plugly-reflect-memory add`, so the pre-commit check is a belt-and-suspenders guard for directly-committed files.
 
 ```yaml
-# .pre-commit-config.yaml (auto-generated by reflect team init)
+# .pre-commit-config.yaml (auto-generated by plugly-reflect-memory team init)
 repos:
   - repo: local
     hooks:
