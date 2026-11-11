@@ -441,7 +441,7 @@ def main() -> int:
     ap.add_argument("--model", default=_DEFAULT_MODEL)
     ap.add_argument("--timeout", type=int, default=_DEFAULT_TIMEOUT)
     ap.add_argument("--claude-bin", default="claude")
-    ap.add_argument("--reflect-bin", default="reflect")
+    ap.add_argument("--reflect-bin", default="plugly-reflect-memory")
     ap.add_argument("--cwd", default=str(Path.home()))
     args = ap.parse_args()
     try:

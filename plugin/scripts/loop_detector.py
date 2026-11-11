@@ -26,10 +26,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from pathlib import Path
 from typing import Optional
+
+from identity_env import getenv
 
 __all__ = ["record_call", "LoopHit", "WINDOW", "REPEAT_N", "OSC_CYCLES"]
 
@@ -44,7 +45,7 @@ class LoopHit(dict):
 
 
 def _state_dir() -> Path:
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "loops"
 
 

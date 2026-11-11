@@ -72,6 +72,12 @@
 
 set -uo pipefail
 
+# Resolve canonical environment names before kill switches and shared state.
+_IDENTITY_ENV="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../scripts/identity_env.py"
+if [[ -f "$_IDENTITY_ENV" ]]; then
+    eval "$(python3 "$_IDENTITY_ENV" --shell)"
+fi
+
 # ── Hard kill switch ────────────────────────────────────────────────────────
 # Honoured before any work so an operator can stop all drains instantly.
 if [[ "${REFLECT_DISABLED:-0}" == "1" ]]; then
@@ -84,13 +90,13 @@ fi
 # plugin-cache copy if present; repo/test executions and the plugin-cache copy
 # itself run in place.
 SELF_REAL="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/$(basename "${BASH_SOURCE[0]}")"
-CODEX_COPY="${HOME}/.codex/skills/reflect/hooks/reflect-drain-bg.sh"
+CODEX_COPY="${HOME}/.codex/skills/plugly-reflect-memory/hooks/reflect-drain-bg.sh"
 if [[ "${REFLECT_DRAIN_NO_DELEGATE:-0}" != "1" && "$SELF_REAL" == "$CODEX_COPY" ]]; then
-    LATEST_PLUGIN_DRAIN=$(ls -1dt "$HOME/.claude/plugins/cache/agents-in-a-box/reflect"/*/plugin/hooks/reflect-drain-bg.sh 2>/dev/null | head -1 || true)
+    LATEST_PLUGIN_DRAIN=$(ls -1dt "$HOME/.claude/plugins/cache/plugly-reflect-memory/plugly-reflect-memory"/*/hooks/reflect-drain-bg.sh "$HOME/.claude/plugins/cache/plugly-reflect-memory/plugly-reflect-memory"/*/plugin/hooks/reflect-drain-bg.sh 2>/dev/null | head -1 || true)
     if [[ -n "$LATEST_PLUGIN_DRAIN" && -x "$LATEST_PLUGIN_DRAIN" ]]; then
         LATEST_REAL="$(cd "$(dirname "$LATEST_PLUGIN_DRAIN")" && pwd -P)/$(basename "$LATEST_PLUGIN_DRAIN")"
         if [[ "$LATEST_REAL" != "$SELF_REAL" && "$LATEST_REAL" -nt "$SELF_REAL" ]]; then
-            exec env REFLECT_DRAIN_NO_DELEGATE=1 "$LATEST_REAL" "$@"
+            exec env REFLECT_DRAIN_NO_DELEGATE=1 PLUGLY_REFLECT_MEMORY_DRAIN_NO_DELEGATE=1 "$LATEST_REAL" "$@"
         fi
     fi
 fi
@@ -115,7 +121,7 @@ CLAUDE_BIN="${REFLECT_DRAIN_CLAUDE_BIN:-claude}"
 # reflect may be installed off-PATH (uv tool default ~/.local/bin); resolve it
 # once so the extract writer's `reflect add` calls find it even when the drain's
 # environment lacks that dir on PATH.
-REFLECT_BIN="${REFLECT_DRAIN_REFLECT_BIN:-$(command -v reflect 2>/dev/null || echo "${HOME}/.local/bin/reflect")}"
+REFLECT_BIN="${REFLECT_DRAIN_REFLECT_BIN:-$(command -v plugly-reflect-memory 2>/dev/null || command -v reflect 2>/dev/null || echo "${HOME}/.local/bin/plugly-reflect-memory")}"
 # Raised 180 -> 300 alongside MAX_TURNS 8 -> 16: the wall-clock cap must stay
 # above the turn budget's worst case, or a run that would cleanly stop at
 # max_turns (return 2, dropped) instead gets SIGTERMed with no envelope and is
@@ -202,8 +208,8 @@ _to() {
 # name from PyPI, where reflect-kb is NOT published (it ships from the monorepo
 # via git), so it would fail or fetch an unrelated package.
 _reflect_errors_run() {
-    if command -v reflect >/dev/null 2>&1; then
-        reflect errors "$@"
+    if [[ -x "$REFLECT_BIN" ]]; then
+        "$REFLECT_BIN" errors "$@"
     else
         python3 -m reflect_kb.errors "$@"
     fi
@@ -415,7 +421,7 @@ quota_gate_closed() {
 
 # Defer the whole queue: entries are NOT consumed (they replay on the next
 # drain once the gate reopens); the marker makes the deferral observable via
-# `quota_store.py status` and /reflect:cost. entries=0 so the deferral never
+# `quota_store.py status` and /plugly-reflect-memory:cost. entries=0 so the deferral never
 # burns daily-cap budget.
 defer_queue_for_quota() {
     log "quota gate CLOSED (${QUOTA_REASON:-unknown}): deferring queue (reason=quota_near_limit); entries stay queued for replay"
@@ -638,9 +644,9 @@ process_entry() {
 
     if [[ "$DRY_RUN" == "1" ]]; then
         if [[ "$trigger" == "skill_refresh" ]]; then
-            log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect skill-refresh ${skill_name:-?} $reflect_target"
+            log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /plugly-reflect-memory skill-refresh ${skill_name:-?} $reflect_target"
         else
-            log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /reflect $reflect_target"
+            log "    DRY_RUN=1 → would have called: $CLAUDE_BIN -p --model $DRAIN_MODEL ... /plugly-reflect-memory $reflect_target"
         fi
         [[ -n "$slice_path" ]] && rm -f "$slice_path"
         return 0
@@ -685,7 +691,7 @@ process_entry() {
 This reflection was triggered by session IDLENESS (no transcript activity for the idle window), NOT an explicit session end — the session may still resume and overturn these conclusions. Treat every finding as provisional: add the tag 'speculative' to the tags list of EVERY learning you write, and cap confidence at MEDIUM (never HIGH)."
     fi
     if [[ "$trigger" == "skill_refresh" ]]; then
-        prompt="/reflect
+        prompt="/plugly-reflect-memory
 
 Skill refresh (auto-triggered): the skill '${skill_name:-unknown}' at ${transcript} is marked stale — a learning that backs it was revised (learning: ${refresh_learning_id:-unknown}; reason: ${refresh_reason:-belief revision}).
 
@@ -693,7 +699,7 @@ Re-run the skill-edit step on this skill: read the SKILL.md, check the current l
 
 When done, summarize what you changed. Do NOT touch the queue file — the drain script handles archiving."
     else
-        prompt="/reflect
+        prompt="/plugly-reflect-memory
 
 Process the transcript at: ${reflect_target}
 
@@ -1031,7 +1037,7 @@ main() {
     if [[ "$already_today" -ge "$DAILY_MAX" ]]; then
         log "daily cap reached (today=$already_today >= $DAILY_MAX; successes=$spent_ok failures=$burned_fail); exiting"
         # A cap reached entirely by failures is an outage wearing throttling's
-        # clothes. Say so loudly and raise an error so /reflect:status and the
+        # clothes. Say so loudly and raise an error so /plugly-reflect-memory:status and the
         # statusline can't keep reporting a healthy system.
         if [[ "$spent_ok" -eq 0 && "$burned_fail" -gt 0 ]]; then
             log "  WARNING: today's ENTIRE budget was burned by failures (0 successes). This is an outage, not throttling. Inspect: reflect cost --by outcome"
@@ -1131,10 +1137,10 @@ main() {
     # Reindex if anything succeeded. Never in DRY_RUN (a dry run must have no
     # side effects beyond logging) or when explicitly skipped (tests).
     if [[ "$ok" -gt 0 && "$DRY_RUN" != "1" && "${REFLECT_DRAIN_SKIP_REINDEX:-0}" != "1" ]]; then
-        if ! command -v reflect >/dev/null 2>&1; then
+        if [[ ! -x "$REFLECT_BIN" ]]; then
             log "reindex SKIP: 'reflect' CLI not on PATH"
             log "  → install reflect-kb to enable GraphRAG reindex of new learnings:"
-            log "      uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'"
+            log "      uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'"
             log "  → without it, learnings are still captured to disk; just won't appear in /recall"
             log "    until a manual 'reflect reindex' runs"
         else
@@ -1164,7 +1170,7 @@ main() {
                 fi
             fi
             log "running reflect reindex (incremental)"
-            if _to 300 reflect reindex >>"$LOG_FILE" 2>&1; then
+            if _to 300 "$REFLECT_BIN" reindex >>"$LOG_FILE" 2>&1; then
                 log "reindex OK"
             else
                 log "reindex returned non-zero (continuing; not fatal)"
@@ -1180,7 +1186,7 @@ main() {
 # Drain still runs (enqueue/dequeue logging works without reflect-kb), but
 # recall stays empty until reflect-kb is installed.
 if [[ "${REFLECT_QUIET_INSTALL_WARNING:-0}" != "1" ]]; then
-    if ! command -v reflect >/dev/null 2>&1 && [[ ! -x "${HOME}/.local/bin/reflect" ]]; then
+    if [[ ! -x "$REFLECT_BIN" ]]; then
         cat >&2 <<'EOF'
 [reflect-kb] CLI not found on PATH.
 
@@ -1189,7 +1195,7 @@ if [[ "${REFLECT_QUIET_INSTALL_WARNING:-0}" != "1" ]]; then
   will be empty.
 
   Install:
-    uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+    uv tool install --upgrade --torch-backend cpu 'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 
   Set REFLECT_QUIET_INSTALL_WARNING=1 to suppress this message.
 EOF

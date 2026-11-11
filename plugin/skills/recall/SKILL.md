@@ -1,5 +1,5 @@
 ---
-name: reflect:recall
+name: plugly-reflect-memory:recall
 description: |
   Retrieve relevant prior learnings from the global knowledge base. Hybrid
   vector + graph search over 170+ indexed learnings, reranked by confidence,
@@ -8,7 +8,7 @@ description: |
 version: "3.1.0"
 user-invocable: true
 triggers:
-  - reflect:recall
+  - plugly-reflect-memory:recall
   - recall learnings
   - prior learnings
   - what have i learned about
@@ -19,7 +19,7 @@ allowed-tools:
   - Grep
 ---
 
-# /reflect:recall — Retrieve relevant prior learnings
+# /plugly-reflect-memory:recall : Retrieve relevant prior learnings
 
 Queries the global learnings KB (GraphRAG + vector) and surfaces the top-N
 most relevant learnings for the current work, reranked by confidence, recency,
@@ -41,13 +41,13 @@ explicit, higher-limit path.
 
 | Invocation | Behavior |
 |---|---|
-| `/reflect:recall <query>` | Default — 10 results, any confidence, markdown out |
-| `/reflect:recall <query> --limit 5 --confidence HIGH` | Tight filter |
-| `/reflect:recall <query> --mode local` | Graph-neighborhood search (finds related concepts) |
-| `/reflect:recall <query> --mode global` | Community-based (broad patterns) |
-| `/reflect:recall <query> --format json` | Structured output for programmatic use |
-| `/reflect:recall <query> --no-cache` | Skip cache, force fresh query |
-| `/reflect:recall <query> --field rule` | S1: just one structured field per hit (rule/fix/root_cause/problem) — cheapest injection |
+| `/plugly-reflect-memory:recall <query>` | Default : 10 results, any confidence, markdown out |
+| `/plugly-reflect-memory:recall <query> --limit 5 --confidence HIGH` | Tight filter |
+| `/plugly-reflect-memory:recall <query> --mode local` | Graph-neighborhood search (finds related concepts) |
+| `/plugly-reflect-memory:recall <query> --mode global` | Community-based (broad patterns) |
+| `/plugly-reflect-memory:recall <query> --format json` | Structured output for programmatic use |
+| `/plugly-reflect-memory:recall <query> --no-cache` | Skip cache, force fresh query |
+| `/plugly-reflect-memory:recall <query> --field rule` | S1: just one structured field per hit (rule/fix/root_cause/problem) : cheapest injection |
 
 ## Staged recall (3-layer workflow — preferred for deep digs)
 
@@ -119,7 +119,7 @@ and hydrate only what survives.
 
 ## Related
 
-- `/reflect:ingest` — populate the KB
-- `/reflect:status` — KB health, coverage, pending reviews
+- `/plugly-reflect-memory:ingest` : populate the KB
+- `/plugly-reflect-memory:status` : KB health, coverage, pending reviews
 - SessionStart hook — auto-recall on project entry (see `hooks/settings-snippet.json`)
 - **[Retrieval, by example](../../docs/retrieval-features.md)** — every retrieval feature (graph arm, cross-encoder, MMR, temporal, OOD gate, bounded boosts, fuzzy cache, tiered inject, per-arm thresholds, sharding, affinity, staged recall, branch isolation) with a concrete example, why it matters, and what breaks without it.

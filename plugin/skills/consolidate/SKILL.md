@@ -1,14 +1,14 @@
 ---
-name: reflect:consolidate
+name: plugly-reflect-memory:consolidate
 description: |
   Project-level memory consolidation. Merges orphaned worktree memory
   directories into a single .agents/MEMORY.md for the current project.
   Deduplicates, sections, and proposes cleanup of orphan dirs.
-  Does NOT index into the global knowledge base — use reflect:ingest for that.
+  Does NOT index into the global knowledge base : use plugly-reflect-memory:ingest for that.
 version: "3.0.0"
 user-invocable: true
 triggers:
-  - reflect:consolidate
+  - plugly-reflect-memory:consolidate
   - consolidate memories
   - merge worktree memories
   - clean up memories
@@ -27,14 +27,14 @@ Merge orphaned worktree memory directories for the current project into a single
 tidy `.agents/MEMORY.md`. This is a **project-level** operation — it does not
 touch the global knowledge base.
 
-**For global indexing** (GraphRAG + QMD), use `/reflect:ingest` after consolidating.
+**For global indexing** (GraphRAG + QMD), use `/plugly-reflect-memory:ingest` after consolidating.
 
 ## When to Use
 
 - After deleting git worktrees
 - When multiple worktree sessions left orphaned memory dirs
 - To keep `.agents/MEMORY.md` current and deduped
-- Before running `/reflect:ingest` (consolidate first, then index)
+- Before running `/plugly-reflect-memory:ingest` (consolidate first, then index)
 
 ## What It Does
 
@@ -48,7 +48,7 @@ touch the global knowledge base.
 
 ## What It Does NOT Do
 
-- Does NOT index into GraphRAG or QMD (that's `reflect:ingest`)
+- Does NOT index into GraphRAG or QMD (that's `plugly-reflect-memory:ingest`)
 - Does NOT scan other tools (Codex, Copilot, Gemini) — project-scoped only
 - Does NOT archive originals to `~/.learnings/` — that's ingest's job
 
@@ -57,14 +57,14 @@ touch the global knowledge base.
 ### Step 1: Discover Project Identity
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py project-id
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py project-id
 # -> e.g. "shotclubhouse"
 ```
 
 ### Step 2: Find Orphaned Memory Dirs
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py discover --provider claude
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py discover --provider claude
 # Lists all worktree memory dirs for the current repo
 # Excludes current session's memory dir
 ```
@@ -92,8 +92,8 @@ Consolidated, deduped, within 200-line limit:
 ```markdown
 # Project Memory
 
-> Auto-consolidated by /reflect:consolidate. 200-line max.
-> Detailed learnings route to skills. Global index via /reflect:ingest.
+> Auto-consolidated by /plugly-reflect-memory:consolidate. 200-line max.
+> Detailed learnings route to skills. Global index via /plugly-reflect-memory:ingest.
 
 ## Architecture & Patterns
 
@@ -119,7 +119,7 @@ Show list of orphaned dirs and ask for confirmation:
 
 ```bash
 # After user approval:
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py cleanup /tmp/reflect-cleanup-dirs.txt --execute
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py cleanup /tmp/reflect-cleanup-dirs.txt --execute
 ```
 
 ### Step 9: Report
@@ -134,7 +134,7 @@ python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py cleanup /tm
 - **.agents/MEMORY.md**: 127 lines
 - **Dirs cleaned up**: 7
 
-Next: Run `/reflect:ingest` to index into GraphRAG + QMD.
+Next: Run `/plugly-reflect-memory:ingest` to index into GraphRAG + QMD.
 ```
 
 ## Stats (Quick Check)
@@ -142,7 +142,7 @@ Next: Run `/reflect:ingest` to index into GraphRAG + QMD.
 Check orphaned memory status without making changes:
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py stats
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py stats
 # -> Repo: shotclubhouse
 # -> Orphaned memory dirs: 7
 # -> Total lines across all: 283

@@ -1,5 +1,5 @@
 {
-  "name": "reflect-serve-e2e",
+  "name": "plugly-reflect-memory-serve-e2e",
   "private": true,
   "version": "0.0.0",
   "description": "Playwright end-to-end suite for the reflect serve memory browser",

@@ -8,9 +8,9 @@
     <circle cx="32" cy="32" r="6" fill="#FFD700"/>
   </g>
   <g font-family="ui-monospace,SFMono-Regular,Menlo,Consolas,monospace">
-    <text x="96" y="340" font-size="96" font-weight="700" fill="#FFD700">reflect</text>
+    <text x="96" y="340" font-size="68" font-weight="700" fill="#FFD700">plugly-reflect-memory</text>
     <text x="96" y="410" font-size="36" fill="#DCDCE6">Self-improving memory for coding agents</text>
     <text x="96" y="500" font-size="30" fill="#6495ED">capture  &#8594;  drain  &#8594;  index  &#8594;  recall</text>
-    <text x="96" y="566" font-size="24" fill="#78788C">stevengonsalvez.github.io/ainb-reflect-memory</text>
+    <text x="96" y="566" font-size="24" fill="#78788C">stevengonsalvez.github.io/plugly-reflect-memory</text>
   </g>
 </svg>

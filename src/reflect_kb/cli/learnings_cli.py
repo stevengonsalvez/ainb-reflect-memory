@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Global Learnings CLI - Knowledge base with GraphRAG search.
+plugly-reflect-memory: knowledge base with GraphRAG search.
 
 Provides semantic search over the global learnings repository
 using nano-graphrag for vector + graph-based retrieval.
@@ -153,9 +153,11 @@ def _get_graph_engine():
 
 @click.group()
 @click.version_option(version=__version__)
-def cli():
-    """Global Learnings CLI - Knowledge base with GraphRAG search."""
-    ensure_repo_exists()
+@click.pass_context
+def cli(ctx):
+    """plugly-reflect-memory: knowledge base with GraphRAG search."""
+    if ctx.invoked_subcommand != "migrate":
+        ensure_repo_exists()
 
 
 @cli.command()
@@ -912,7 +914,7 @@ def timeline(explain_row):
 
     if not helper:
         click.echo(click.style("error: reflect plugin not found.", fg='red'), err=True)
-        click.echo("Install with: `claude plugin install reflect@ainb-reflect-memory`", err=True)
+        click.echo("Install with: `claude plugin install plugly-reflect-memory@ainb-reflect-memory`", err=True)
         raise click.Abort()
 
     rc = subprocess.call([helper, '--explain', explain_row])

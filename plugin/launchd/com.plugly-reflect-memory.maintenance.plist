@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  launchd template: Reflect maintenance watchdog.
+
+  This does not run ingest or consolidate. It checks drain/ingest health and
+  appends statusline-visible errors to ~/.reflect/errors.json via
+  reflect errors append.
+
+  INSTALL (replace {{PLUGIN_ROOT}} with the absolute reflect plugin path):
+    sed "s|{{PLUGIN_ROOT}}|$PLUGIN_ROOT|g" \
+      com.plugly-reflect-memory.maintenance.plist > ~/Library/LaunchAgents/com.plugly-reflect-memory.maintenance.plist
+    launchctl load ~/Library/LaunchAgents/com.plugly-reflect-memory.maintenance.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>EnvironmentVariables</key>
+    <dict>
+      <key>PLUGLY_REFLECT_MEMORY_WATCH_DRAIN_LABEL</key>
+      <string>com.plugly-reflect-memory.drain</string>
+      <key>PLUGLY_REFLECT_MEMORY_WATCH_MAINTENANCE_LABEL</key>
+      <string>com.plugly-reflect-memory.maintenance</string>
+    </dict>
+    <key>Label</key>
+    <string>com.plugly-reflect-memory.maintenance</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>{{PLUGIN_ROOT}}/hooks/reflect-maintenance-watch.sh</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>300</integer>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/tmp/plugly-reflect-memory-maintenance-launchd.out</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/plugly-reflect-memory-maintenance-launchd.err</string>
+</dict>
+</plist>

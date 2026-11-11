@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::note[Design record, mostly superseded]
-Source: `plugin/docs/design-records/2026-04-23-v4-universal-install-spec.md` (an interview-derived spec, also kept in agents-in-a-box as `plans/reflect-v4-universal-install-spec.md`). The spec was written for a "v4" release; by the time the work landed, version 4.0.0 had been used by the [cost rearchitecture](/ainb-reflect-memory/design/cost-rearchitecture/), so this effort shipped as **5.0.0**. The "Shipped" column below was checked against this repo at `main`.
+Source: `plugin/docs/design-records/2026-04-23-v4-universal-install-spec.md` (an interview-derived spec, also kept in agents-in-a-box as `plans/reflect-v4-universal-install-spec.md`). The spec was written for a "v4" release; by the time the work landed, version 4.0.0 had been used by the [cost rearchitecture](/plugly-reflect-memory/design/cost-rearchitecture/), so this effort shipped as **5.0.0**. The "Shipped" column below was checked against this repo at `main`.
 :::
 
 ## What the spec wanted
@@ -57,4 +57,4 @@ personal KB at ~/.learnings/  (never in a repo)
 
 ## What to read for the current install
 
-[Claude Code install](/ainb-reflect-memory/install/claude-code/), [Codex](/ainb-reflect-memory/install/codex/), [Copilot](/ainb-reflect-memory/install/copilot/), [Hermes](/ainb-reflect-memory/install/hermes/), and the [Configuration reference](/ainb-reflect-memory/reference/configuration/).
+[Claude Code install](/plugly-reflect-memory/install/claude-code/), [Codex](/plugly-reflect-memory/install/codex/), [Copilot](/plugly-reflect-memory/install/copilot/), [Hermes](/plugly-reflect-memory/install/hermes/), and the [Configuration reference](/plugly-reflect-memory/reference/configuration/).

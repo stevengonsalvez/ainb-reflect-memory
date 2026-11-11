@@ -5,7 +5,7 @@ sidebar:
   order: 2
 ---
 
-This is the long form of the LOCOMO work. The [Benchmarks](/ainb-reflect-memory/evals/benchmarks/) page has the headline and a short method; this page has every stored run, how the harness works, which numbers are comparable and which are not, and how to re-run it. Retrieval stages referred to here are described in [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/), [Retrieval features](/ainb-reflect-memory/concepts/retrieval-features/) and the [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/).
+This is the long form of the LOCOMO work. The [Benchmarks](/plugly-reflect-memory/evals/benchmarks/) page has the headline and a short method; this page has every stored run, how the harness works, which numbers are comparable and which are not, and how to re-run it. Retrieval stages referred to here are described in [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/), [Retrieval features](/plugly-reflect-memory/concepts/retrieval-features/) and the [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/).
 
 :::caution[Preliminary, 4.1.0 engine]
 One conversation (`conv-26`), 50 questions (10 per category), per-cell noise about +/-0.1. All runs were made on the **4.1.0** recall engine in June 2026. Releases 5.0 to 5.2.5 have not been re-benchmarked. Treat results as directional.
@@ -30,7 +30,7 @@ The pilot takes the first 10 questions of each category from `conv-26`, so open-
 
 ## Harness
 
-Location: [`tests/eval/locomo/`](https://github.com/stevengonsalvez/ainb-reflect-memory/tree/main/tests/eval/locomo).
+Location: [`tests/eval/locomo/`](https://github.com/stevengonsalvez/plugly-reflect-memory/tree/main/tests/eval/locomo).
 
 | File | Role |
 |---|---|
@@ -171,7 +171,7 @@ Unknown. An earlier REPORT section 4 concluded the arms turned positive with bge
 
 ## Where reflect sits
 
-![LOCOMO positioning: reflect vs published memory systems](/ainb-reflect-memory/img/evals-locomo-positioning.png)
+![LOCOMO positioning: reflect vs published memory systems](/plugly-reflect-memory/img/evals-locomo-positioning.png)
 
 Values as plotted by `plot_positioning.py` (LLM-judge J, percent, 4 categories):
 
@@ -199,7 +199,7 @@ How to read it:
 - **Harnesses and judges differ across the field** (the same Zep reads 75 on one harness and about 66 on another), so this is directional placement, not a ranking. reflect lands mid-field, on par with Memobase and Zep and above Mem0; the newest systems score higher but are self-reported.
 - The dashed "full-context 72.9" line in the chart has no source recorded in this repo. The stored `full_context` run scored 0.68 over five categories.
 
-For a feature comparison of these systems see [Comparison](/ainb-reflect-memory/start/comparison/).
+For a feature comparison of these systems see [Comparison](/plugly-reflect-memory/start/comparison/).
 
 ## Reproduce
 

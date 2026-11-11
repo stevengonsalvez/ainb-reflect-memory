@@ -1,4 +1,4 @@
-# Setup — ainb-reflect-memory
+# Setup, plugly-reflect-memory
 
 Operational guide: secrets, database setup, migration, seed, and tests. For the
 architecture and API, see the [README](../README.md).
@@ -22,7 +22,7 @@ cp .env.example .env   # .env is git-ignored; never commit it
 | `SUPABASE_URL`              | `https://<ref>.supabase.co`                  | direct client path (Phase 2+)       | safe to expose                                  |
 | `SUPABASE_ANON_KEY`         | public anon key                              | direct browser/PostgREST reads      | safe to expose (RLS still applies)              |
 | `SUPABASE_SERVICE_ROLE_KEY` | service-role key (**bypasses RLS**)          | migrations / trusted workers only   | **NEVER** to browser/client; NEVER commit       |
-| `REFLECT_PG_DSN`            | DSN that switches reflect to the shared backend | enabling the backend (write path = service_role) | server/worker only |
+| `REFLECT_PG_DSN`            | DSN that switches plugly-reflect-memory to the shared backend | enabling the backend (write path = service_role) | server/worker only |
 | `REFLECT_WORKSPACE_ID`      | tenant UUID (hard isolation boundary)        | enabling the backend                | n/a (not a secret)                              |
 
 ### Bitwarden item
@@ -44,7 +44,7 @@ bw get item "WOLOLO-SUPABASE" \
 
 If the connection string is not stored as `DATABASE_URL`, build it from the Supabase connection string plus `DATABASE_PASSWORD` in the local shell only.
 
-Unit tests need **none** of these — they run with no database and no
+Unit tests need **none** of these, they run with no database and no
 credentials (see §5).
 
 ---
@@ -69,14 +69,14 @@ required until Phase 2.
 The migration is plain SQL and re-runnable (`IF NOT EXISTS` / `CREATE OR
 REPLACE` / `DROP … IF EXISTS`).
 
-**Option A — psql (works anywhere):**
+**Option A, psql (works anywhere):**
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
   -f supabase/migrations/0001_reflect_memory_phase1.sql
 ```
 
-**Option B — Supabase CLI** (if you use it for this project):
+**Option B, Supabase CLI** (if you use it for this project):
 
 ```bash
 supabase db push          # applies supabase/migrations/*.sql
@@ -84,7 +84,7 @@ supabase db push          # applies supabase/migrations/*.sql
 
 > ⚠️ **This migration defines Row-Level Security policies.** Per the issue's
 > security requirements, RLS/security-sensitive migrations require **partner
-> review before merge — do not self-merge.**
+> review before merge, do not self-merge.**
 
 ---
 
@@ -97,13 +97,13 @@ python scripts/seed.py <WORKSPACE_UUID>   # specific tenant
 ```
 
 It inserts a couple of memory items, two entities, and an edge, then prints an
-evidence pack. It is idempotent — re-running creates no duplicates.
+evidence pack. It is idempotent, re-running creates no duplicates.
 
 ---
 
 ## 5. Tests
 
-### Unit tests — no database, no credentials (the default CI path)
+### Unit tests, no database, no credentials (the default CI path)
 
 ```bash
 PYTHONPATH=src pytest -m "not integration" tests/postgres
@@ -112,7 +112,7 @@ PYTHONPATH=src pytest -m "not integration" tests/postgres
 These cover normalization/dedupe hashing, model validation, and the SQL-builder
 security invariants (tenant scoping, no value interpolation).
 
-### Integration tests — require a Postgres (auto-skip otherwise)
+### Integration tests, require a Postgres (auto-skip otherwise)
 
 Set `DATABASE_URL` (or `REFLECT_TEST_DATABASE_URL`) to a **throwaway** database,
 then:
@@ -122,7 +122,7 @@ pytest -m integration   # or just `pytest` to run both tiers
 ```
 
 If neither var is set, or the database is unreachable, every integration test
-**skips** cleanly — they never fail for lack of credentials.
+**skips** cleanly, they never fail for lack of credentials.
 
 #### Spin a throwaway local Postgres
 
@@ -168,7 +168,7 @@ See [README → Shared memory across machines](../README.md#shared-memory-across
 
 ## 7. Shared nano-graphrag backend (Phase 2/3)
 
-Makes reflect's nano-graphrag use this Postgres as its shared vector + graph +
+Makes plugly-reflect-memory's nano-graphrag use this Postgres as its shared vector + graph +
 community store, so the same memory is queryable from every machine. See
 [README → Shared memory across machines](../README.md#shared-memory-across-machines-postgres-backend).
 
@@ -184,13 +184,13 @@ available on Supabase by default; locally, install the `pgvector` package for
 your Postgres (e.g. `brew install pgvector`, then it lands in PostgreSQL 17's
 extension dir). The embedding column is `vector(768)` to match all-mpnet-base-v2.
 
-> ⚠️ RLS policies again — **partner review before merge, no self-merge.**
+> ⚠️ RLS policies again, **partner review before merge, no self-merge.**
 
 ### Enable the backend in reflect-kb
 
 `LearningsGraphEngine` switches to the shared backend when BOTH are set
 (otherwise it keeps local-file behavior). The trigger is `REFLECT_PG_DSN`
-**only** — the generic `DATABASE_URL` is deliberately NOT a trigger (it usually
+**only**, the generic `DATABASE_URL` is deliberately NOT a trigger (it usually
 points at an unrelated DB):
 
 ```bash
@@ -199,20 +199,20 @@ export REFLECT_WORKSPACE_ID="<workspace-uuid>"
 ```
 
 **DSN role:** for writes (ingest/index) the DSN must authenticate as
-`service_role` / the table owner — the trusted-worker path. The `authenticated`
+`service_role` / the table owner, the trusted-worker path. The `authenticated`
 role is granted **read-only** (search/lookup), and direct writes go through the
 worker, not PostgREST. The adapter sets the `app.current_workspace` GUC on
 connect so reads work under RLS for any role; the resolver treats a signed JWT
 claim as authoritative over that GUC.
 
-The `reflect` client needs nano-graphrag + its embedding stack (the `[graph]`
+The `plugly-reflect-memory` client needs nano-graphrag + its embedding stack (the `[graph]`
 extra); the Postgres adapters add the `[postgres]` extra (psycopg). Install both:
 `pip install '.[graph,postgres]'`.
 
 ### Cross-machine demo + tests
 
 ```bash
-# end-to-end: machine A writes, machine B reads — from Postgres, no shared files
+# end-to-end: machine A writes, machine B reads, from Postgres, no shared files
 PYTHONPATH=src DATABASE_URL=... python scripts/demo_cross_machine.py
 
 # adapter conformance + cross-machine + RLS + full-pipeline tests

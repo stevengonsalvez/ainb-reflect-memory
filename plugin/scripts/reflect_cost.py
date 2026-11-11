@@ -51,6 +51,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from identity_env import getenv
+
 
 # Approximate Anthropic list prices, USD per 1M tokens, used ONLY to estimate
 # cost for events that have no recorded cost_usd (e.g. backfill from raw logs).
@@ -85,18 +87,16 @@ def _est_cost(e: dict) -> float:
 
 
 def state_dir(override: str = "") -> Path:
-    import os
     if override:
         return Path(override).expanduser()
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def metrics_path(override: str = "") -> Path:
     """A4: resolve the recall metrics log (the engine's metrics.jsonl)."""
-    import os
     if override:
         return Path(override).expanduser()
-    env = (os.environ.get("REFLECT_METRICS_PATH") or "").strip()
+    env = (getenv("REFLECT_METRICS_PATH") or "").strip()
     if env:
         return Path(env).expanduser()
     return Path.home() / ".learnings" / "metrics.jsonl"

@@ -29,6 +29,8 @@ from typing import Sequence
 # socket key and the daemon's own loader) and is re-exported for callers.
 from reflect_kb.model_daemon import DEFAULT_CE_MODEL
 
+from reflect_kb.identity import getenv
+
 DEFAULT_BATCH_SIZE = 20
 # CE models truncate at 512 tokens anyway; cap the payload so giant chunks
 # don't waste tokenizer time.
@@ -38,7 +40,7 @@ _MAX_CANDIDATE_CHARS = 2000
 def models_dir() -> Path:
     """Persistent model cache: ``$REFLECT_STATE_DIR/models`` (default
     ``~/.reflect/models``)."""
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "models"
 
 

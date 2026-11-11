@@ -1,30 +1,30 @@
-# reflect CLI — Per-Subcommand Reference
+# plugly-reflect-memory CLI, Per-Subcommand Reference
 
 reflect-kb v0.1.1. All subcommands write to stderr for diagnostic output and to stdout for machine-parseable
-results (`--format json`). Run `reflect --version` to confirm your installed version.
+results (`--format json`). Run `plugly-reflect-memory --version` to confirm your installed version.
 
 **Table of contents**
 
-- [`reflect init`](#reflect-init)
-- [`reflect add`](#reflect-add)
-- [`reflect search`](#reflect-search)
-- [`reflect reindex`](#reflect-reindex)
-- [`reflect stats`](#reflect-stats)
-- [`reflect critical-patterns`](#reflect-critical-patterns)
-- [`reflect generate-sidecars`](#reflect-generate-sidecars)
-- [`reflect metrics stats`](#reflect-metrics-stats)
-- [`reflect timeline`](#reflect-timeline)
+- [`plugly-reflect-memory init`](#reflect-init)
+- [`plugly-reflect-memory add`](#reflect-add)
+- [`plugly-reflect-memory search`](#reflect-search)
+- [`plugly-reflect-memory reindex`](#reflect-reindex)
+- [`plugly-reflect-memory stats`](#reflect-stats)
+- [`plugly-reflect-memory critical-patterns`](#reflect-critical-patterns)
+- [`plugly-reflect-memory generate-sidecars`](#reflect-generate-sidecars)
+- [`plugly-reflect-memory metrics stats`](#reflect-metrics-stats)
+- [`plugly-reflect-memory timeline`](#reflect-timeline)
 
 ---
 
-## `reflect init`
+## `plugly-reflect-memory init`
 
 Initialise the knowledge base on a new machine.
 
 ### Synopsis
 
 ```
-reflect init
+plugly-reflect-memory init
 ```
 
 ### What it does
@@ -37,44 +37,44 @@ Creates the directory structure under `~/.claude/global-learnings/` (or `$GLOBAL
 └── nano_graphrag_cache/  # graph index (auto-populated by add/reindex)
 ```
 
-Also runs `git init` and writes a `.gitignore` that excludes the graph cache. Safe to re-run — if the
+Also runs `git init` and writes a `.gitignore` that excludes the graph cache. Safe to re-run, if the
 directory already exists the command is a no-op.
 
 ### Examples
 
 ```bash
 # First-time setup on a new machine
-reflect init
+plugly-reflect-memory init
 
 # With a custom KB path
-GLOBAL_LEARNINGS_PATH=~/team-kb reflect init
+GLOBAL_LEARNINGS_PATH=~/team-kb plugly-reflect-memory init
 ```
 
 ### Notes
 
-- `reflect init` must be run before any other subcommand on a fresh install.
+- `plugly-reflect-memory init` must be run before any other subcommand on a fresh install.
 - The KB path is resolved at runtime from `$GLOBAL_LEARNINGS_PATH`. If unset, the default
   `~/.claude/global-learnings/` is used by every subcommand.
-- The `.gitignore` excludes `nano_graphrag_cache/` — the graph index is rebuilt on demand
-  via `reflect reindex` and does not need to be committed.
+- The `.gitignore` excludes `nano_graphrag_cache/`, the graph index is rebuilt on demand
+  via `plugly-reflect-memory reindex` and does not need to be committed.
 
 ---
 
-## `reflect add`
+## `plugly-reflect-memory add`
 
 Add a learning document to the knowledge base.
 
 ### Synopsis
 
 ```
-reflect add [OPTIONS] FILE_PATH
+plugly-reflect-memory add [OPTIONS] FILE_PATH
 ```
 
 ### Flags
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--entities PATH` | `-e` | — | Path to a `.entities.yaml` sidecar with pre-extracted entities |
+| `--entities PATH` | `-e` |, | Path to a `.entities.yaml` sidecar with pre-extracted entities |
 | `--force` | `-f` | false | Overwrite an existing document without prompting |
 
 ### What it does
@@ -97,9 +97,9 @@ doc_id = slug(title) + "-" + sha256(title + "\n" + body)[:6]
 
 | Scenario | Result |
 |---|---|
-| Same title, same body | Same `doc_id` — idempotent re-ingest, safe to re-add |
-| Same title, different body | Different `doc_id` — treated as a distinct document |
-| Different title (even with similar body) | Different `doc_id` — no collision |
+| Same title, same body | Same `doc_id`, idempotent re-ingest, safe to re-add |
+| Same title, different body | Different `doc_id`, treated as a distinct document |
+| Different title (even with similar body) | Different `doc_id`, no collision |
 
 This replaced the previous title-only hash, which caused silent collisions when two documents shared
 a slug-able title (e.g. capitalisation or punctuation differences that collapse in slugification).
@@ -150,37 +150,37 @@ tags:
 
 ```bash
 # Add a document, auto-generate entity sidecar
-reflect add ./learning-2024-tokio-fix.md
+plugly-reflect-memory add ./learning-2024-tokio-fix.md
 
 # Add with a pre-extracted entity sidecar
-reflect add ./learning.md --entities ./learning.entities.yaml
+plugly-reflect-memory add ./learning.md --entities ./learning.entities.yaml
 
 # Non-interactive overwrite (for scripts and ingest pipelines)
-reflect add --force ./learning.md
+plugly-reflect-memory add --force ./learning.md
 
 # Add to a custom KB path
-GLOBAL_LEARNINGS_PATH=~/team-kb reflect add ./shared-learning.md
+GLOBAL_LEARNINGS_PATH=~/team-kb plugly-reflect-memory add ./shared-learning.md
 ```
 
 ### Notes / gotchas
 
 - The command exits non-zero (code 1) if required frontmatter fields are missing.
-- Graph indexing failure (e.g. missing `[graph]` extra) is a warning, not a hard error — the document
-  is still saved. Run `reflect reindex` afterwards.
-- QMD sync can take up to 2 minutes on large KBs — progress is printed to stderr.
+- Graph indexing failure (e.g. missing `[graph]` extra) is a warning, not a hard error, the document
+  is still saved. Run `plugly-reflect-memory reindex` afterwards.
+- QMD sync can take up to 2 minutes on large KBs, progress is printed to stderr.
 - Auto-generated sidecars use heuristic extraction (no LLM). If the document is very short or generic,
   no sidecar is written and the document contributes to vector search only.
 
 ---
 
-## `reflect search`
+## `plugly-reflect-memory search`
 
 Search the knowledge base using hybrid GraphRAG + vector retrieval.
 
 ### Synopsis
 
 ```
-reflect search [OPTIONS] QUERY
+plugly-reflect-memory search [OPTIONS] QUERY
 ```
 
 ### Flags
@@ -188,8 +188,8 @@ reflect search [OPTIONS] QUERY
 | Flag | Short | Default | Description |
 |---|---|---|---|
 | `--mode MODE` | `-m` | `naive` | Search mode: `naive`, `local`, or `global` |
-| `--tags TEXT` | `-t` | — | Filter by tags (comma-separated, appended to query) |
-| `--category TEXT` | `-c` | — | Filter by category (appended to query) |
+| `--tags TEXT` | `-t` |, | Filter by tags (comma-separated, appended to query) |
+| `--category TEXT` | `-c` |, | Filter by category (appended to query) |
 | `--limit INT` | `-l` | `10` | Maximum number of results |
 | `--format FORMAT` | `-f` | `rich` | Output format: `rich`, `json`, or `simple` |
 
@@ -205,46 +205,46 @@ reflect search [OPTIONS] QUERY
 
 ```bash
 # Basic search (vector similarity, rich output)
-reflect search "tokio runtime panic"
+plugly-reflect-memory search "tokio runtime panic"
 
 # Entity-neighbourhood search for related concepts
-reflect search "async timeout" --mode local
+plugly-reflect-memory search "async timeout" --mode local
 
 # Filter by tags
-reflect search "n+1 query" --tags rust,performance
+plugly-reflect-memory search "n+1 query" --tags rust,performance
 
 # Filter by category
-reflect search "database migration" --category architecture-decisions
+plugly-reflect-memory search "database migration" --category architecture-decisions
 
 # Machine-readable output for scripting
-reflect search "connection pool sizing" --format json
+plugly-reflect-memory search "connection pool sizing" --format json
 
 # Minimal text output (for piping)
-reflect search "retry strategy" --format simple
+plugly-reflect-memory search "retry strategy" --format simple
 
 # Combine filters
-reflect search "cache invalidation" --tags redis --limit 5
+plugly-reflect-memory search "cache invalidation" --tags redis --limit 5
 ```
 
 ### Notes / gotchas
 
 - If the graph index does not exist, `naive` mode falls back to scanning document frontmatter.
-  Run `reflect reindex` first for full GraphRAG fidelity.
-- `--tags` and `--category` filters are appended to the query string, not applied as strict predicates —
+  Run `plugly-reflect-memory reindex` first for full GraphRAG fidelity.
+- `--tags` and `--category` filters are appended to the query string, not applied as strict predicates ,
   they bias retrieval rather than restrict it.
-- Latency is written to the metrics JSONL log after each call. View aggregates with `reflect metrics stats`.
+- Latency is written to the metrics JSONL log after each call. View aggregates with `plugly-reflect-memory metrics stats`.
 - `--format json` writes to stdout; `--format rich` and `--format simple` write to stderr.
 
 ---
 
-## `reflect reindex`
+## `plugly-reflect-memory reindex`
 
 Rebuild the GraphRAG index from all documents.
 
 ### Synopsis
 
 ```
-reflect reindex [OPTIONS]
+plugly-reflect-memory reindex [OPTIONS]
 ```
 
 ### Flags
@@ -258,77 +258,77 @@ reflect reindex [OPTIONS]
 1. Reads all `.md` files in `documents/`.
 2. Auto-generates missing `.entities.yaml` sidecars (heuristic extraction, no LLM).
 3. Builds a batch of `(text, entities)` tuples.
-4. Calls `engine.insert_documents_batch(batch)` — batch mode avoids nano-graphrag state issues
+4. Calls `engine.insert_documents_batch(batch)`, batch mode avoids nano-graphrag state issues
    with sequential inserts (community reports dropped, KV persistence skipped).
 
 ### Examples
 
 ```bash
 # Incremental rebuild (add missing docs to existing index)
-reflect reindex
+plugly-reflect-memory reindex
 
 # Full rebuild from scratch (clears cache first)
-reflect reindex --force
+plugly-reflect-memory reindex --force
 ```
 
 ### Notes / gotchas
 
-- Batch indexing is preferred over sequential inserts. Calling `reflect add` for every document
-  individually can produce an inconsistent graph; use `reflect reindex` after a bulk import.
+- Batch indexing is preferred over sequential inserts. Calling `plugly-reflect-memory add` for every document
+  individually can produce an inconsistent graph; use `plugly-reflect-memory reindex` after a bulk import.
 - `--force` deletes the `nano_graphrag_cache/` directory before rebuilding. On a large KB this
   can take several minutes.
-- Run after `reflect generate-sidecars` to incorporate newly generated entity data.
+- Run after `plugly-reflect-memory generate-sidecars` to incorporate newly generated entity data.
 
 ---
 
-## `reflect stats`
+## `plugly-reflect-memory stats`
 
 Show statistics about the knowledge base.
 
 ### Synopsis
 
 ```
-reflect stats
+plugly-reflect-memory stats
 ```
 
 ### What it shows
 
 Three Rich tables printed to stderr:
 
-1. **Knowledge Base Statistics** — total documents, repository path, graph entity count,
+1. **Knowledge Base Statistics**, total documents, repository path, graph entity count,
    graph relationship count, docs-with-entities ratio.
-2. **By Category** — document count per category, sorted descending.
-3. **By Confidence** — document count per confidence level.
+2. **By Category**, document count per category, sorted descending.
+3. **By Confidence**, document count per confidence level.
 
 ### Examples
 
 ```bash
-reflect stats
+plugly-reflect-memory stats
 ```
 
 ### Notes
 
 - If the graph index has not been built, the graph entity and relationship counts show `Not initialized`.
-- `reflect stats` is a read-only inspection command — it never modifies the KB.
+- `plugly-reflect-memory stats` is a read-only inspection command, it never modifies the KB.
 
 ---
 
-## `reflect critical-patterns`
+## `plugly-reflect-memory critical-patterns`
 
 Surface high-confidence, widely-applicable patterns from the KB.
 
 ### Synopsis
 
 ```
-reflect critical-patterns [OPTIONS]
+plugly-reflect-memory critical-patterns [OPTIONS]
 ```
 
 ### Flags
 
 | Flag | Short | Default | Description |
 |---|---|---|---|
-| `--language TEXT` | `-l` | — | Filter by programming language |
-| `--domain TEXT` | `-d` | — | Filter by domain keyword (matches body text and tags) |
+| `--language TEXT` | `-l` |, | Filter by programming language |
+| `--domain TEXT` | `-d` |, | Filter by domain keyword (matches body text and tags) |
 
 ### What it does
 
@@ -339,35 +339,35 @@ or `patterns`. Renders each match as a Rich panel showing title and `key_insight
 
 ```bash
 # All critical patterns across all languages and domains
-reflect critical-patterns
+plugly-reflect-memory critical-patterns
 
 # Rust-specific patterns
-reflect critical-patterns --language rust
+plugly-reflect-memory critical-patterns --language rust
 
 # Backend patterns
-reflect critical-patterns --domain backend
+plugly-reflect-memory critical-patterns --domain backend
 
 # Combined filters
-reflect critical-patterns --language python --domain async
+plugly-reflect-memory critical-patterns --language python --domain async
 ```
 
 ### Notes / gotchas
 
 - Only documents with `confidence: high` in their frontmatter appear here.
-- `--domain` matches against the document body and tags — it is a fuzzy filter, not a strict predicate.
+- `--domain` matches against the document body and tags, it is a fuzzy filter, not a strict predicate.
 - If no patterns match, a yellow "No critical patterns found" message is printed. This usually means
   the KB has no documents with `confidence: high` yet.
 
 ---
 
-## `reflect generate-sidecars`
+## `plugly-reflect-memory generate-sidecars`
 
 Backfill missing `.entities.yaml` sidecars using heuristic extraction.
 
 ### Synopsis
 
 ```
-reflect generate-sidecars [OPTIONS]
+plugly-reflect-memory generate-sidecars [OPTIONS]
 ```
 
 ### Flags
@@ -380,7 +380,7 @@ reflect generate-sidecars [OPTIONS]
 
 Iterates every document in `documents/`. For each document that is missing a `.entities.yaml` sidecar
 (or all documents when `--force` is set), runs heuristic entity extraction and writes the sidecar
-alongside the document. No LLM is required — extraction is purely text-based.
+alongside the document. No LLM is required, extraction is purely text-based.
 
 Output shows per-document entity and relationship counts, plus a summary:
 
@@ -392,37 +392,37 @@ Results:
   Skipped:   3
 ```
 
-After running, call `reflect reindex` to incorporate the new entity data into the graph.
+After running, call `plugly-reflect-memory reindex` to incorporate the new entity data into the graph.
 
 ### Examples
 
 ```bash
 # Generate sidecars for documents that don't have one yet
-reflect generate-sidecars
+plugly-reflect-memory generate-sidecars
 
 # Regenerate all sidecars from scratch
-reflect generate-sidecars --force
+plugly-reflect-memory generate-sidecars --force
 
 # Then rebuild the graph to use the new sidecars
-reflect reindex
+plugly-reflect-memory reindex
 ```
 
 ### Notes / gotchas
 
 - Very short or generic documents may yield zero entities. These are skipped (counted as "Skipped").
 - Existing sidecars are preserved unless `--force` is passed.
-- This does not modify the graph index — run `reflect reindex` afterwards.
+- This does not modify the graph index, run `plugly-reflect-memory reindex` afterwards.
 
 ---
 
-## `reflect metrics stats`
+## `plugly-reflect-memory metrics stats`
 
 Aggregate the recall-metrics JSONL log.
 
 ### Synopsis
 
 ```
-reflect metrics stats [OPTIONS]
+plugly-reflect-memory metrics stats [OPTIONS]
 ```
 
 `metrics` is a subcommand group. `stats` is currently its only sub-subcommand.
@@ -439,29 +439,29 @@ reflect metrics stats [OPTIONS]
 
 Two tables (or a JSON object with `--format json`):
 
-- **Last N days** — total events, recall events, recall with hits, hit rate %, p50 latency (ms),
+- **Last N days**, total events, recall events, recall with hits, hit rate %, p50 latency (ms),
   p95 latency (ms), top tags.
-- **All time** — same metrics over the full log.
+- **All time**, same metrics over the full log.
 
 ### Examples
 
 ```bash
 # Default: last 7 days as Rich table
-reflect metrics stats
+plugly-reflect-memory metrics stats
 
 # Custom rolling window
-reflect metrics stats --window-days 30
+plugly-reflect-memory metrics stats --window-days 30
 
 # Machine-readable JSON
-reflect metrics stats --format json
+plugly-reflect-memory metrics stats --format json
 
 # Custom metrics file (e.g. a team-shared log)
-reflect metrics stats --metrics-path /shared/metrics.jsonl
+plugly-reflect-memory metrics stats --metrics-path /shared/metrics.jsonl
 ```
 
 ### Notes / gotchas
 
-- The metrics file is written by `reflect search` and `reflect add` after each operation.
+- The metrics file is written by `plugly-reflect-memory search` and `plugly-reflect-memory add` after each operation.
   If it does not exist yet, the command prints empty tables.
 - The file rotates automatically at 10 MB (handled by `reflect_kb.metrics`). Historical data before
   the last rotation is not included.
@@ -469,21 +469,21 @@ reflect metrics stats --metrics-path /shared/metrics.jsonl
 
 ---
 
-## `reflect timeline`
+## `plugly-reflect-memory timeline`
 
-Show or drill into the reflect statusline dashboard.
+Show or drill into the plugly-reflect-memory statusline dashboard.
 
 ### Synopsis
 
 ```
-reflect timeline [OPTIONS]
+plugly-reflect-memory timeline [OPTIONS]
 ```
 
 ### Flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `--explain TEXT` | — | Drill-down for a single row or `all`. Values: `REC`, `MEM`, `ING`, `DRN`, `TOK`, `ERR`, `COM`, `AGT`, `all` |
+| `--explain TEXT` |, | Drill-down for a single row or `all`. Values: `REC`, `MEM`, `ING`, `DRN`, `TOK`, `ERR`, `COM`, `AGT`, `all` |
 
 ### What it does
 
@@ -491,10 +491,10 @@ reflect timeline [OPTIONS]
 
 ```
 Live dashboard renders on your Claude Code statusline.
-Run `reflect timeline --explain <ROW>` for drill-down. ROW = REC|MEM|ING|DRN|TOK|ERR|COM|AGT|all
+Run `plugly-reflect-memory timeline --explain <ROW>` for drill-down. ROW = REC|MEM|ING|DRN|TOK|ERR|COM|AGT|all
 ```
 
-**With `--explain ROW`:** delegates to the reflect plugin's `reflect_timeline.sh` helper script,
+**With `--explain ROW`:** delegates to the plugly-reflect-memory plugin's `reflect_timeline.sh` helper script,
 discovered in this order:
 
 1. `$CLAUDE_PLUGIN_ROOT/scripts/reflect_timeline.sh`
@@ -521,24 +521,24 @@ The helper renders a plain-text drill-down for the requested row over the last 2
 
 ```bash
 # Print usage hint (no plugin invocation)
-reflect timeline
+plugly-reflect-memory timeline
 
 # Drill into token usage for the last 2 hours
-reflect timeline --explain TOK
+plugly-reflect-memory timeline --explain TOK
 
 # Full drill-down across all signals
-reflect timeline --explain all
+plugly-reflect-memory timeline --explain all
 
 # Drill into error events
-reflect timeline --explain ERR
+plugly-reflect-memory timeline --explain ERR
 ```
 
 ### Notes / gotchas
 
-- `reflect timeline --explain` requires the reflect plugin to be installed:
-  `claude plugin install reflect@ainb-reflect-memory`. If the plugin is not found, the command
+- `plugly-reflect-memory timeline --explain` requires the plugly-reflect-memory plugin to be installed:
+  `claude plugin install plugly-reflect-memory@plugly-reflect-memory`. If the plugin is not found, the command
   prints an install hint and exits with a non-zero code.
 - The live dashboard itself is rendered by the plugin's statusline hook, not by this command.
-  `reflect timeline` is the *drill-down* companion — it expands a single row.
+  `plugly-reflect-memory timeline` is the *drill-down* companion, it expands a single row.
 - `$CLAUDE_PLUGIN_ROOT` can be set to point at a development checkout of the plugin, which is
   useful when iterating on the timeline script itself.

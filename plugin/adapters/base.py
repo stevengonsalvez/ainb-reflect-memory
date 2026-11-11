@@ -43,6 +43,7 @@ import yaml
 # Skills exposed by the reflect plugin that adapters install. Each entry
 # is a directory name under ``plugins/reflect/skills/``.
 PLUGIN_SKILLS: tuple[str, ...] = (
+    "plugly-reflect-memory",
     "reflect",
     "recall",
     "status",
@@ -410,6 +411,12 @@ class AdapterBase:
             harness_label=self.HARNESS_LABEL,
         )
 
+    def _owns_skill(self, text: str) -> bool:
+        """Recognize current and legacy adapter ownership without claiming foreign files."""
+        owner = parse_skill_frontmatter(text).get("managed_by")
+        legacy = self.POINTER_MANAGED_BY.replace("plugly-reflect-memory/", "reflect-kb/")
+        return owner in (self.POINTER_MANAGED_BY, legacy)
+
     def _write_pointer(
         self, src: Path, dst: Path, *, force: bool = False,
     ) -> tuple[bool, str]:
@@ -431,7 +438,7 @@ class AdapterBase:
             except OSError:
                 existing = None
         is_foreign = (
-            existing is not None and self.POINTER_MANAGED_BY not in existing
+            existing is not None and not self._owns_skill(existing)
         )
         if is_foreign and not force:
             return False, (
@@ -453,6 +460,18 @@ class AdapterBase:
         foreign sibling. Refused pointers still appear in ``actions`` so
         the user sees the warning before re-running with ``--force``.
         """
+        # Preflight every destination before writing skills, resources or hooks.
+        # A foreign umbrella owns its entire subtree, including shared scripts.
+        if not force:
+            for _, dst in plan.pointers:
+                if not dst.exists():
+                    continue
+                try:
+                    existing = dst.read_text(encoding="utf-8")
+                except (OSError, UnicodeError):
+                    return [f"refused to overwrite unreadable file at {dst}"], 1
+                if not self._owns_skill(existing):
+                    return [f"refused to overwrite non-pointer file at {dst} (use --force to replace)"], 1
         actions: list[str] = []
         exit_code = 0
         for src, dst in plan.pointers:
@@ -490,7 +509,7 @@ class AdapterBase:
                 content = pointer.read_text(encoding="utf-8")
             except OSError:
                 continue
-            if self.POINTER_MANAGED_BY not in content:
+            if not self._owns_skill(content):
                 actions.append(f"left foreign file untouched: {pointer}")
                 continue
             pointer.unlink()

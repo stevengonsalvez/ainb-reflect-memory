@@ -1,8 +1,8 @@
-# reflect
+# plugly-reflect-memory
 
 > **Correct once, never again.** Capture every correction and design decision your AI assistant makes, index them into a hybrid GraphRAG + BM25 knowledge base, and auto-inject the most relevant prior learnings into every new session.
 
-Works across **Claude Code**, **Codex CLI**, and **GitHub Copilot** — same plugin, same KB, three harnesses.
+Works across **Claude Code**, **Codex CLI**, and **GitHub Copilot**, same plugin, same KB, three harnesses.
 
 ---
 
@@ -34,7 +34,7 @@ If you've used AI coding assistants for more than a week, you've corrected the s
 - That third-party library has a footgun you discovered last month
 - "When I ask you to delete files, also clean the imports"
 
-`reflect` fixes that by **capturing** corrections as structured learnings, **indexing** them into a searchable knowledge base, and **recalling** the relevant ones at the start of every new session — automatically, before the first token of your prompt is generated.
+`plugly-reflect-memory` fixes that by **capturing** corrections as structured learnings, **indexing** them into a searchable knowledge base, and **recalling** the relevant ones at the start of every new session, automatically, before the first token of your prompt is generated.
 
 ---
 
@@ -49,7 +49,7 @@ flowchart TD
     end
 
     subgraph Capture["1 . Capture"]
-        REF["/reflect skill<br/>(manual or auto)"]
+        REF["/plugly-reflect-memory skill<br/>(manual or auto)"]
         PCH["PreCompact hook<br/>(on conversation compact)"]
     end
 
@@ -61,7 +61,7 @@ flowchart TD
 
     subgraph Recall["3 . Recall"]
         SS["SessionStart hook<br/>auto-injects top-3"]
-        RS["/recall skill<br/>(on demand)"]
+        RS["/plugly-reflect-memory:recall skill<br/>(on demand)"]
     end
 
     H -->|corrections, root causes,<br/>design decisions| Capture
@@ -76,19 +76,19 @@ flowchart TD
 
 **Flow:**
 
-1. **Capture** — `/reflect` analyses your conversation, classifies corrections vs. successes, and writes a Markdown learning note + a YAML entity sidecar (people, files, libraries, decisions). A `PreCompact` hook auto-fires when the agent compacts a conversation, so nothing gets lost.
-2. **Knowledge Base** — notes get dual-indexed: nano-graphrag for semantic + entity-graph search, qmd for fast BM25 lexical search. Both run locally on your machine.
-3. **Recall** — at every `SessionStart`, a hook runs hybrid search against the KB using the new session's working dir + recent commits as a query, fuses the results, reranks by confidence × recency × tag overlap, and injects the top three into the agent's context before you type anything.
+1. **Capture**, `/plugly-reflect-memory` analyses your conversation, classifies corrections vs. successes, and writes a Markdown learning note + a YAML entity sidecar (people, files, libraries, decisions). A `PreCompact` hook auto-fires when the agent compacts a conversation, so nothing gets lost.
+2. **Knowledge Base**, notes get dual-indexed: nano-graphrag for semantic + entity-graph search, qmd for fast BM25 lexical search. Both run locally on your machine.
+3. **Recall**, at every `SessionStart`, a hook runs hybrid search against the KB using the new session's working dir + recent commits as a query, fuses the results, reranks by confidence × recency × tag overlap, and injects the top three into the agent's context before you type anything.
 
 ---
 
-## Mental model — who writes what, when?
+## Mental model, who writes what, when?
 
-The single most common source of confusion is conflating the three different writers that feed the knowledge base. They run on different triggers, write to different paths, and only `/reflect:ingest` is what stitches everything together. Anchor on this picture before reading further:
+The single most common source of confusion is conflating the three different writers that feed the knowledge base. They run on different triggers, write to different paths, and only `/plugly-reflect-memory:ingest` is what stitches everything together. Anchor on this picture before reading further:
 
 ```
    ┌─────────────────────────────────────────────────────────────────┐
-   │  WRITER A — Built-in auto-memory tool                           │
+   │  WRITER A, Built-in auto-memory tool                           │
    │            (runs SILENTLY whenever the agent decides to remember)│
    │                                                                 │
    │  Trigger: agent's internal heuristic during the conversation    │
@@ -105,17 +105,17 @@ The single most common source of confusion is conflating the three different wri
    │    Gemini:  ~/.gemini/GEMINI.md                                 │
    └─────────────────────────────────────────────────────────────────┘
                               │
-                              │ time passes — file backlog accumulates
+                              │ time passes, file backlog accumulates
                               │
    ┌──────────────────────────┴───────┬─────────────────────────────┐
    │                                  │                             │
    ▼                                  ▼                             ▼
 ┌──────────────────────────┐  ┌─────────────────────────┐  ┌─────────────────────┐
-│ WRITER B — /reflect      │  │ WRITER B' — auto-drain  │  │ HARVESTER —         │
-│ (you invoke manually)    │  │ (PreCompact → drain →   │  │ /reflect:ingest     │
-│                          │  │  claude -p /reflect)    │  │ (you invoke         │
+│ WRITER B: capture skill  │  │ WRITER B': auto-drain   │  │ HARVESTER: ingest   │
+│ (you invoke manually)    │  │ (PreCompact → drain →   │  │ (bulk capture)      │
+│                          │  │  model subprocess)      │  │ (you invoke         │
 │ Source: current convo    │  │                         │  │  periodically)      │
-│ transcript               │  │ Same /reflect skill,    │  │                     │
+│ transcript               │  │ Same capture skill,     │  │                     │
 │                          │  │ but run inside a child  │  │ Source: ALL         │
 │ Writes:                  │  │ session by the drain    │  │ Writer-A files      │
 │ • docs/solutions/<cat>/  │  │ script, on the queued   │  │ across all tools    │
@@ -125,7 +125,7 @@ The single most common source of confusion is conflating the three different wri
 │   ep-<id>.md             │  │ as Writer B.            │  │   documents/<id>.md │
 │                          │  │                         │  │ • .entities.yaml    │
 │ Indexes:                 │  │                         │  │ • archived copy in  │
-│ reflect add --entities → │  │                         │  │   memories/<proj>/  │
+│ CLI add with entities →  │  │                         │  │   memories/<proj>/   │
 │ ~/.learnings/documents/  │  │                         │  │                     │
 │ + graph + vectors        │  │                         │  │ Indexes: same       │
 └──────────────────────────┘  └─────────────────────────┘  └─────────────────────┘
@@ -134,25 +134,25 @@ The single most common source of confusion is conflating the three different wri
    │
    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  ~/.learnings/  (the UNIFIED KB — every writer above feeds here)    │
+│  ~/.learnings/  (the UNIFIED KB, every writer above feeds here)    │
 │  + ~/.learnings/nano_graphrag_cache/   ← graph                      │
 │  + ~/.cache/qmd/index.sqlite           ← vectors                    │
 └────────────────────────────────┬────────────────────────────────────┘
                                  │
                                  ▼
-                       /recall "<anything>"
+                       /plugly-reflect-memory:recall "<anything>"
 ```
 
-### What ingest processes — per tool
+### What ingest processes, per tool
 
 | Tool | Where it stores memory | What ingest picks up |
 |---|---|---|
-| **Claude** | `~/.claude/projects/<project-hash>/memory/` | Every `*.md` under that dir — the `MEMORY.md` index AND the atomic per-fact files |
+| **Claude** | `~/.claude/projects/<project-hash>/memory/` | Every `*.md` under that dir, the `MEMORY.md` index AND the atomic per-fact files |
 | **Codex** | `~/.codex/memories/` + `~/.codex/AGENTS.md` | Every `.md` in `memories/`; the global `AGENTS.md` |
 | **Copilot** | `~/.copilot/AGENTS.md` (single file) | The global `AGENTS.md` |
 | **Gemini** | `~/.gemini/GEMINI.md` + `<repo>/GEMINI.md` | Global file + per-project files |
 | **(any)** | `<repo>/AGENTS.md` | Per-project `AGENTS.md` files (codex/copilot share this format) |
-| **(any)** | `<repo>/.agents/MEMORY.md` | Project-consolidated memory (from `/reflect:consolidate`) |
+| **(any)** | `<repo>/.agents/MEMORY.md` | Project-consolidated memory (from `/plugly-reflect-memory:consolidate`) |
 | **Episodes** | `~/.reflect/episodes/ep-*.md` | Session episode notes (drain output) |
 | **Solutions** | `<repo>/docs/solutions/**/*.md` | Knowledge notes that don't have entity sidecars yet |
 | **Skills** | `~/.claude/skills/*/references/*.md` | Learnings embedded in skill packages |
@@ -164,24 +164,24 @@ All of these flow through ONE pipeline and land in ONE place: `~/.learnings/docu
 | Action | What it does |
 |---|---|
 | You type something the agent finds important | Writer A creates a `feedback_*.md` in your project's memory dir. Silent. Always. |
-| You explicitly run `/reflect` | Writer B reads the *current conversation*, writes a knowledge note in `docs/solutions/<cat>/` + indexes it. One transcript at a time. |
-| PreCompact / Stop fires (auto) | Transcript is **queued**, then a background drain runs `/reflect` (Writer B') on it. Same outputs. Background. |
-| You explicitly run `/reflect:ingest` | Harvester reads everything Writer A ever made + similar across other tools, batch-indexes them all. Periodic. |
-| You run `/recall` | Searches the unified KB built by all of the above. |
+| You explicitly run `/plugly-reflect-memory` | Writer B reads the *current conversation*, writes a knowledge note in `docs/solutions/<cat>/` + indexes it. One transcript at a time. |
+| PreCompact / Stop fires (auto) | Transcript is **queued**, then a background drain runs `/plugly-reflect-memory` (Writer B') on it. Same outputs. Background. |
+| You explicitly run `/plugly-reflect-memory:ingest` | Harvester reads everything Writer A ever made + similar across other tools, batch-indexes them all. Periodic. |
+| You run `/plugly-reflect-memory:recall` | Searches the unified KB built by all of the above. |
 
-> **v4.0.0 — the auto-drain is cheap by default.** Before spending a single
+> **v4.0.0, the auto-drain is cheap by default.** Before spending a single
 > token, the drain gates the queued transcript ($0 regex) and skips
 > reflect-on-reflect, clean, and no-signal sessions; for anything worth
 > reflecting it slices the transcript down to just the signal-bearing windows
-> (~10x smaller) and runs `/reflect` on **Sonnet** under hard caps (8 turns,
-> 180s, 2M-token budget poison). Inspect spend with `reflect cost` and see
+> (~10x smaller) and runs `/plugly-reflect-memory` on **Sonnet** under hard caps (8 turns,
+> 180s, 2M-token budget poison). Inspect spend with `plugly-reflect-memory cost` and see
 > [CHANGELOG.md](./CHANGELOG.md) for the full rearchitecture.
 
-### Worked example — one fact, full trip
+### Worked example, one fact, full trip
 
 Take a fact: *"Fleet governance must be enforced as deterministic hooks, not standing-orders prose."*
 
-**Step 1 — Writer A captures it.** While you're correcting the agent in a conversation, Claude Code's built-in memory tool decides this is worth remembering and silently writes:
+**Step 1, Writer A captures it.** While you're correcting the agent in a conversation, Claude Code's built-in memory tool decides this is worth remembering and silently writes:
 
 ```bash
 ~/.claude/projects/-Users-stevengonsalvez-...-shotclubhouse/memory/feedback_governance_in_code_not_prompts.md
@@ -189,17 +189,17 @@ Take a fact: *"Fleet governance must be enforced as deterministic hooks, not sta
 
 with frontmatter and body. Nothing else happens. **Not in the KB yet.**
 
-**Step 2 — `/reflect:ingest` picks it up (you, batch, periodic).** The harvester:
+**Step 2, `/plugly-reflect-memory:ingest` picks it up (you, batch, periodic).** The harvester:
 
 1. Discovers the file via the Claude provider's memory-pattern glob.
-2. Computes a content hash, checks `~/.learnings/.memory-ingest-log.yaml` — if hash is new, proceeds.
+2. Computes a content hash, checks `~/.learnings/.memory-ingest-log.yaml`, if hash is new, proceeds.
 3. Archives a raw copy: `~/.learnings/documents/memories/shotclubhouse/feedback_governance_in_code_not_prompts.md`.
 4. Generates a structured learning doc at `~/.learnings/documents/lrn-governance-in-code-not-prompts-<hash6>.md` (title, key_insight, tags, provenance frontmatter; Problem/Solution/Context body).
 5. Generates an entity sidecar `.entities.yaml` alongside (9 entities, 6 relationships in this case).
-6. Calls `reflect add --entities` → graph cache + QMD vector store updated.
+6. Calls `plugly-reflect-memory add --entities` → graph cache + QMD vector store updated.
 7. Appends to the ingest log so future runs skip this file.
 
-**Step 3 — `/recall` retrieves it.** When you search `"governance in code not prompts"`, hybrid graph + vector ranking surfaces the learning at the top with the correct title, key_insight, tags, and source path.
+**Step 3, `/plugly-reflect-memory:recall` retrieves it.** When you search `"governance in code not prompts"`, hybrid graph + vector ranking surfaces the learning at the top with the correct title, key_insight, tags, and source path.
 
 The fact has now travelled from a free-form correction in chat → an auto-memory file on disk → a structured learning + entities sidecar → graph + vector index → recall hit. Every step is local; nothing leaves the machine.
 
@@ -207,7 +207,7 @@ The fact has now travelled from a free-form correction in chat → an auto-memor
 
 ## Live timeline dashboard (optional)
 
-The plugin ships a 4-row activity dashboard renderer at `scripts/reflect_timeline.sh`. After install it lands at `~/.claude/plugins/cache/<marketplace>/reflect/<version>/plugin/scripts/reflect_timeline.sh`. Wire it into your statusline to see a rolling 2-hour view of all 8 reflect-pipeline signals side-by-side.
+The plugin ships a 4-row activity dashboard renderer at `scripts/reflect_timeline.sh`. After install it lands at the enabled canonical plugin cache under `scripts/reflect_timeline.sh`. Wire it into your statusline to see a rolling 2-hour view of all 8 reflect-pipeline signals side-by-side.
 
 ```
 R: ▁·▁▂▅█▆▃▁·····▁··▂··░·   M: ········▁▂▃·····▁▂··    ◀ recall (blue)        | auto-memory (cyan)
@@ -228,7 +228,10 @@ Each sub-sparkline: 24 cells × 5 minutes = 2 hours, right edge = now. Heights e
 Wire it into your statusline by adding this block at the end (after `printf '%b\n %b' "$L1" "$L2"`):
 
 ```bash
-TIMELINE_HELPER="${CLAUDE_PLUGIN_ROOT:-$HOME/.claude/plugins/cache/<marketplace>/reflect/<version>/plugin/scripts}/reflect_timeline.sh"
+TIMELINE_HELPER="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/reflect_timeline.sh}"
+if [[ -z "$TIMELINE_HELPER" ]]; then
+  TIMELINE_HELPER="$(find "$HOME/.claude/plugins/cache/plugly-reflect-memory/plugly-reflect-memory" -name reflect_timeline.sh -type f 2>/dev/null | sort -V | tail -n 1)"
+fi
 if [[ "${REFLECT_TIMELINE_DISABLE:-0}" != "1" ]] && [[ -x "$TIMELINE_HELPER" ]]; then
   "$TIMELINE_HELPER" 2>/dev/null
 fi
@@ -266,84 +269,82 @@ clicks always show fresh data.
 
 | Skill | What it does |
 |-------|--------------|
-| `reflect` | Full conversation scan — extract corrections, classify them, write a learning note with entity sidecar |
-| `reflect:recall` | Query the KB on demand (also runs automatically at SessionStart) |
-| `reflect:ingest` | Bulk-index existing memories from any tool (Claude/Codex/Copilot/Gemini) into the global KB |
-| `reflect:consolidate` | Project-level memory consolidation — merges orphaned worktree memory dirs into a single `.agents/MEMORY.md` |
-| `reflect:errors-ack` | Triage and acknowledge entries in the reflect errors sink (`~/.reflect/errors.json`) — drain poison, parser crashes, ingest failures, hook timeouts. Invoked from the statusline ⚠N badge. |
-| `reflect:cost` | Drain spend report over a window (default 1 day) — tokens split by cached / uncached writes / io, with a $ estimate and outlier flagging, grouped by day / outcome / model / transcript. |
-| `reflect:status` | Read-only metrics: pending reviews, sidecar coverage, GraphRAG health. Approve/reject low-confidence items. |
+| `plugly-reflect-memory` | Full conversation scan, extract corrections, classify them, write a learning note with entity sidecar |
+| `plugly-reflect-memory:recall` | Query the KB on demand (also runs automatically at SessionStart) |
+| `plugly-reflect-memory:ingest` | Bulk-index existing memories from any tool (Claude/Codex/Copilot/Gemini) into the global KB |
+| `plugly-reflect-memory:consolidate` | Project-level memory consolidation, merges orphaned worktree memory dirs into a single `.agents/MEMORY.md` |
+| `plugly-reflect-memory:errors-ack` | Triage and acknowledge entries in the plugly-reflect-memory errors sink (`~/.reflect/errors.json`), drain poison, parser crashes, ingest failures, hook timeouts. Invoked from the statusline ⚠N badge. |
+| `plugly-reflect-memory:cost` | Drain spend report over a window (default 1 day), tokens split by cached / uncached writes / io, with a $ estimate and outlier flagging, grouped by day / outcome / model / transcript. |
+| `plugly-reflect-memory:status` | Read-only metrics: pending reviews, sidecar coverage, GraphRAG health. Approve/reject low-confidence items. |
 
 ---
 
 ## Install
 
-Reflect is **two layers**: the plugin (hooks + skills, installed by Claude Code)
-and the `reflect-kb` CLI (recall/ingest/search + qmd + nano-graphrag, installed
-via `uv`). `claude plugin install` only does the first — so install both, then
+plugly-reflect-memory is **two layers**: the plugin (hooks + skills, installed by Claude Code)
+and the `plugly-reflect-memory` CLI (recall/ingest/search + qmd + nano-graphrag, installed
+via `uv`). `claude plugin install` only does the first, so install both, then
 verify.
 
-### One-step (recommended, via ainb)
+### Install plugin and engine
+
+Existing users: follow [rename migration](../docs/rename-migration.md) first.
+Keep only one native, adapter or APM hook registration per harness.
 
 ```bash
-# 1. plugin: recall, queue, policy, subagent, and error hooks + skills
-claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
-claude plugin install reflect@ainb-reflect-memory
-
-# 2. everything else in one shot: auto-installs the reflect-kb CLI (full
-#    GraphRAG stack) and prints any missing system tools for you to install
-ainb reflect bootstrap
-
-# 3. verify — dependency check classified by what needs each tool
-ainb doctor
+claude plugin marketplace add stevengonsalvez/plugly-reflect-memory
+claude plugin install plugly-reflect-memory@plugly-reflect-memory
+uv tool install --upgrade --torch-backend cpu \
+  'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
+plugly-reflect-memory --version
 ```
 
-`ainb reflect bootstrap` is **hybrid** by design: it *auto-installs* the
-reflect-owned layer (`reflect-kb[graph]` via `uv`) after one confirm, and only
-*prints* the commands for system tools (bash, coreutils, jq) so it never
-touches your OS or PATH without you.
+`reflect` remains an executable alias. Existing `~/.reflect`, `~/.learnings`,
+`REFLECT_*`, `reflect.toml`, queue files and database schemas remain compatible.
+The external `ainb reflect bootstrap` command requires its own downstream update;
+use the explicit installation above until that update is verified.
 
 ### Optional: per-repo git-commit capture (SG2)
 
 A git commit is the strongest "this was deliberate" signal. To capture commits
 (SHA + branch + files linked to the active session, merge-conflict and revert
-handling) in a repo, install the post-commit hook **once per repo** — it chains
+handling) in a repo, install the post-commit hook **once per repo**, it chains
 any existing hook and never fails your commit:
 
 ```bash
 # from anywhere; pass the repo dir, or run inside it
-bash "$REFLECT_PLUGIN_ROOT"/hooks/install_post_commit.sh /path/to/repo
-# undo: ... install_post_commit.sh --uninstall /path/to/repo
+bash plugin/hooks/install_post_commit.sh "$PWD"
+# Undo from a source checkout: bash plugin/hooks/install_post_commit.sh --uninstall "$PWD"
 ```
 
-This is the only reflect hook that lives in a repo's `.git/hooks` (the rest are
+This is the only plugly-reflect-memory hook that lives in a repo's `.git/hooks` (the rest are
 Claude Code session hooks wired by `claude plugin install`). The `launchd`
 timers (idle/drain/forget/synthesis) each ship an INSTALL block in
 `launchd/*.plist`.
 
-### Manual (what bootstrap runs, annotated)
+### Dependencies and source install
 
 ```bash
-# Prerequisite: uv — runs every reflect hook AND installs the CLI below.
+# Prerequisite: uv, runs every plugly-reflect-memory hook AND installs the CLI below.
 curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# The reflect-kb CLI + full retrieval stack. The [graph] extra pulls:
-#   · qmd                   — BM25 / lexical retrieval
-#   · nano-graphrag         — GraphRAG (entity + community retrieval)
-#   · sentence-transformers — embeddings (CPU torch, ~1.5GB)
-# reflect embeds on the CPU: --torch-backend cpu skips ~4GB of CUDA wheels.
+# The plugly-reflect-memory CLI + full retrieval stack. The [graph] extra pulls:
+#   · qmd                  , BM25 / lexical retrieval
+#   · nano-graphrag        , GraphRAG (entity + community retrieval)
+#   · sentence-transformers, embeddings (CPU torch, ~1.5GB)
+# plugly-reflect-memory embeds on the CPU: --torch-backend cpu skips ~4GB of CUDA wheels.
 uv tool install --force --upgrade --torch-backend cpu \
-  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+  'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 # On a GPU box that wants CUDA torch, drop --torch-backend cpu (or use auto).
-# uv < 0.6 rejects --torch-backend with a bare "Usage:" error — either
+# uv < 0.6 rejects --torch-backend with a bare "Usage:" error, either
 # `uv self update`, or use the env-var form (same effect):
 #   UV_TORCH_BACKEND=cpu uv tool install --force --upgrade \
-#     'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+#     'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 
 # System tools the STATUSLINE needs (macOS; skip any you already have):
-#   · bash >=4   — the 4-row reflect timeline dashboard (macOS ships 3.2)
-#   · coreutils  — `timeout`, which guards every statusline shell-out
-#   · jq         — parses statusline JSON + counts reflect errors (badge)
+#   · bash >=4  , the 4-row plugly-reflect-memory timeline dashboard (macOS ships 3.2)
+#   · coreutils , `timeout`, which guards every statusline shell-out
+#   · jq        , parses statusline JSON + counts plugly-reflect-memory errors (badge)
 brew install bash coreutils jq
 #   then put Homebrew bash ahead of /bin/bash and coreutils' gnubin on PATH:
 #   echo 'export PATH="$(brew --prefix)/bin:$(brew --prefix coreutils)/libexec/gnubin:$PATH"' >> ~/.zshrc
@@ -359,8 +360,8 @@ These harnesses don't have a native plugin runtime yet. Use the python adapter,
 then install the same CLI (annotated notes above):
 
 ```bash
-git clone https://github.com/stevengonsalvez/ainb-reflect-memory.git
-cd ainb-reflect-memory
+git clone https://github.com/stevengonsalvez/plugly-reflect-memory.git
+cd plugly-reflect-memory
 
 # pick your harness
 python3 plugin/adapters/codex/codex_adapter.py install
@@ -368,7 +369,7 @@ python3 plugin/adapters/copilot/copilot_adapter.py install
 
 # same CLI prerequisite (--torch-backend cpu skips ~4GB of CUDA wheels)
 uv tool install --force --upgrade --torch-backend cpu \
-  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+  'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 ```
 
 ---
@@ -376,11 +377,11 @@ uv tool install --force --upgrade --torch-backend cpu \
 ## Verify it's working
 
 ```bash
-# Should list reflect@ainb-reflect-memory, version <version>
+# Should list plugly-reflect-memory@plugly-reflect-memory, version 6.0.0
 claude plugin list
 
 # Should print pending reflections, KB stats, sidecar coverage
-/reflect:status
+/plugly-reflect-memory:status
 ```
 
 After a few sessions, `~/.reflect/drain.log` will show successful drains and `~/.reflect/pending_reflections.jsonl.processed-*` will accumulate as evidence the hooks are firing.
@@ -391,15 +392,15 @@ After a few sessions, `~/.reflect/drain.log` will show successful drains and `~/
 
 Configuration cascades:
 
-1. **Plugin defaults** — bundled `reflect.toml`
-2. **User overrides** — `~/.reflect/reflect.toml`
-3. **Project overrides** — `.reflect.toml` at the repo root
+1. **Plugin defaults**, bundled `reflect.toml`
+2. **User overrides**, `~/.reflect/reflect.toml`
+3. **Project overrides**, `.reflect.toml` at the repo root
 
 Most users don't need to touch any of these. Power users adjust:
 
-- `recall.max_results` (default 3) — how many learnings get injected per session
-- `recall.confidence_threshold` (default 0.6) — minimum hybrid score for inclusion
-- `ingest.batch_size` — for bulk-importing large memory archives
+- `recall.max_results` (default 3), how many learnings get injected per session
+- `recall.confidence_threshold` (default 0.6), minimum hybrid score for inclusion
+- `ingest.batch_size`, for bulk-importing large memory archives
 
 ---
 
@@ -414,7 +415,7 @@ For design decisions and the v4 universal-install spec, see **[docs/design-recor
 ## Companion CLI
 
 The Python CLI that powers this plugin lives in the same monorepo at
-[`src/reflect_kb/`](../src/reflect_kb/) — install via `uv tool install` (see Install
+[`src/reflect_kb/`](../src/reflect_kb/), install via `uv tool install` (see Install
 section above for the subdirectory URL).
 
 The plugin in this repo is the harness-side glue (skills, hooks, settings.json merge); the CLI is the actual KB engine.

@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::note[Historical]
-This page is a timeline, not a description of the current system. Everything marked with a date is taken from git history (commit dates, tags) or from the journals and handovers named in each row. For how reflect works today, start at the [Architecture](/ainb-reflect-memory/concepts/architecture/) page.
+This page is a timeline, not a description of the current system. Everything marked with a date is taken from git history (commit dates, tags) or from the journals and handovers named in each row. For how reflect works today, start at the [Architecture](/plugly-reflect-memory/concepts/architecture/) page.
 :::
 
 The short version:
@@ -39,7 +39,7 @@ Sources: `git log` in `stevengonsalvez/agents-in-a-box` (the original monorepo) 
 | 2026-04-23 | **v3.1.0: `/reflect:recall` plus SessionStart auto-retrieval.** Same day: BM25 (`qmd search`) fused with the vector arm by RRF. Two design records written (v3.2 single PR, v4 universal install). | `89faa5356`, `e80992567`, design records |
 | 2026-05-17 | `reflect-kb` (the Python engine and CLI) imported into the monorepo; the plugin moves to a root `plugins/reflect/`. | `79a4645`, `e8addfa` |
 | 2026-05-20 to 22 | Codex adapter with SessionStart and PreCompact hooks (PR #149), silent-fail hook helpers (3.5.0, PR #150), UserPromptSubmit recall plus PostToolUse mini-learning plus Stop enqueue (PR #154). | merge commits |
-| 2026-05-31 | **4.0.0 cost rearchitecture** after one background drain used 41.5M tokens in 9.6 minutes for zero new learnings. | CHANGELOG 4.0.0; [Cost rearchitecture](/ainb-reflect-memory/design/cost-rearchitecture/) |
+| 2026-05-31 | **4.0.0 cost rearchitecture** after one background drain used 41.5M tokens in 9.6 minutes for zero new learnings. | CHANGELOG 4.0.0; [Cost rearchitecture](/plugly-reflect-memory/design/cost-rearchitecture/) |
 | 2026-06-04 | One-step install flow (PR #217). | `e93955c` |
 | 2026-06-10 | Recall eval harness with hermetic KB and golden queries; the recall-upgrade commits (R1 to R16, M, A, S, SG series) begin landing. | `4e0a3b1` and following |
 | 2026-06-17 | **4.1.0 "57 ports"** recall upgrade (PR #248). | CHANGELOG 4.1.0 |
@@ -66,7 +66,7 @@ Sources: `git log` in `stevengonsalvez/agents-in-a-box` (the original monorepo) 
 | Jun 18 to 19 | Measured on LOCOMO; HyDE and embedder swap added as opt-in knobs | LOCOMO REPORT |
 | Jul 10 | Models held in a daemon so parallel recalls share one process | 5.2.0 |
 
-The style-by-style view is on [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/); the original six-phase plan and what became of each phase is on [Retrieval roadmap](/ainb-reflect-memory/design/retrieval-roadmap/).
+The style-by-style view is on [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/); the original six-phase plan and what became of each phase is on [Retrieval roadmap](/plugly-reflect-memory/design/retrieval-roadmap/).
 
 ## What changed in capture
 
@@ -75,16 +75,16 @@ The style-by-style view is on [Retrieval styles](/ainb-reflect-memory/concepts/r
 | v1/v2 | One `/reflect` skill run in the live session | v1 monolith |
 | v3 (Apr) | Plugin with sub-skills, SQLite state, providers, PreCompact queue | handover |
 | v3.5 (May) | Hooks wired for Stop, UserPromptSubmit and PostToolUse; a SessionStart "surfacer" and a background drainer both consume the queue | commits, cost plan |
-| 4.0 (May 31) | Gate and slice before any model, one consumer, hard caps, Sonnet by default, cost log | [Cost rearchitecture](/ainb-reflect-memory/design/cost-rearchitecture/) |
+| 4.0 (May 31) | Gate and slice before any model, one consumer, hard caps, Sonnet by default, cost log | [Cost rearchitecture](/plugly-reflect-memory/design/cost-rearchitecture/) |
 | 5.2.3 to 5.2.5 | One tool-free model call returns a JSON action list that a script executes; the agentic loop is a fallback | CHANGELOG |
 
 ## Notes on the shared-Postgres line
 
-The Postgres and pgvector work is the **late** line, not the origin. nano-graphrag with local files was the engine from February 2026. The Postgres work (JOURNAL dated 2026-06-18, PR #302 in the monorepo, re-landed here on 2026-06-19) replaces only the per-machine derived layer (vectors, graph, community reports) with a shared store behind an opt-in switch, and keeps the markdown KB as the source of truth. It is current code, not abandoned: see [Shared Postgres backend](/ainb-reflect-memory/design/shared-postgres-backend/).
+The Postgres and pgvector work is the **late** line, not the origin. nano-graphrag with local files was the engine from February 2026. The Postgres work (JOURNAL dated 2026-06-18, PR #302 in the monorepo, re-landed here on 2026-06-19) replaces only the per-machine derived layer (vectors, graph, community reports) with a shared store behind an opt-in switch, and keeps the markdown KB as the source of truth. It is current code, not abandoned: see [Shared Postgres backend](/plugly-reflect-memory/design/shared-postgres-backend/).
 
 ## Where the numbers in the older docs no longer hold
 
 - The 2026-04-20 handover counts 222 learnings, 347 graph nodes and 10 communities: a snapshot of the author's KB on that day, not a property of the system.
 - The v3-era docs place notes in `~/.learnings/documents/learnings/`. Current `reflect add` writes flat to `documents/`.
-- The CHANGELOG 4.1.0 entry says the new arms are gated by knobs that "default off or to the pre-4.1 behavior" and, in the same paragraph, that they are "live out of the box". In the code the retrieval arms (R1, R2, R3, R5, R6, R9) default **on**; see [Retrieval styles](/ainb-reflect-memory/concepts/retrieval-styles/).
+- The CHANGELOG 4.1.0 entry says the new arms are gated by knobs that "default off or to the pre-4.1 behavior" and, in the same paragraph, that they are "live out of the box". In the code the retrieval arms (R1, R2, R3, R5, R6, R9) default **on**; see [Retrieval styles](/plugly-reflect-memory/concepts/retrieval-styles/).
 - The "57" is the count of proof files at 4.1.0. The directory holds 60 proof files today.

@@ -4,7 +4,7 @@
  *
  *   node docs-site/scripts/build-demo.mjs        (also run by `npm run build` / `npm run dev`)
  *
- * Takes the REAL `reflect serve` frontend (src/reflect_kb/cli/serve_static/index.html)
+ * Takes the REAL `plugly-reflect-memory serve` frontend (src/reflect_kb/cli/serve_static/index.html)
  * at build time, so the demo always tracks the shipped UI, and:
  *   - injects demo/mock-api.js (fetch interceptor) BEFORE the app script,
  *   - injects a slim "demo mode" banner and an iframe theme-sync snippet,
@@ -40,7 +40,7 @@ for (const [label, p] of [['frontend', SPA], ['mock', MOCK], ['snapshot', SNAPSH
 }
 
 // Theme + banner. Uses the SPA's own CSS variables so it follows light/dark.
-const INJECT = `<!-- reflect docs demo: injected by docs-site/scripts/build-demo.mjs -->
+const INJECT = `<!-- plugly-reflect-memory docs demo: injected by docs-site/scripts/build-demo.mjs -->
 <style>
   #demo-banner { display:flex; align-items:center; justify-content:center; gap:10px;
     padding:3px 12px; font:12px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif;

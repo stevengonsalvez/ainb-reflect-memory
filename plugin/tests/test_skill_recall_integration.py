@@ -150,6 +150,7 @@ def sandbox_kb(tmp_path):
         f"cat <<'EOF'\n{fake_output}\nEOF\n"
     )
     stub.chmod(0o755)
+    (bin_dir / "plugly-reflect-memory").symlink_to(stub.name)
 
     # Also create the nano_graphrag_cache dir so kb_last_modified() works.
     # (Path is unchanged from pre-migration — it's still under ~/.learnings/
@@ -258,6 +259,7 @@ def dual_stub_kb(tmp_path):
         f"#!/usr/bin/env bash\ncat <<'EOF'\n{graph_envelope}\nEOF\n"
     )
     reflect_stub.chmod(0o755)
+    (bin_dir / "plugly-reflect-memory").symlink_to(reflect_stub.name)
 
     # qmd stub — emits text output with paths pointing at our seeded docs.
     qmd_stub = bin_dir / "qmd"
@@ -308,15 +310,17 @@ def test_fusion_includes_both_backends(dual_stub_kb):
 # ─── Layer 6: REAL CLI smoke tests (skipped if KB absent) ──────────────
 
 def _real_reflect_available() -> bool:
-    return shutil.which("reflect") is not None
+    return (os.environ.get("PLUGLY_REFLECT_MEMORY_LIVE_TESTS") == "1"
+            and shutil.which("reflect") is not None)
 
 
 def _real_qmd_available() -> bool:
-    return shutil.which("qmd") is not None
+    return (os.environ.get("PLUGLY_REFLECT_MEMORY_LIVE_TESTS") == "1"
+            and shutil.which("qmd") is not None)
 
 
 @pytest.mark.skipif(not _real_reflect_available(),
-                    reason="reflect CLI not on $PATH (install with `uv tool install reflect-kb`)")
+                    reason="requires PLUGLY_REFLECT_MEMORY_LIVE_TESTS=1 and reflect CLI on PATH")
 def test_real_reflect_cli_returns_results():
     """Smoke test: the real reflect CLI actually returns something for a
     generic query. Catches if the local KB is empty or broken."""
@@ -335,7 +339,7 @@ def test_real_reflect_cli_returns_results():
 
 
 @pytest.mark.skipif(not _real_qmd_available(),
-                    reason="qmd CLI not installed on this host")
+                    reason="requires PLUGLY_REFLECT_MEMORY_LIVE_TESTS=1 and qmd CLI on PATH")
 def test_real_qmd_cli_returns_results():
     """Smoke test: the real qmd CLI actually returns something for a
     generic keyword against the learnings collection."""

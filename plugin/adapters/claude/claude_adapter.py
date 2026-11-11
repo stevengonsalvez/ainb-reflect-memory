@@ -5,8 +5,8 @@
 native plugin runtime, which extracts the whole plugin (hook scripts included)
 into its cache and wires every hook from ``plugin/.claude-plugin/plugin.json``::
 
-    claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
-    claude plugin install reflect@ainb-reflect-memory
+    claude plugin marketplace add stevengonsalvez/plugly-reflect-memory
+    claude plugin install plugly-reflect-memory@plugly-reflect-memory
 
 Earlier versions of this adapter copied only each ``SKILL.md`` into
 ``~/.claude/skills/<name>/`` and merged a SessionStart entry into
@@ -52,7 +52,7 @@ from base import (  # noqa: E402
 
 # Sentinel the old adapter wrote into each copied SKILL.md's ``managed_by:``
 # field. Uninstall uses it to tell adapter-written files from hand-written ones.
-POINTER_MANAGED_BY = "reflect-kb/adapters/claude"
+POINTER_MANAGED_BY = "plugly-reflect-memory/adapters/claude"
 
 # Template for the SessionStart hook command the old adapter wrote.
 # ``{home_tool_dir}`` was substituted with the resolved Claude home
@@ -67,8 +67,8 @@ claude_adapter.py install is not supported. Nothing was written.
 Install reflect into Claude Code with the native plugin runtime instead. It
 deploys the hook scripts and wires every hook from the plugin manifest:
 
-    claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
-    claude plugin install reflect@ainb-reflect-memory
+    claude plugin marketplace add stevengonsalvez/plugly-reflect-memory
+    claude plugin install plugly-reflect-memory@plugly-reflect-memory
 
 Then restart Claude Code. See docs-site/src/content/docs/install/claude-code.md
 (or plugin/README.md) for the reflect CLI engine step and verification.

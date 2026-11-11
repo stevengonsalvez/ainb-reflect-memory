@@ -270,6 +270,7 @@ def fake_reflect(tmp_path):
     script = bin_dir / "reflect"
     script.write_text(_FAKE_REFLECT, encoding="utf-8")
     script.chmod(0o755)
+    (bin_dir / "plugly-reflect-memory").symlink_to(script.name)
     return script
 
 

@@ -51,13 +51,15 @@ import time
 from pathlib import Path
 from typing import Optional, Sequence
 
+from reflect_kb.identity import getenv
+
 # Model names are read from the env ONCE, here. The embedding model is
 # shared by indexing (nano-graphrag) and `reflect embed` (recall's MMR
 # diversity step) — similarity must live in ONE space, so a swap (e.g.
 # BAAI/bge-large-en-v1.5) requires a fresh reindex. The CE default
 # (~90MB) is auto-downloaded on first use.
-EMBEDDING_MODEL_NAME = os.environ.get("REFLECT_EMBED_MODEL", "all-mpnet-base-v2")
-DEFAULT_CE_MODEL = os.environ.get(
+EMBEDDING_MODEL_NAME = getenv("REFLECT_EMBED_MODEL", "all-mpnet-base-v2")
+DEFAULT_CE_MODEL = getenv(
     "REFLECT_CE_MODEL", "cross-encoder/ms-marco-MiniLM-L-6-v2"
 )
 
@@ -73,7 +75,7 @@ _DAEMON_DISABLED = False
 
 def _env_float(name: str, default: float) -> float:
     try:
-        return float(os.environ.get(name, default))
+        return float(getenv(name, default))
     except ValueError:
         return default
 
@@ -171,7 +173,7 @@ def _client_enabled() -> bool:
     return (
         os.name == "posix"
         and not _DAEMON_DISABLED
-        and os.environ.get("REFLECT_NO_DAEMON") != "1"
+        and getenv("REFLECT_NO_DAEMON") != "1"
     )
 
 

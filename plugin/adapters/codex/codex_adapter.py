@@ -21,7 +21,7 @@ in ``~/.codex/hooks.json`` point at real on-disk paths:
   * ``plugins/reflect/skills/<name>/`` → ``~/.codex/skills/<name>/``
     (recursive: SKILL.md + hooks/ + scripts/).
   * ``plugins/reflect/{hooks,scripts,assets,references}/`` →
-    ``~/.codex/skills/reflect/{hooks,scripts,assets,references}/``
+    ``~/.codex/skills/plugly-reflect-memory/{hooks,scripts,assets,references}/``
     (shared plugin resources land under the ``reflect`` umbrella skill,
     matching the layout produced by older bootstraps).
 
@@ -65,7 +65,7 @@ from base import (  # noqa: E402
     run_cli,
 )
 
-POINTER_MANAGED_BY = "reflect-kb/adapters/codex"
+POINTER_MANAGED_BY = "plugly-reflect-memory/adapters/codex"
 HARNESS_DIR = ".codex"
 HOOKS_FILE = "hooks.json"  # codex hooks live in ~/.codex/hooks.json, not settings.json
 
@@ -106,14 +106,14 @@ _RECALL_HOOK_TEMPLATE = (
     "uv run {home_tool_dir}/skills/recall/hooks/session_start_recall.py"
 )
 _PRECOMPACT_HOOK_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/"
     "precompact_reflect.py --auto --verbose"
 )
 # Detached background drain — same pattern as the plugin.json wires for
 # Claude. Wrapping in ``(nohup ... &)`` makes the parent exit immediately
 # while the drain keeps running; codex doesn't block on the hook.
 _DRAIN_HOOK_TEMPLATE = (
-    "(nohup {home_tool_dir}/skills/reflect/hooks/"
+    "(nohup {home_tool_dir}/skills/plugly-reflect-memory/hooks/"
     "reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1"
 )
 # Three new hooks added in 3.6.0 (matching plugin.json autowire).
@@ -121,25 +121,25 @@ _USER_PROMPT_RECALL_TEMPLATE = (
     "uv run {home_tool_dir}/skills/recall/hooks/user_prompt_submit_recall.py"
 )
 _POSTTOOLUSE_MINILEARNING_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/posttooluse_minilearning.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/posttooluse_minilearning.py"
 )
 _STOP_REFLECT_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/stop_reflect.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/stop_reflect.py"
 )
 _PRETOOLUSE_CONTEXT_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/pretooluse_context.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/pretooluse_context.py"
 )
 _PERMISSION_REQUEST_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/permission_request_reflect.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/permission_request_reflect.py"
 )
 _POSTCOMPACT_BOOKKEEPING_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/postcompact_bookkeeping.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/postcompact_bookkeeping.py"
 )
 _SUBAGENT_START_RECALL_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/subagent_start_recall.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/subagent_start_recall.py"
 )
 _SUBAGENT_STOP_REFLECT_TEMPLATE = (
-    "uv run {home_tool_dir}/skills/reflect/hooks/subagent_stop_reflect.py"
+    "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/subagent_stop_reflect.py"
 )
 
 
@@ -196,37 +196,37 @@ def _render_subagent_stop_reflect_command(codex_dir: Path) -> str:
 # we self-heal.
 _LEGACY_RECALL_HOOK_COMMAND = _RECALL_HOOK_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_PRECOMPACT_HOOK_COMMAND = _PRECOMPACT_HOOK_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_DRAIN_HOOK_COMMAND = _DRAIN_HOOK_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_USER_PROMPT_RECALL_COMMAND = _USER_PROMPT_RECALL_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_POSTTOOLUSE_MINILEARNING_COMMAND = _POSTTOOLUSE_MINILEARNING_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_STOP_REFLECT_COMMAND = _STOP_REFLECT_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_PRETOOLUSE_CONTEXT_COMMAND = _PRETOOLUSE_CONTEXT_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_PERMISSION_REQUEST_COMMAND = _PERMISSION_REQUEST_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_POSTCOMPACT_BOOKKEEPING_COMMAND = _POSTCOMPACT_BOOKKEEPING_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_SUBAGENT_START_RECALL_COMMAND = _SUBAGENT_START_RECALL_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 _LEGACY_SUBAGENT_STOP_REFLECT_COMMAND = _SUBAGENT_STOP_REFLECT_TEMPLATE.replace(
     "{home_tool_dir}", "{{HOME_TOOL_DIR}}"
-)
+).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
 
 
 class CodexAdapter(AdapterBase):
@@ -292,7 +292,12 @@ class CodexAdapter(AdapterBase):
                 lambda m: f"{skills_dir}/{m.group(1)}/{m.group(2)}/", text
             )
             text = self._PLUGIN_ROOT_ANCHOR.sub(
-                lambda m: f"{skills_dir}/reflect/{m.group(1)}/", text
+                lambda m: f"{skills_dir}/plugly-reflect-memory/{m.group(1)}/", text
+            )
+        if dst is not None:
+            text = text.replace(
+                "${CLAUDE_PLUGIN_ROOT}/plugin/skills/plugly-reflect-memory/SKILL.md",
+                str(dst.parents[1] / "plugly-reflect-memory" / "SKILL.md"),
             )
         return text
 
@@ -357,7 +362,7 @@ class CodexAdapter(AdapterBase):
         # Plugin-level shared resources (hooks/scripts/assets/references)
         # land under the reflect umbrella skill so the hook commands above
         # resolve correctly.
-        reflect_umbrella = plan.target_harness_dir / "skills" / "reflect"
+        reflect_umbrella = plan.target_harness_dir / "skills" / "plugly-reflect-memory"
         root_resource_syncs: list[tuple[Path, Path]] = []
         for resource in PLUGIN_ROOT_RESOURCES:
             src_dir = plugin_root / resource
@@ -527,6 +532,7 @@ class CodexAdapter(AdapterBase):
         }
         changed = False
         for event, cmds in removals.items():
+            cmds = [variant for cmd in cmds for variant in (cmd, cmd.replace("/skills/plugly-reflect-memory/", "/skills/reflect/"))]
             if remove_hook_commands(cfg, event=event, commands=cmds):
                 changed = True
         if not changed:
@@ -585,6 +591,25 @@ class CodexAdapter(AdapterBase):
 
         codex_dir = hooks_path.parent
         actions: list[str] = []
+        # Exact old rendered commands only. Preserve every unrelated user hook.
+        legacy_templates = {
+            "SessionStart": [_DRAIN_HOOK_TEMPLATE],
+            "PreCompact": [_PRECOMPACT_HOOK_TEMPLATE],
+            "PostToolUse": [_POSTTOOLUSE_MINILEARNING_TEMPLATE],
+            "Stop": [_STOP_REFLECT_TEMPLATE],
+            "PreToolUse": [_PRETOOLUSE_CONTEXT_TEMPLATE],
+            "PermissionRequest": [_PERMISSION_REQUEST_TEMPLATE],
+            "PostCompact": [_POSTCOMPACT_BOOKKEEPING_TEMPLATE],
+            "SubagentStart": [_SUBAGENT_START_RECALL_TEMPLATE],
+            "SubagentStop": [_SUBAGENT_STOP_REFLECT_TEMPLATE],
+        }
+        renamed_changed = False
+        for event, templates in legacy_templates.items():
+            old_commands = [
+                _render(t, codex_dir).replace("/skills/plugly-reflect-memory/", "/skills/reflect/")
+                for t in templates
+            ]
+            renamed_changed |= remove_hook_commands(current, event=event, commands=old_commands)
 
         session_start_cmds: list[dict] = [
             {"type": "command", "command": _render_recall_hook_command(codex_dir)},
@@ -692,6 +717,7 @@ class CodexAdapter(AdapterBase):
         )
 
         any_changed = any([
+            renamed_changed,
             changed_ss,
             changed_pc,
             changed_ups,

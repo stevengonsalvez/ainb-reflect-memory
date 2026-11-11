@@ -1,10 +1,13 @@
-"""Entry point for the ``reflect`` console script.
+"""Shared entry point for canonical and legacy console scripts.
 
-Re-exports the click group from ``learnings_cli`` so the pyproject ``project.scripts``
-entry (``reflect = "reflect_kb.cli.main:main"``) resolves to a single callable.
+Both names expose the same Click command group and operational state.
 """
 
 from reflect_kb.cli.learnings_cli import cli as main
+
+from reflect_kb.migration import migration_group
+
+main.add_command(migration_group)
 
 __all__ = ["main"]
 

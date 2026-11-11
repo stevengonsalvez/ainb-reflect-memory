@@ -25,13 +25,14 @@ ledger stays compatible.
 from __future__ import annotations
 
 import json
-import os
 import re
 import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
+
+from reflect_kb.identity import getenv
 
 Runner = Callable[..., subprocess.CompletedProcess]
 
@@ -133,7 +134,7 @@ def _default_runner(cmd: list[str]) -> subprocess.CompletedProcess:
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def ledger_path() -> Path:

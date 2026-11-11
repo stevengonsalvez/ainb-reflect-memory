@@ -41,7 +41,7 @@ Plan rules: every transition emits an event row; indexing is idempotent; revert 
 | Provenance on learnings | **Yes.** `source_tool`, `source_provider`, `source_kind`, `source_path`, `source_quote` and its hash, `content_hash`, `source_memory_ids`, `session_id`, `thread_id`, `proof_count`, `commit_hash` |
 | Supersession | **Yes.** `supersedes_learning_id`, `superseded_by_learning_id`, `is_latest`, plus a `learning_history` table (S6) |
 | Privacy level | **Yes.** `privacy_level` CHECK of internal, restricted, secret_redacted; `<private>` tags are stripped before prompts (M6) |
-| Recall feedback columns | **Schema yes.** `recall_count`, `helpful_count`, `ignored_count`, `stale_count`, `last_recalled_at`, and a `recall_events` table with `rank`, `feedback`, `followup`. Nothing reads helpful or ignored counts to rerank; see [Retrieval roadmap](/ainb-reflect-memory/design/retrieval-roadmap/) phase 6 |
+| Recall feedback columns | **Schema yes.** `recall_count`, `helpful_count`, `ignored_count`, `stale_count`, `last_recalled_at`, and a `recall_events` table with `rank`, `feedback`, `followup`. Nothing reads helpful or ignored counts to rerank; see [Retrieval roadmap](/plugly-reflect-memory/design/retrieval-roadmap/) phase 6 |
 | `index_jobs` and `artifacts` tables | **Yes.** `index_jobs` has an `idempotency_key` and `add_index_job` dedups on it; `IndexBackend` is `graphrag` or `qmd` |
 | Event idempotency | **Yes.** unique index on `events.idempotency_key` |
 | Provider normalization | **Yes.** `scripts/providers/{claude,codex,copilot,gemini}.py` emit one discovered-memory shape with a content hash and source path |
@@ -56,4 +56,4 @@ Plan rules: every transition emits an event row; indexing is idempotent; revert 
 - The **rationale** for putting state in SQLite with migrations in `reflect_db.py` rather than YAML files (the v2 state, imported once by `migrate_v2.py`, now archived).
 - A concrete shape for the unbuilt pieces if someone wants to finish them: service layer, indexer interface, feedback-driven rerank.
 
-See [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/) for how storage works today and [KB format](/ainb-reflect-memory/reference/kb-format/) for the note and sidecar formats.
+See [Index and storage](/plugly-reflect-memory/concepts/index-and-storage/) for how storage works today and [KB format](/plugly-reflect-memory/reference/kb-format/) for the note and sidecar formats.

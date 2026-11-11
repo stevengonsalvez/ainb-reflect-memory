@@ -21,6 +21,10 @@ set -u
 # overrides for non-standard installs / tests.
 _self="${BASH_SOURCE[0]}"
 _hook_dir="$(cd "$(dirname "$_self")" 2>/dev/null && pwd)"
+_IDENTITY_ENV="${_hook_dir%/hooks}/scripts/identity_env.py"
+if [ -f "$_IDENTITY_ENV" ]; then
+    eval "$(python3 "$_IDENTITY_ENV" --shell)"
+fi
 SCRIPTS_DIR="${REFLECT_SCRIPTS_DIR:-${_hook_dir%/hooks}/scripts}"
 REFLECT_DB="${SCRIPTS_DIR}/reflect_db.py"
 

@@ -35,10 +35,11 @@ the Stop hook, same as the SG4 test-state sweep).
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 from typing import Optional
+
+from identity_env import getenv
 
 __all__ = [
     "FILE_TOOLS",
@@ -77,7 +78,7 @@ except ImportError:  # pragma: no cover
 # --- Per-session state -------------------------------------------------------
 
 def _state_dir() -> Path:
-    base = Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    base = Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
     return base / "todo-state"
 
 
@@ -259,7 +260,7 @@ def observe_todowrite(session_id: str, tool_input) -> Optional[dict]:
 def _learnings_dir() -> Path:
     """Where learnings get written. Honors REFLECT_LEARNINGS_DIR override;
     defaults to ~/.learnings/documents/ (same as the recall hooks)."""
-    custom = os.environ.get("REFLECT_LEARNINGS_DIR")
+    custom = getenv("REFLECT_LEARNINGS_DIR")
     if custom:
         return Path(custom).expanduser()
     return Path.home() / ".learnings" / "documents"

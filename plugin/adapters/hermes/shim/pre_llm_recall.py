@@ -65,12 +65,21 @@ def _scrub(text: str) -> str:
 # is not guaranteed to be present, so fall back to an inline breadcrumb writer
 # that matches silent_fail.write_last_event's on-disk shape.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+# The repository shim and the deployed shim share the same helper.
+if not (Path(__file__).resolve().parents[1] / "scripts").is_dir():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+try:
+    from identity_env import getenv, subprocess_env
+except ImportError:
+    getenv = os.environ.get
+    subprocess_env = lambda: dict(os.environ)
+
 try:
     from silent_fail import write_last_event  # noqa: E402
 except ImportError:
     def write_last_event(*, hook_name: str, event: str, kind: str, detail: str) -> None:
         try:
-            state = Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+            state = Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
             path = state / "last-event.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -94,7 +103,7 @@ def _metrics_path() -> Path:
     the same ``~/.learnings/metrics.jsonl`` that :mod:`reflect_kb.metrics` and
     ``reflect metrics stats`` read.
     """
-    env = os.environ.get("REFLECT_METRICS_PATH")
+    env = getenv("REFLECT_METRICS_PATH")
     if env:
         return Path(env)
     return Path.home() / ".learnings" / "metrics.jsonl"
@@ -126,7 +135,7 @@ def write_metric(op: str, **fields) -> None:
 
 def _resolve_recall_script() -> Path | None:
     """Locate the deployed recall.py, tolerating both deploy and repo layouts."""
-    env = os.environ.get("REFLECT_RECALL_SCRIPT")
+    env = getenv("REFLECT_RECALL_SCRIPT")
     if env:
         p = Path(env)
         return p if p.exists() else None
@@ -150,7 +159,7 @@ def _recall_runner() -> list[str]:
     via ``uv run --script`` in production. ``REFLECT_RECALL_RUNNER`` overrides
     the prefix (tests point it at a plain interpreter + stub script).
     """
-    override = os.environ.get("REFLECT_RECALL_RUNNER")
+    override = getenv("REFLECT_RECALL_RUNNER")
     if override:
         return shlex.split(override)
     return ["uv", "run", "--script"]
@@ -184,7 +193,7 @@ def _run_recall(prompt: str, domain_hint: str, timeout: float) -> str:
     # --max-tokens here (a second cap would trim below the intended 5 items).
     cmd.extend(["--", prompt])
 
-    child_env = {**os.environ, "REFLECT_HARNESS": "hermes"}
+    child_env = {**subprocess_env(), "REFLECT_HARNESS": "hermes", "PLUGLY_REFLECT_MEMORY_HARNESS": "hermes"}
     proc = subprocess.run(
         cmd,
         input="",
@@ -211,7 +220,7 @@ def _main_body() -> None:
     if not isinstance(data, dict):
         data = {}
 
-    mode = os.environ.get("FLEET_MEMORY_BACKEND", "shadow").strip().lower() or "shadow"
+    mode = getenv("FLEET_MEMORY_BACKEND", "shadow").strip().lower() or "shadow"
 
     # bank mode: fleet-lambda's own bank owns recall — do nothing, fast.
     if mode == "bank":
@@ -224,7 +233,7 @@ def _main_body() -> None:
     domain_hint = str(data.get("domain_hint", "") or "").strip()
     agent = str(data.get("agent_id", "") or "").strip()
     try:
-        timeout = float(os.environ.get("REFLECT_FLEET_TIMEOUT", "10"))
+        timeout = float(getenv("REFLECT_FLEET_TIMEOUT", "10"))
     except (TypeError, ValueError):
         timeout = 10.0
 
@@ -245,7 +254,7 @@ def _main_body() -> None:
     )
 
     # Only reflect mode surfaces the block to the LLM turn; shadow logs silently.
-    if mode == "reflect" and block.strip():
+    if mode in ("reflect", "plugly-reflect-memory") and block.strip():
         sys.stdout.write(block if block.endswith("\n") else block + "\n")
 
 

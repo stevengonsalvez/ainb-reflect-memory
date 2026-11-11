@@ -5,7 +5,7 @@ sidebar:
   order: 3
 ---
 
-The drain is the only component that turns queued transcripts into notes. It is a bash script, `plugin/hooks/reflect-drain-bg.sh`, started detached at `SessionStart`. It reads the queue that [capture](/ainb-reflect-memory/concepts/capture/) fills, shrinks each transcript for $0, makes one model call, writes notes and entity sidecars through `reflect add`, then reindexes.
+The drain is the only component that turns queued transcripts into notes. It is a bash script, `plugin/hooks/reflect-drain-bg.sh`, started detached at `SessionStart`. It reads the queue that [capture](/plugly-reflect-memory/concepts/capture/) fills, shrinks each transcript for $0, makes one model call, writes notes and entity sidecars through `plugly-reflect-memory add`, then reindexes.
 
 As of 5.2.5 the writer is the **single-shot extract** path by default. The older agentic loop is opt-in via `REFLECT_DRAIN_WRITER=agentic` and remains an automatic fallback in two cases (below).
 
@@ -19,12 +19,12 @@ As of 5.2.5 the writer is the **single-shot extract** path by default. The older
    quota gate ─▶ stale? retries ≥ 3? ─▶ cascade prepare ($0)
                                          │ skip: reflect-on-reflect, no-signal, dup-signal-hash, dup-chunk-hash
                                          ▼ slice (≤ 60,000 chars) + related learnings + observations
-                                  writer ─┬─ extract (default): 1 tool-free claude -p ─▶ JSON actions ─▶ reflect add / revise
-                                          └─ agentic: claude -p "/reflect <slice>", ≤ 16 turns
+                                  writer ─┬─ extract (default): 1 tool-free claude -p ─▶ JSON actions ─▶ plugly-reflect-memory add / revise
+                                          └─ agentic: claude -p "/plugly-reflect-memory <slice>", ≤ 16 turns
                                          ▼
               classify output ─▶ circuit breakers ─▶ outcome row in drain-cost.jsonl ─▶ rewrite queue
                           ▼ if any entry succeeded
-              graphml repair ─▶ (every 10th drain) graph maintenance ─▶ reflect reindex
+              graphml repair ─▶ (every 10th drain) graph maintenance ─▶ plugly-reflect-memory reindex
 ```
 
 ## Start, lock, and gates
@@ -60,13 +60,13 @@ Skips are permanent: the entry leaves the queue and the outcome row is `skip_<re
 | | Extract (default) | Agentic (opt-in, fallback) |
 |---|---|---|
 | Select | `REFLECT_DRAIN_WRITER=extract` or unset | `REFLECT_DRAIN_WRITER=agentic` |
-| Model calls | One. `claude -p ... --allowedTools "" --max-turns 1` | A loop: `claude -p "/reflect <target>" --max-turns 16` |
+| Model calls | One. `claude -p ... --allowedTools "" --max-turns 1` | A loop: `claude -p "/plugly-reflect-memory <target>" --max-turns 16` |
 | Cost shape | Linear in slice size. Context is fixed at baseline plus slice | Grows with turns, because every turn re-sends the whole conversation |
 | File and CLI work | Done by `drain_extract.py`, deterministically | Done by the model, one assistant turn each |
 | Can hit `partial_max_turns` | No | Yes |
 | Needs a slice | Yes | No |
 
-Measured on two 1.5 MB transcripts from [issue #34](https://github.com/stevengonsalvez/ainb-reflect-memory/issues/34) (from the 5.2.5 changelog, real `claude`, isolated state):
+Measured on two 1.5 MB transcripts from [issue #34](https://github.com/stevengonsalvez/plugly-reflect-memory/issues/34) (from the 5.2.5 changelog, real `claude`, isolated state):
 
 | Writer | Turns | Tokens | Cost | Outcome |
 |---|---|---|---|---|
@@ -84,7 +84,7 @@ The agentic path is used instead of extract when:
 
 1. Reads the slice and sends it as one prompt: "You are a knowledge-extraction function, not an agent." The model returns one JSON object, `{"actions": [...]}`. Empty `actions` is a valid answer and the entry is dropped as `ok`.
 2. Parses it, tolerating a code fence or stray prose around the object. Unparseable output is a retryable failure.
-3. **CREATE** (at most 12 per run, extras dropped). Renders a note with typed frontmatter (`problem`, `root_cause`, `fix`, `rule`, `confidence_num`, `entities`, `causal_relations`) and a sidecar, then runs `reflect add --force <note> --entities <sidecar>`, 60 s per call. It also records a ledger row in `reflect.db` keyed on the transcript so [`record-chunk` provenance](/ainb-reflect-memory/concepts/index-and-storage/#the-ledger-reflectdb) works. A failed ledger write is a warning, not a failure.
+3. **CREATE** (at most 12 per run, extras dropped). Renders a note with typed frontmatter (`problem`, `root_cause`, `fix`, `rule`, `confidence_num`, `entities`, `causal_relations`) and a sidecar, then runs `plugly-reflect-memory add --force <note> --entities <sidecar>`, 60 s per call. It also records a ledger row in `reflect.db` keyed on the transcript so [`record-chunk` provenance](/plugly-reflect-memory/concepts/index-and-storage/#the-ledger-reflectdb) works. A failed ledger write is a warning, not a failure.
 4. **UPDATE** and **DELETE** go through `reflect_cascade.execute_revision_actions`. UPDATE appends the session id as a source and increments `proof_count` (idempotent per source). DELETE retires the learning by setting its ledger status to `reverted`; the row stays.
 
 Safety properties, all enforced in code:
@@ -94,12 +94,12 @@ Safety properties, all enforced in code:
 | A transcript cannot retire arbitrary learnings | UPDATE and DELETE target ids are honoured only if they appear after the revision-block marker in the slice. Ids quoted in the transcript body are ignored |
 | Model output cannot inject YAML | Every model string is rendered as a single-line double-quoted scalar. Causal-link types are checked against a closed enum and anything else becomes `relates_to` |
 | Note and sidecar agree | Both use one id, `lrn-<slug>-<hash6>` with `hash6 = sha1(title + rule)[:6]` |
-| Failed writes are retried, benign drops are not | A `reflect add` failure or unparseable output keeps the transcript queued. Over-cap CREATEs, unlisted target ids, and title-less CREATEs are dropped without a retry |
+| Failed writes are retried, benign drops are not | A `plugly-reflect-memory add` failure or unparseable output keeps the transcript queued. Over-cap CREATEs, unlisted target ids, and title-less CREATEs are dropped without a retry |
 
 The timeout is split so the write pass is not killed mid-index. The outer cap is `REFLECT_DRAIN_TIMEOUT` (300 s). The model call gets that minus 90 s (210 s by default, or 60 s if the cap is 150 s or less).
 
 :::note
-Extract CREATEs go straight to `reflect add`. The embedding-cosine twin check (threshold `REFLECT_DEDUP_THRESHOLD`, default 0.97) lives in the revise CREATE path, which the extract writer uses only for UPDATE and DELETE. Extract relies on the model preferring UPDATE, and on identical title plus rule producing the same id.
+Extract CREATEs go straight to `plugly-reflect-memory add`. The embedding-cosine twin check (threshold `REFLECT_DEDUP_THRESHOLD`, default 0.97) lives in the revise CREATE path, which the extract writer uses only for UPDATE and DELETE. Extract relies on the model preferring UPDATE, and on identical title plus rule producing the same id.
 :::
 
 ## Oversized transcripts
@@ -132,7 +132,7 @@ Fixed in 5.2.4 after a ten day silent outage. Sessions had grown past about 1.5 
 | Writer | `REFLECT_DRAIN_WRITER` | `extract` | `agentic` selects the legacy loop |
 | Model | `REFLECT_DRAIN_MODEL` | `sonnet` | `--model` alias passed to `claude -p` |
 | Working dir | `REFLECT_DRAIN_CWD` | `$HOME` | cwd of the writer, so it never runs inside the triggering repo |
-| Binaries | `REFLECT_DRAIN_CLAUDE_BIN`, `REFLECT_DRAIN_REFLECT_BIN` | `claude`, `reflect` on `PATH` or `~/.local/bin/reflect` | Pin a binary |
+| Binaries | `REFLECT_DRAIN_CLAUDE_BIN`, `REFLECT_DRAIN_REFLECT_BIN` | `claude`, `plugly-reflect-memory` on `PATH` or `~/.local/bin/reflect` | Pin a binary |
 | Kill switch | `REFLECT_DISABLED` | unset | `1` makes the drain a no-op |
 
 ### Quota gate
@@ -166,32 +166,32 @@ The writer's raw output is classified `valid`, `prose`, `idle`, `poisoned`, or `
 
 If at least one entry succeeded and `REFLECT_DRAIN_SKIP_REINDEX` is not `1`:
 
-1. `graphml_repair.py --repair` validates the graph file and repairs a doubled closing tag by truncation. Unrepairable corruption raises `graphml_corrupt` and advises `reflect reindex --force`.
+1. `graphml_repair.py --repair` validates the graph file and repairs a doubled closing tag by truncation. Unrepairable corruption raises `graphml_corrupt` and advises `plugly-reflect-memory reindex --force`.
 2. Every `REFLECT_DRAIN_MAINTAIN_EVERY` (10) reindexing drains, `graphml_repair.py --maintain` prunes orphan entities and dangling edges and relinks isolated nodes. `0` disables it.
-3. `reflect reindex` (no `--force`), 300 s cap. A failure raises `reindex_fail` but does not fail the drain.
+3. `plugly-reflect-memory reindex` (no `--force`), 300 s cap. A failure raises `reindex_fail` but does not fail the drain.
 
-If `reflect` is not on `PATH`, notes are still written but stay invisible to recall until a manual reindex.
+If `plugly-reflect-memory` is not on `PATH`, notes are still written but stay invisible to recall until a manual reindex.
 
 ## Observing the drain
 
 | What | Where |
 |---|---|
 | Run log | `~/.reflect/drain.log` (rotates at `REFLECT_DRAIN_LOG_MAX_BYTES`, default 10 MB, to `drain.log.1`) |
-| Cost ledger | `~/.reflect/drain-cost.jsonl`. Reported by `/reflect:cost` (`plugin/scripts/reflect_cost.py --since 30d --by day\|transcript\|model\|outcome\|writer`) |
+| Cost ledger | `~/.reflect/drain-cost.jsonl`. Reported by `/plugly-reflect-memory:cost` (`plugin/scripts/reflect_cost.py --since 30d --by day\|transcript\|model\|outcome\|writer`) |
 | Poisoned entries | `~/.reflect/poison-reflections.jsonl` |
 | Retry counters, writer streaks | `~/.reflect/retry-count.jsonl`, `~/.reflect/writer-health.jsonl` |
-| Errors raised | `/reflect:status` and `reflect errors count` (kinds such as `drain_poison`, `drain_oversized_input`, `drain_quota_deferred`, `drain_unknown_command`) |
+| Errors raised | `/plugly-reflect-memory:status` and `plugly-reflect-memory errors count` (kinds such as `drain_poison`, `drain_oversized_input`, `drain_quota_deferred`, `drain_unknown_command`) |
 | Dry run | `REFLECT_DRAIN_DRY_RUN=1` logs what it would do and writes nothing durable. The queue is left exactly as found, no cost-ledger row is written (so the daily cap is unchanged), and nothing is added to the poison file, retry counters, errors ledger, debounce stamp or quota-deferral marker. The cascade runs in read-only mode, so it records no chunk hashes and bumps no proof counts. The model is never called. Only `drain.log` is written |
 
 ## Why it looks like this
 
 | Release | Change |
 |---|---|
-| 4.0.0 | Cost rearchitecture: cascade gate and slice, Sonnet by default, hard caps, atomic lock, debounce, `reflect cost` |
+| 4.0.0 | Cost rearchitecture: cascade gate and slice, Sonnet by default, hard caps, atomic lock, debounce, `plugly-reflect-memory cost` |
 | 5.2.1 | A zero-turn run is `fail_unknown_command`, not `ok` (skills had stopped registering and the drain scored every run a success for 11 days) |
 | 5.2.2 | Turn cap raised 8 to 16 and timeout 180 to 300 s, because 8 turns could never finish the writer's minimum workflow |
 | 5.2.3 | Single-shot extract writer, opt-in |
 | 5.2.4 | Oversized inputs bounded, size rejections quarantined with `entries=0` so they cannot starve the daily budget |
 | 5.2.5 | `REFLECT_DRAIN_WRITER` defaults to `extract` |
 
-The full text is in the [Changelog](/ainb-reflect-memory/changelog/). The failure modes behind each fix are also exercised by `plugin/tests/test_drain_*.py`, which run the real script against a stub `claude`.
+The full text is in the [Changelog](/plugly-reflect-memory/changelog/). The failure modes behind each fix are also exercised by `plugin/tests/test_drain_*.py`, which run the real script against a stub `claude`.

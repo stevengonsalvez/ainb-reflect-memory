@@ -1,11 +1,11 @@
 /*
- * reflect serve, in the browser.
+ * plugly-reflect-memory serve, in the browser.
  *
- * Replaces the `reflect serve` HTTP API for the docs-site demo. The real SPA
+ * Replaces the `plugly-reflect-memory serve` HTTP API for the docs-site demo. The real SPA
  * (src/reflect_kb/cli/serve_static/index.html) runs unmodified; this script
  * intercepts window.fetch for any URL whose path contains "/api/" (matched by
  * path SUFFIX, so it works whether the demo is hosted at / or under
- * /ainb-reflect-memory/demo/) and answers from a static snapshot
+ * /plugly-reflect-memory/demo/) and answers from a static snapshot
  * (api-snapshot.json, produced by scripts/snapshot-api.py from the real
  * serve.py). The SPA only uses fetch(), so XMLHttpRequest is not patched.
  *

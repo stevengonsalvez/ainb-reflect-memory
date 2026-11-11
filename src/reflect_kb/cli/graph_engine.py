@@ -9,7 +9,6 @@ session can synthesize results itself.
 """
 
 import logging
-import os
 import shutil
 from collections import deque
 from pathlib import Path
@@ -19,6 +18,8 @@ from typing import Optional, List, Tuple
 # This avoids the broken transitive dependency chain:
 # graspologic -> hyppo -> numba -> llvmlite (Python <3.10 only)
 from reflect_kb.cli.graspologic_shim import install_shim as _install_graspologic_shim
+
+from reflect_kb.identity import getenv
 _install_graspologic_shim()
 
 from reflect_kb.cli.entity_store import COMPLETION_DELIMITER
@@ -74,8 +75,8 @@ class LearningsGraphEngine:
         # the store is the same across machines. Default keeps local-file behavior.
         # Trigger is REFLECT_PG_DSN ONLY — not the generic DATABASE_URL, which
         # usually points at an unrelated DB.
-        self._pg_dsn = pg_dsn or os.environ.get("REFLECT_PG_DSN")
-        self._workspace_id = workspace_id or os.environ.get("REFLECT_WORKSPACE_ID")
+        self._pg_dsn = pg_dsn or getenv("REFLECT_PG_DSN")
+        self._workspace_id = workspace_id or getenv("REFLECT_WORKSPACE_ID")
 
     def _load_embedding_model(self):
         """Lazy-load the sentence transformer model (in-process fallback path).

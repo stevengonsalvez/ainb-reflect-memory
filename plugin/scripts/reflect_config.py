@@ -22,6 +22,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from identity_env import getenv
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -114,7 +116,7 @@ def _apply_env_overrides(cfg: dict[str, Any]) -> dict[str, Any]:
     }
 
     for env_key, (path_keys, cast) in env_map.items():
-        raw = os.environ.get(env_key)
+        raw = getenv(env_key)
         if raw is None:
             continue
 
@@ -175,10 +177,10 @@ _BUILTIN_DEFAULTS: dict[str, Any] = {
     },
     "indexers": {
         "graphrag": {
-            # Canonical CLI is `reflect` (reflect-kb). Bare name is resolved
-            # through $PATH so any install location (`uv tool install reflect-kb`,
+            # Canonical CLI is `plugly-reflect-memory`. Bare name is resolved
+            # through $PATH so any install location (`uv tool install plugly-reflect-memory`,
             # homebrew, etc.) works without per-machine overrides.
-            "cli_path": "reflect",
+            "cli_path": "plugly-reflect-memory",
             "auto_sidecar": True,
         },
     },

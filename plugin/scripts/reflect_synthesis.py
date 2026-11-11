@@ -33,13 +33,14 @@ CLI:
 
 from __future__ import annotations
 
-import os
 import re
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
+
+from identity_env import getenv
 
 _DOC_GLOBS = [
     "~/.learnings/documents",
@@ -184,7 +185,7 @@ def _load_reflect_db():
 
 def auto_trigger_threshold() -> int:
     """Trigger count: $REFLECT_SYNTHESIS_AUTO_THRESHOLD, else 30."""
-    raw = os.environ.get("REFLECT_SYNTHESIS_AUTO_THRESHOLD", "")
+    raw = getenv("REFLECT_SYNTHESIS_AUTO_THRESHOLD", "")
     try:
         value = int(raw)
         if value > 0:

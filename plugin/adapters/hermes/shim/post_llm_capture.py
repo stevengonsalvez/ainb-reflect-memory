@@ -62,12 +62,21 @@ def _scrub(text: str) -> str:
 # matches silent_fail.write_last_event's on-disk shape when the plugin scripts
 # dir is not deployed alongside the shim.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+# The repository shim and the deployed shim share the same helper.
+if not (Path(__file__).resolve().parents[1] / "scripts").is_dir():
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+try:
+    from identity_env import getenv, subprocess_env
+except ImportError:
+    getenv = os.environ.get
+    subprocess_env = lambda: dict(os.environ)
+
 try:
     from silent_fail import write_last_event  # noqa: E402
 except ImportError:
     def write_last_event(*, hook_name: str, event: str, kind: str, detail: str) -> None:
         try:
-            state = Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+            state = Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
             path = state / "last-event.json"
             path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
@@ -94,7 +103,7 @@ _CORRECTION_RE = re.compile(
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def queue_file() -> Path:

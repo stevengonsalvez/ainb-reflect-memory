@@ -66,7 +66,15 @@ from typing import NoReturn
 # Shared silent-fail mechanics.
 _HOOK_NAME = "user_prompt_submit_recall"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[3]  # skills/recall/hooks/<this> → plugins/reflect/
-sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+_SHARED_SCRIPTS = _PLUGIN_ROOT / "scripts"
+if not _SHARED_SCRIPTS.is_dir():
+    _SHARED_SCRIPTS = Path(__file__).resolve().parents[2] / "plugly-reflect-memory" / "scripts"
+sys.path.insert(0, str(_SHARED_SCRIPTS))
+try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
 try:
     from silent_fail import write_last_event, forensics_log, scrub_secrets  # noqa: E402
 except ImportError:
@@ -110,7 +118,7 @@ MIN_PROMPT_CHARS = 12
 # --- Paths (resolved per-call to honor REFLECT_STATE_DIR at runtime) -----
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def session_injected_path(session_id: str) -> Path:
@@ -128,7 +136,7 @@ def permission_armed_path(session_id: str) -> Path:
 def learnings_dir() -> Path:
     """Where mini-learnings get written. Honors REFLECT_LEARNINGS_DIR
     override; defaults to ~/.learnings/documents/."""
-    custom = os.environ.get("REFLECT_LEARNINGS_DIR")
+    custom = getenv("REFLECT_LEARNINGS_DIR")
     if custom:
         return Path(custom).expanduser()
     return Path.home() / ".learnings" / "documents"
@@ -243,7 +251,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 # Cold model load is ~11-16s; the old 10s starved every uncached recall.
 try:
-    _RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
+    _RECALL_TIMEOUT = int(getenv("REFLECT_RECALL_TIMEOUT", "30"))
 except ValueError:
     _RECALL_TIMEOUT = 30
 UV_BIN = shutil.which("uv")
@@ -563,7 +571,7 @@ def emit(additional_context: str) -> NoReturn:
     ``session_start_recall.emit`` — confirm against the live binary once
     policy is lifted.
     """
-    if os.environ.get("REFLECT_HARNESS") == "copilot":
+    if getenv("REFLECT_HARNESS") == "copilot":
         print(json.dumps({"additionalContext": additional_context}))
     else:
         print(

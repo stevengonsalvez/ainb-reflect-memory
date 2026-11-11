@@ -106,4 +106,4 @@ Both are outages, kept here because they show what the cost design did not catch
 - "Exit 0 with zero turns" must not be scored as success.
 - Silent health: the logs said `daily cap reached`, which looks exactly like normal throttling.
 
-See also [Capture](/ainb-reflect-memory/concepts/capture/), [Drain](/ainb-reflect-memory/concepts/drain/), [Hooks reference](/ainb-reflect-memory/reference/hooks/) and the [Configuration reference](/ainb-reflect-memory/reference/configuration/).
+See also [Capture](/plugly-reflect-memory/concepts/capture/), [Drain](/plugly-reflect-memory/concepts/drain/), [Hooks reference](/plugly-reflect-memory/reference/hooks/) and the [Configuration reference](/plugly-reflect-memory/reference/configuration/).

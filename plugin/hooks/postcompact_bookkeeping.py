@@ -11,11 +11,11 @@ REFLECT_POSTCOMPACT_RESET_DEDUPE=1.
 
 from __future__ import annotations
 
-import os
 import sys
 import traceback
 
-from hook_common import (  # noqa: E402
+from hook_common import (
+    getenv,  # noqa: E402
     forensics_log,
     get_session_id,
     read_stdin_json,
@@ -30,7 +30,7 @@ _HOOK_NAME = "postcompact_bookkeeping"
 def _main_body() -> None:
     data = read_stdin_json()
     session_id = str(get_session_id(data) or "").strip()
-    if session_id and os.environ.get("REFLECT_POSTCOMPACT_RESET_DEDUPE") == "1":
+    if session_id and getenv("REFLECT_POSTCOMPACT_RESET_DEDUPE") == "1":
         try:
             (state_dir() / "session-injected" / f"{session_id}.json").unlink()
         except FileNotFoundError:

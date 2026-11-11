@@ -42,13 +42,14 @@ enough for SKILL.md frontmatter without a yaml dependency.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sqlite3
 from pathlib import Path
 from typing import Any, Optional
 
 import reflect_db
+
+from identity_env import getenv
 
 # Where Claude skills live by default. Overridable per-call (tests) and via
 # the REFLECT_SKILLS_DIR env var (parallel installs).
@@ -65,7 +66,7 @@ _TOKEN_RE = re.compile(r"[a-z0-9][a-z0-9_-]+")
 
 def skills_dir() -> Path:
     """Resolve the skills directory (env override > default)."""
-    raw = os.environ.get("REFLECT_SKILLS_DIR", "")
+    raw = getenv("REFLECT_SKILLS_DIR", "")
     return Path(raw).expanduser() if raw else DEFAULT_SKILLS_DIR
 
 

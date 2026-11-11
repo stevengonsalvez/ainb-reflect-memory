@@ -1,6 +1,6 @@
 ---
 title: Memory browser demo
-description: The real reflect serve web UI running in your browser against an invented sample knowledge base. No install, no backend.
+description: The real plugly-reflect-memory serve web UI running in your browser against an invented sample knowledge base. No install, no backend.
 tableOfContents: false
 sidebar:
   order: 1
@@ -24,17 +24,17 @@ head:
       });
 ---
 
-This is the real `reflect serve` web UI (`src/reflect_kb/cli/serve_static/index.html`), running entirely in your browser. A small fetch shim answers its `/api/*` calls from a bundled snapshot of an invented sample knowledge base: no install, no server.
+This is the real `plugly-reflect-memory serve` web UI (`src/reflect_kb/cli/serve_static/index.html`), running entirely in your browser. A small fetch shim answers its `/api/*` calls from a bundled snapshot of an invented sample knowledge base: no install, no server.
 
 <div class="rf-demo-bar">
   <span>Sample data is invented. Archive, restore, confidence edits and compress-queue changes live in memory only and reset on reload.</span>
-  <a id="rf-demo-open" href="https://stevengonsalvez.github.io/ainb-reflect-memory/demo/" target="_blank" rel="noopener">Open full screen &#8599;</a>
+  <a id="rf-demo-open" href="https://stevengonsalvez.github.io/plugly-reflect-memory/demo/" target="_blank" rel="noopener">Open full screen &#8599;</a>
 </div>
 
 <iframe
   class="rf-demo-frame"
-  src="/ainb-reflect-memory/demo/"
-  title="reflect memory browser, live demo with sample data"
+  src="/plugly-reflect-memory/demo/"
+  title="plugly-reflect-memory memory browser, live demo with sample data"
   loading="lazy"
 ></iframe>
 
@@ -48,9 +48,9 @@ This is the real `reflect serve` web UI (`src/reflect_kb/cli/serve_static/index.
 | Curation drawer | Click any card | Edit confidence, see related memories and extracted entities, or **Archive** the note. |
 | Superseded chains | **Superseded** tab | Notes replaced by newer ones, shown newest to oldest. |
 | Archived and restore | Archive a note, then open **Archived** | The note leaves the list, the graph and the stats. **Restore** brings it back. |
-| Compress queue | **select**, tick two or more cards | **Queue for compression** marks the group for the `/reflect` consolidate step. |
+| Compress queue | **select**, tick two or more cards | **Queue for compression** marks the group for the `/plugly-reflect-memory` consolidate step. |
 | Stats | **Stats** tab | Counts by confidence, type, scope and tag. They update as you archive and restore. |
 
 :::note
-Against a real knowledge base the same UI runs as `reflect serve` and its curation actions edit your markdown notes on disk. See the [memory browser guide](/ainb-reflect-memory/guides/memory-browser/) and the [serve API reference](/ainb-reflect-memory/reference/serve-api/).
+Against a real knowledge base the same UI runs as `plugly-reflect-memory serve` and its curation actions edit your markdown notes on disk. See the [memory browser guide](/plugly-reflect-memory/guides/memory-browser/) and the [serve API reference](/plugly-reflect-memory/reference/serve-api/).
 :::

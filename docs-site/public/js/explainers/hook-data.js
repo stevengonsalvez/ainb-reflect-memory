@@ -8,9 +8,9 @@
 // plugin/skills/recall/hooks/*.py. A node check in the docs-site repo
 // (scripts are not shipped) compares WIRING against the three JSON files.
 
-export const REPO_BLOB = 'https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/';
+export const REPO_BLOB = 'https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/';
 
-// Lanes = what reflect does at a hook.
+// Lanes = what plugly-reflect-memory does at a hook.
 export const LANES = [
   { id: 'recall', label: 'Recall injection', note: 'additionalContext sent to the model' },
   { id: 'capture', label: 'Capture (no LLM)', note: 'regex/state-file work, zero model tokens' },

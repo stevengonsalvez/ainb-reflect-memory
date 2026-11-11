@@ -276,7 +276,7 @@ function init(root) {
         if (nb) nb.focus();
       }),
     );
-    clear(chartCard).append(h('div', { class: 'xp-toolbar' }, h('h4', { text: 'Cost of reflect vs estimated savings' }), seg), g, h('p', { class: 'xp-note', text: 'Capture is $0: the hooks are shell commands, the enqueue gate is regex, mini-learnings are written without a model call. Savings are modeled, not measured.' }));
+    clear(chartCard).append(h('div', { class: 'xp-toolbar' }, h('h4', { text: 'Cost of plugly-reflect-memory vs estimated savings' }), seg), g, h('p', { class: 'xp-note', text: 'Capture is $0: the hooks are shell commands, the enqueue gate is regex, mini-learnings are written without a model call. Savings are modeled, not measured.' }));
   }
 
   function renderDrain(r) {
@@ -323,7 +323,7 @@ function init(root) {
     const mo = r.days;
     const non = FIELDS.filter((f) => p[f.key] !== DEF[f.key]).map((f) => '  - ' + f.label + ': ' + fmtVal(f, p[f.key]) + ' (default ' + fmtVal(f, DEF[f.key]) + ')');
     const lines = [
-      'reflect token economics (modeled, ' + mo + '-day month)',
+      'plugly-reflect-memory token economics (modeled, ' + mo + '-day month)',
       '',
       'Usage: ' + p.sessionsPerDay + ' sessions/day x ' + p.promptsPerSession + ' prompts, session model ' + PRICES[p.sessionModel].label,
       'Drain: ' + PRICES[p.drainModel].label + ', ' + p.writer + ' writer, ' + p.transcriptKB + ' KB transcripts, ' + fmtNum(Math.round(r.capture.enqueuedDay * 100) / 100) + ' enqueued/day (capacity ' + r.drain.capacity + '/day)',

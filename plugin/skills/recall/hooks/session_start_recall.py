@@ -69,7 +69,15 @@ from typing import NoReturn
 
 _HOOK_NAME = "session_start_recall"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[3]  # skills/recall/hooks/<this> → plugins/reflect/
-sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
+_SHARED_SCRIPTS = _PLUGIN_ROOT / "scripts"
+if not _SHARED_SCRIPTS.is_dir():
+    _SHARED_SCRIPTS = Path(__file__).resolve().parents[2] / "plugly-reflect-memory" / "scripts"
+sys.path.insert(0, str(_SHARED_SCRIPTS))
+try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
 try:
     from silent_fail import write_last_event, forensics_log  # noqa: E402
 except ImportError:
@@ -100,9 +108,9 @@ SESSION_START_CONFIDENCE = "ANY"  # relaxed; rely on reranking
 SESSION_START_MAX_CHARS = 1500
 # R7: OOD gate — suppress injection when even the best hit barely mentions the
 # query's terms (most sessions have NO relevant prior art; junk costs context).
-SESSION_START_MIN_OVERLAP = float(os.environ.get("REFLECT_RECALL_MIN_OVERLAP", "0.2"))
+SESSION_START_MIN_OVERLAP = float(getenv("REFLECT_RECALL_MIN_OVERLAP", "0.2"))
 # R4: optional token budget for the injected block (0 = keep max-chars only).
-SESSION_START_MAX_TOKENS = int(os.environ.get("REFLECT_RECALL_MAX_TOKENS", "0"))  # tighter than explicit /reflect:recall
+SESSION_START_MAX_TOKENS = int(getenv("REFLECT_RECALL_MAX_TOKENS", "0"))  # tighter than explicit /reflect:recall
 # R10: tiered inject — skills (curated) > learnings (raw). Opt-in rollout
 # flag: the skills tier only runs when REFLECT_TIERED_INJECT is truthy.
 TIERED_INJECT_FLAG = "REFLECT_TIERED_INJECT"
@@ -267,7 +275,7 @@ def sg2_commit_tags(limit: int = 3, n: int = 5) -> list[str]:
     """
     try:
         state = Path(
-            os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
+            getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
         )
         commits_file = state / "commits.jsonl"
         if not commits_file.is_file():
@@ -332,7 +340,7 @@ def build_query(cwd: Path) -> tuple[str, list[str]]:
 def slots_enabled() -> bool:
     """Opt-in rollout flag for the slots tier (read at call time so
     settings.json env stanzas and tests can flip it)."""
-    return os.environ.get(SLOTS_FLAG, "").strip().lower() in (
+    return getenv(SLOTS_FLAG, "").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -407,7 +415,7 @@ def economics_footer(block: str) -> str:
 def conventions_symlink_enabled() -> bool:
     """Opt-in flag for the project-root CONVENTIONS.md symlink (read at
     call time so settings.json env stanzas and tests can flip it)."""
-    return os.environ.get(CONVENTIONS_SYMLINK_FLAG, "").strip().lower() in (
+    return getenv(CONVENTIONS_SYMLINK_FLAG, "").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -455,7 +463,7 @@ def conventions_tier_context(cwd: Path) -> str:
 def tiered_inject_enabled() -> bool:
     """Opt-in rollout flag. Read at call time so settings.json env stanzas
     (and tests) can flip it without re-importing the hook."""
-    return os.environ.get(TIERED_INJECT_FLAG, "").strip().lower() in (
+    return getenv(TIERED_INJECT_FLAG, "").strip().lower() in (
         "1", "true", "yes", "on",
     )
 
@@ -463,8 +471,8 @@ def tiered_inject_enabled() -> bool:
 def skill_tier_min_score() -> float:
     """'Strong hit' threshold for the skills tier (env-tunable)."""
     try:
-        return float(os.environ["REFLECT_SKILL_TIER_MIN_SCORE"])
-    except (KeyError, ValueError):
+        return float(getenv("REFLECT_SKILL_TIER_MIN_SCORE"))
+    except (TypeError, ValueError):
         return SKILL_TIER_DEFAULT_MIN_SCORE
 
 
@@ -712,7 +720,7 @@ def emit(additional_context: str) -> NoReturn:
     unknown extra key is harmless if Copilot ignores it), so this can be
     revisited without breaking claude/codex.
     """
-    if os.environ.get("REFLECT_HARNESS") == "copilot":
+    if getenv("REFLECT_HARNESS") == "copilot":
         print(json.dumps({"additionalContext": additional_context}))
     else:
         print(
@@ -739,7 +747,7 @@ os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 # Cold model load is ~11-16s; the old 10s starved every uncached recall.
 try:
-    _RECALL_TIMEOUT = int(os.environ.get("REFLECT_RECALL_TIMEOUT", "30"))
+    _RECALL_TIMEOUT = int(getenv("REFLECT_RECALL_TIMEOUT", "30"))
 except ValueError:
     _RECALL_TIMEOUT = 30
 UV_BIN = shutil.which("uv")
@@ -763,7 +771,7 @@ def _main_body() -> NoReturn:
     except (json.JSONDecodeError, ValueError):
         data = {}
 
-    env_dir = os.environ.get("CLAUDE_PROJECT_DIR")
+    env_dir = getenv("CLAUDE_PROJECT_DIR")
     if env_dir:
         cwd = Path(env_dir).resolve()
     else:

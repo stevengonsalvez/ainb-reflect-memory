@@ -1,13 +1,13 @@
 ---
 title: Token economics
-description: A calculator for what reflect costs per day and month (capture, drain, recall) against the tokens it saves by not rediscovering context. Every default is traced to the code or labelled as an assumption.
+description: A calculator for what plugly-reflect-memory costs per day and month (capture, drain, recall) against the tokens it saves by not rediscovering context. Every default is traced to the code or labelled as an assumption.
 sidebar:
   order: 3
 ---
 
 import TokenEconomics from '../../../components/interactive/TokenEconomics.astro';
 
-reflect spends tokens in two places: the **drain** (an LLM turns queued transcripts into learnings) and **recall** (injected learnings ride along in your session's context). Capture itself is free. Move the inputs, watch the numbers.
+plugly-reflect-memory spends tokens in two places: the **drain** (an LLM turns queued transcripts into learnings) and **recall** (injected learnings ride along in your session's context). Capture itself is free. Move the inputs, watch the numbers.
 
 Each input carries a badge: <span style="color:var(--sl-color-green)">**code**</span> means the default is read from the shipped code, <span style="color:var(--sl-color-blue)">**measured**</span> means it is a number from the changelog, and <span style="color:var(--sl-color-orange)">**assumption**</span> means the repo has no value and you should enter your own.
 
@@ -34,7 +34,7 @@ The writer is selected by `REFLECT_DRAIN_WRITER`, which defaults to `extract` si
 | Context growth | fixed: baseline + slice | every turn re-sends the whole conversation |
 | Cost shape | linear in slice size | roughly quadratic in turns |
 | Measured | 77,982 tokens, $0.40, 3 learnings on a 1.5 MB transcript | 1.5M tokens, $1.07, nothing kept (17 turns, hit the cap) |
-| Output | JSON action list executed by `drain_extract.py` | model writes files and runs `reflect add` itself |
+| Output | JSON action list executed by `drain_extract.py` | model writes files and runs `plugly-reflect-memory add` itself |
 
 Extract falls back to agentic only when no slice exists or the trigger is `skill_refresh`. Both numbers in the "Measured" row come from the 5.2.5 changelog; the calculator's "Model check" panel re-runs its own formula against them so you can see how far the model sits from reality.
 
@@ -54,7 +54,7 @@ The calculator derives drain capacity as `min(daily cap, runs per day x entries 
 
 ## Reading the savings honestly
 
-`recall.py` prints `D:<n> -> R:<n>` for every injected learning: the estimated discovery tokens versus the tokens to read the note, and sums them as "saved". That assumes every injected learning was needed. The calculator keeps the same discovery numbers (category averages: bug-fix 3000, anti-pattern 2500, correction 2000, pattern 1500, decision 1200, default 1500) but multiplies by a usefulness slider you set, and prints the **break-even usefulness**: the share of injected learnings that must save a rediscovery for reflect to pay for itself in raw tokens.
+`recall.py` prints `D:<n> -> R:<n>` for every injected learning: the estimated discovery tokens versus the tokens to read the note, and sums them as "saved". That assumes every injected learning was needed. The calculator keeps the same discovery numbers (category averages: bug-fix 3000, anti-pattern 2500, correction 2000, pattern 1500, decision 1200, default 1500) but multiplies by a usefulness slider you set, and prints the **break-even usefulness**: the share of injected learnings that must save a rediscovery for plugly-reflect-memory to pay for itself in raw tokens.
 
 :::caution
 Dollar savings here are tokens only. They do not count the wall-clock time or the repeated mistakes a correct recall prevents, and the usefulness rate is an assumption, not a measurement. Use the break-even figure as a sanity check rather than a promise.
@@ -64,12 +64,12 @@ Dollar savings here are tokens only. They do not count the wall-clock time or th
 
 | Default | Source |
 |---|---|
-| Recall limits (3 at SessionStart; per prompt 3 new learnings, header not counted; 1500 chars) | [`plugin/skills/recall/hooks/session_start_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py), [`user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py) |
-| Discovery-token averages, 4 chars per token, `D:` and `R:` accounting | [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py) |
-| Drain caps, model, writer default | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
-| Slice cap (60,000 chars) and cascade | [`plugin/scripts/reflect_cascade.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/reflect_cascade.py) |
-| Single-shot writer (max 12 learnings) | [`plugin/scripts/drain_extract.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/drain_extract.py) |
-| Measured runs, 64K baseline, 5.2.x notes | [`plugin/CHANGELOG.md`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/CHANGELOG.md) |
-| Cache multipliers, `reflect cost` | [`plugin/scripts/reflect_cost.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/scripts/reflect_cost.py) |
+| Recall limits (3 at SessionStart; per prompt 3 new learnings, header not counted; 1500 chars) | [`plugin/skills/recall/hooks/session_start_recall.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/skills/recall/hooks/session_start_recall.py), [`user_prompt_submit_recall.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/skills/recall/hooks/user_prompt_submit_recall.py) |
+| Discovery-token averages, 4 chars per token, `D:` and `R:` accounting | [`plugin/skills/recall/scripts/recall.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/skills/recall/scripts/recall.py) |
+| Drain caps, model, writer default | [`plugin/hooks/reflect-drain-bg.sh`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/hooks/reflect-drain-bg.sh) |
+| Slice cap (60,000 chars) and cascade | [`plugin/scripts/reflect_cascade.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/scripts/reflect_cascade.py) |
+| Single-shot writer (max 12 learnings) | [`plugin/scripts/drain_extract.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/scripts/drain_extract.py) |
+| Measured runs, 64K baseline, 5.2.x notes | [`plugin/CHANGELOG.md`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/CHANGELOG.md) |
+| Cache multipliers, `plugly-reflect-memory cost` | [`plugin/scripts/reflect_cost.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/scripts/reflect_cost.py) |
 
-Check your real spend with `/reflect:cost` (backed by `reflect_cost.py`); it reads the drainer's own log. For the mechanics behind each stage see [drain](/ainb-reflect-memory/concepts/drain/) and the [recall walkthrough](/ainb-reflect-memory/interactive/recall-walkthrough/).
+Check your real spend with `/plugly-reflect-memory:cost` (backed by `reflect_cost.py`); it reads the drainer's own log. For the mechanics behind each stage see [drain](/plugly-reflect-memory/concepts/drain/) and the [recall walkthrough](/plugly-reflect-memory/interactive/recall-walkthrough/).

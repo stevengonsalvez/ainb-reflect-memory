@@ -66,6 +66,11 @@ _HOOK_NAME = "stop_reflect"
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]  # hooks/<this> → plugins/reflect/
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
+try:
     from silent_fail import write_last_event, forensics_log  # noqa: E402
 except ImportError:
     def write_last_event(**kwargs):  # type: ignore[no-redef]
@@ -96,7 +101,7 @@ except ImportError:
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def queue_file() -> Path:
@@ -148,7 +153,7 @@ _PATH_KEYS = ("file_path", "notebook_path", "path")
 
 def slots_enabled() -> bool:
     """A1 opt-in flag (mirrors agentmemory's SLOTS=on gate)."""
-    return os.environ.get("REFLECT_SLOTS", "").strip().lower() in (
+    return getenv("REFLECT_SLOTS", "").strip().lower() in (
         "1", "true", "yes", "on",
     )
 

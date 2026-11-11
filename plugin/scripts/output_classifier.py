@@ -48,11 +48,12 @@ CLI (consumed by reflect-drain-bg.sh):
 from __future__ import annotations
 
 import json
-import os
 import sys
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
+
+from identity_env import getenv
 
 # The closed category set. ``classify`` returns exactly one of these for any
 # input — tests pin this invariant.
@@ -170,7 +171,7 @@ def poison_kind(raw: object) -> str:
 
 def default_threshold() -> int:
     """Respawn threshold: env REFLECT_DRAIN_INVALID_THRESHOLD, default 3."""
-    raw = os.environ.get("REFLECT_DRAIN_INVALID_THRESHOLD", "")
+    raw = getenv("REFLECT_DRAIN_INVALID_THRESHOLD", "")
     try:
         n = int(raw)
         return n if n > 0 else DEFAULT_THRESHOLD

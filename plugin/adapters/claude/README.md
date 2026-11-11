@@ -1,12 +1,12 @@
-# Claude Code adapter for reflect-kb (uninstall only)
+# Claude Code adapter for plugly-reflect-memory (uninstall only)
 
-`install` is **refused**. Claude Code installs reflect through its native
+`install` is **refused**. Claude Code installs plugly-reflect-memory through its native
 plugin runtime, which deploys the hook scripts and wires every hook from
 `plugin/.claude-plugin/plugin.json`:
 
 ```bash
-claude plugin marketplace add stevengonsalvez/ainb-reflect-memory
-claude plugin install reflect@ainb-reflect-memory
+claude plugin marketplace add stevengonsalvez/plugly-reflect-memory
+claude plugin install plugly-reflect-memory@plugly-reflect-memory
 ```
 
 `python claude_adapter.py install` (with any flags, including `--dry-run`)
@@ -34,3 +34,5 @@ dirs, foreign hooks and unrelated settings are left untouched. Invalid
 `settings.json` is skipped, never overwritten. Safe to re-run.
 
 Use `--home /tmp/...` to exercise a throwaway HOME.
+
+Canonical `managed_by: plugly-reflect-memory/adapters/claude` markers are also recognized. Native plugin registration still requires the Claude plugin CLI.

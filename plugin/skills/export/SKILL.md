@@ -1,5 +1,5 @@
 ---
-name: reflect:export
+name: plugly-reflect-memory:export
 description: |
   Export or import the reflect knowledge base as a deterministic,
   git-friendly tarball — the learnings markdown corpus plus the reflect.db
@@ -10,7 +10,7 @@ description: |
 version: "1.0.0"
 user-invocable: true
 triggers:
-  - reflect:export
+  - plugly-reflect-memory:export
   - reflect export
   - reflect import
   - export knowledge base
@@ -22,7 +22,7 @@ allowed-tools:
   - Bash
 ---
 
-# /reflect:export — Knowledge-base snapshot (export / import)
+# /plugly-reflect-memory:export : Knowledge-base snapshot (export / import)
 
 Snapshots the reflect knowledge base — the `~/.learnings` markdown corpus plus
 the `reflect.db` rows — into a single deterministic, git-friendly tarball, and

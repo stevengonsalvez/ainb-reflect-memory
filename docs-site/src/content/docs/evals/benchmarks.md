@@ -5,7 +5,7 @@ sidebar:
   order: 1
 ---
 
-reflect's retrieval engine was evaluated on [LOCOMO](https://github.com/snap-research/locomo) (long-term conversational memory). This is a **pilot**: 50 stratified questions (10 per category) from one conversation (`conv-26`). Numbers below are copied from the benchmark's [REPORT.md](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/REPORT.md) and were measured on the **reflect 4.1.0 engine**. Later releases (5.x) have not been re-benchmarked.
+reflect's retrieval engine was evaluated on [LOCOMO](https://github.com/snap-research/locomo) (long-term conversational memory). This is a **pilot**: 50 stratified questions (10 per category) from one conversation (`conv-26`). Numbers below are copied from the benchmark's [REPORT.md](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/tests/eval/locomo/REPORT.md) and were measured on the **reflect 4.1.0 engine**. Later releases (5.x) have not been re-benchmarked.
 
 :::caution
 n = 50 from a single conversation. Per-cell noise is about +/-0.1. Treat results as directional, not as a ranking against other systems.
@@ -81,11 +81,11 @@ Each shipped as an additive, env-gated change. Defaults are unchanged and no new
 
 ### The 4.1.0 recall arms: not yet measured
 
-The stored `arms_on` vs `arms_off` pairs (for example 0.80 vs 0.76 on the bge and HyDE run) are not evidence about the arms. `recall.py` treats an unset arm knob as on, and the harness's `arms_off` used to only delete the variables, so both configs ran identical retrieval and the differences are run-to-run noise. REPORT.md no longer claims the arms are positive. The harness now exports `=0` for every arm in `arms_off` (check with `python3 locomo_bench.py --print-config`), and the ablation has to be re-run: the command is on the [LOCOMO in full](/ainb-reflect-memory/evals/locomo/#were-the-410-arms-positive) page under Reproduce. What the data supports is that the embedder swap and HyDE moved the score, with the arms on in every run.
+The stored `arms_on` vs `arms_off` pairs (for example 0.80 vs 0.76 on the bge and HyDE run) are not evidence about the arms. `recall.py` treats an unset arm knob as on, and the harness's `arms_off` used to only delete the variables, so both configs ran identical retrieval and the differences are run-to-run noise. REPORT.md no longer claims the arms are positive. The harness now exports `=0` for every arm in `arms_off` (check with `python3 locomo_bench.py --print-config`), and the ablation has to be re-run: the command is on the [LOCOMO in full](/plugly-reflect-memory/evals/locomo/#were-the-410-arms-positive) page under Reproduce. What the data supports is that the embedder swap and HyDE moved the score, with the arms on in every run.
 
 ### Placement against published systems
 
-reflect's tuned four-category mean (single, multi, temporal, open = 0.80 / 0.80 / 0.80 / 0.70) is **0.775** (the report said about 0.76 until corrected), which on the Hindsight LOCOMO leaderboard sits near Memobase (75.8) and Zep (75.1), above Mem0 (66.9). Judges differ (Opus here, GPT-4o-mini there; 15 to 20 points of swing), so this is directional placement, not a ranking. The repo's charts ([positioning](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_positioning.png), [comparison](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/tests/eval/locomo/results/locomo_comparison.png)) plot this as 77.5, the same figure.
+reflect's tuned four-category mean (single, multi, temporal, open = 0.80 / 0.80 / 0.80 / 0.70) is **0.775** (the report said about 0.76 until corrected), which on the Hindsight LOCOMO leaderboard sits near Memobase (75.8) and Zep (75.1), above Mem0 (66.9). Judges differ (Opus here, GPT-4o-mini there; 15 to 20 points of swing), so this is directional placement, not a ranking. The repo's charts ([positioning](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/tests/eval/locomo/results/locomo_positioning.png), [comparison](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/tests/eval/locomo/results/locomo_comparison.png)) plot this as 77.5, the same figure.
 
 ## Reproduce
 
@@ -146,6 +146,6 @@ Runs are resumable: per-session extraction and per-QA verdicts are cached under 
 
 ## See also
 
-- [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/) and [retrieval features](/ainb-reflect-memory/concepts/retrieval-features/) for the arms referenced here
-- [Configuration reference](/ainb-reflect-memory/reference/configuration/) for the env knobs
-- [Regression suite](/ainb-reflect-memory/evals/regression-suite/) for the deterministic tests that guard recall behavior
+- [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/) and [retrieval features](/plugly-reflect-memory/concepts/retrieval-features/) for the arms referenced here
+- [Configuration reference](/plugly-reflect-memory/reference/configuration/) for the env knobs
+- [Regression suite](/plugly-reflect-memory/evals/regression-suite/) for the deterministic tests that guard recall behavior

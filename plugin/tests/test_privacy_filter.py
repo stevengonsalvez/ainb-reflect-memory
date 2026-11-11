@@ -77,7 +77,24 @@ def _write_transcript(path: Path, turns):
     return path
 
 
-def test_cascade_slice_never_contains_private_content(tmp_path):
+@pytest.fixture
+def isolated_cascade_db(tmp_path, monkeypatch):
+    """Keep chunk dedup reads and writes inside this test's temporary state."""
+    import reflect_config
+    import reflect_db
+
+    for prefix in ("REFLECT_", "PLUGLY_REFLECT_MEMORY_"):
+        monkeypatch.setenv(prefix + "DB_PATH", str(tmp_path / "reflect.db"))
+        monkeypatch.setenv(prefix + "STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(reflect_config, "_CONFIG_CACHE", None)
+    reflect_db.close_all()
+    try:
+        yield
+    finally:
+        reflect_db.close_all()
+
+
+def test_cascade_slice_never_contains_private_content(tmp_path, isolated_cascade_db):
     transcript = _write_transcript(
         tmp_path / "t.jsonl",
         [

@@ -21,10 +21,11 @@ order).
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from reflect_kb.identity import getenv
 
 
 @dataclass
@@ -39,7 +40,7 @@ class TranscriptRef:
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def queue_file() -> Path:

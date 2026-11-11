@@ -41,6 +41,8 @@ from typing import Any
 
 import yaml
 
+from reflect_kb.identity import getenv
+
 # --- KB layout ------------------------------------------------------------
 # Learnings live as `<name>.md` files with YAML frontmatter under the KB's
 # `documents/` dir. This is the same layout recall.py's corpus-scan arms read
@@ -56,7 +58,7 @@ SNAPSHOT_VERSION = 1
 
 def state_dir() -> Path:
     """Root for reflect's mutable state. Overridable for tests via env."""
-    return Path(os.environ.get("REFLECT_STATE_DIR", Path.home() / ".reflect"))
+    return Path(getenv("REFLECT_STATE_DIR", Path.home() / ".reflect"))
 
 
 def corpora_dir() -> Path:

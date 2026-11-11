@@ -54,13 +54,13 @@ def test_install_writes_pointer_files_under_dot_codex(tmp_path):
     assert skills_root.is_dir()
 
     recall = skills_root / "recall" / "SKILL.md"
-    reflect = skills_root / "reflect" / "SKILL.md"
+    reflect = skills_root / "plugly-reflect-memory" / "SKILL.md"
     assert recall.exists()
     assert reflect.exists()
 
     body = recall.read_text(encoding="utf-8")
     assert codex_adapter.POINTER_MANAGED_BY in body
-    assert "name: reflect:recall" in body
+    assert "name: plugly-reflect-memory:recall" in body
     # Codex uses hooks.json, not settings.json
     assert not (tmp_path / ".codex" / "settings.json").exists()
     # And it must not have leaked into a Claude dir.
@@ -83,13 +83,13 @@ def test_install_syncs_recall_hooks_and_scripts(tmp_path):
     assert recall_hook.read_text().startswith("#!/usr/bin/env -S uv run")
 
     precompact = (
-        tmp_path / ".codex" / "skills" / "reflect" / "hooks"
+        tmp_path / ".codex" / "skills" / "plugly-reflect-memory" / "hooks"
         / "precompact_reflect.py"
     )
     assert precompact.exists()
 
     drain = (
-        tmp_path / ".codex" / "skills" / "reflect" / "hooks"
+        tmp_path / ".codex" / "skills" / "plugly-reflect-memory" / "hooks"
         / "reflect-drain-bg.sh"
     )
     assert drain.exists()
@@ -98,11 +98,11 @@ def test_install_syncs_recall_hooks_and_scripts(tmp_path):
 def test_install_refreshes_existing_drain_copy(tmp_path):
     """A reinstall must overwrite stale Codex drain code in-place.
 
-    hooks.json points at ~/.codex/skills/reflect/hooks/reflect-drain-bg.sh, so
+    hooks.json points at ~/.codex/skills/plugly-reflect-memory/hooks/reflect-drain-bg.sh, so
     preventing stale drain behavior depends on refreshing that physical copy.
     """
     drain = (
-        tmp_path / ".codex" / "skills" / "reflect" / "hooks"
+        tmp_path / ".codex" / "skills" / "plugly-reflect-memory" / "hooks"
         / "reflect-drain-bg.sh"
     )
     drain.parent.mkdir(parents=True)
@@ -216,13 +216,13 @@ def test_install_deploys_new_hook_scripts_on_disk(tmp_path):
     codex_dir = tmp_path / ".codex"
     expected = [
         codex_dir / "skills" / "recall" / "hooks" / "user_prompt_submit_recall.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "posttooluse_minilearning.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "stop_reflect.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "pretooluse_context.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "permission_request_reflect.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "postcompact_bookkeeping.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "subagent_start_recall.py",
-        codex_dir / "skills" / "reflect" / "hooks" / "subagent_stop_reflect.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "posttooluse_minilearning.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "stop_reflect.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "pretooluse_context.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "permission_request_reflect.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "postcompact_bookkeeping.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "subagent_start_recall.py",
+        codex_dir / "skills" / "plugly-reflect-memory" / "hooks" / "subagent_stop_reflect.py",
     ]
     for path in expected:
         assert path.exists(), f"missing on disk: {path}"

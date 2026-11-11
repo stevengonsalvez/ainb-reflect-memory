@@ -33,6 +33,8 @@ from typing import Optional
 
 from reflect_kb.metrics import write_metric
 
+from reflect_kb.identity import getenv
+
 _LEDGER_VERSION = 1
 
 # A content_hash observed this many times is surfaced as a promotion candidate.
@@ -42,7 +44,7 @@ PROMOTION_THRESHOLD = 3
 
 def state_dir() -> Path:
     return Path(
-        os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
+        getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
     ).expanduser()
 
 

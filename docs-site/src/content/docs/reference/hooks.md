@@ -1,13 +1,13 @@
 ---
 title: Hooks reference
-description: Every lifecycle hook the reflect plugin registers for Claude Code, Codex and Copilot, what each script does, timeouts, output shapes, and the always-exit-0 contract, verified against plugin/hooks.
+description: Every lifecycle hook the plugly-reflect-memory plugin registers for Claude Code, Codex and Copilot, what each script does, timeouts, output shapes, and the always-exit-0 contract, verified against plugin/hooks.
 sidebar:
   order: 1
 ---
 
-The plugin wires reflect into a harness through command hooks. Each hook is a small script that either **injects recall context** before the model acts, **arms a watcher** for a cheap no-LLM capture, or **queues a transcript** for the background drain. No hook runs an LLM. The only component that spends model tokens is the detached drain (`reflect-drain-bg.sh`), launched from `SessionStart`.
+The plugin wires plugly-reflect-memory into a harness through command hooks. Each hook is a small script that either **injects recall context** before the model acts, **arms a watcher** for a cheap no-LLM capture, or **queues a transcript** for the background drain. No hook runs an LLM. The only component that spends model tokens is the detached drain (`reflect-drain-bg.sh`), launched from `SessionStart`.
 
-Source of truth for the event map is [`plugin/hooks/registry.py`](https://github.com/stevengonsalvez/ainb-reflect-memory/blob/main/plugin/hooks/registry.py); a parity test (`plugin/tests/test_hook_registry_parity.py`) keeps the three manifests in sync with it. For the concepts behind the roles below see [Capture](/ainb-reflect-memory/concepts/capture/), [Drain](/ainb-reflect-memory/concepts/drain/) and [Recall pipeline](/ainb-reflect-memory/concepts/recall-pipeline/).
+Source of truth for the event map is [`plugin/hooks/registry.py`](https://github.com/stevengonsalvez/plugly-reflect-memory/blob/main/plugin/hooks/registry.py); a parity test (`plugin/tests/test_hook_registry_parity.py`) keeps the three manifests in sync with it. For the concepts behind the roles below see [Capture](/plugly-reflect-memory/concepts/capture/), [Drain](/plugly-reflect-memory/concepts/drain/) and [Recall pipeline](/plugly-reflect-memory/concepts/recall-pipeline/).
 
 ## Roles
 
@@ -30,8 +30,8 @@ Source of truth for the event map is [`plugin/hooks/registry.py`](https://github
 | Role | Hooks | Contract |
 |---|---|---|
 | Recall injectors | `SessionStart`, `UserPromptSubmit`, `SubagentStart`, `PreToolUse` | Emit `additionalContext` before the model or tool acts. |
-| Signal armers | `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `errorOccurred` | Write small breadcrumb files. The next `UserPromptSubmit` consumes them. Never run `/reflect`. |
-| Queue producers | `PreCompact`, `Stop`, `SessionEnd`, `SubagentStop` | Run the `$0` enqueue gate, then append deduped work to `pending_reflections.jsonl`. Never run `/reflect`. |
+| Signal armers | `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `errorOccurred` | Write small breadcrumb files. The next `UserPromptSubmit` consumes them. Never run `/plugly-reflect-memory`. |
+| Queue producers | `PreCompact`, `Stop`, `SessionEnd`, `SubagentStop` | Run the `$0` enqueue gate, then append deduped work to `pending_reflections.jsonl`. Never run `/plugly-reflect-memory`. |
 | Drain consumer | `SessionStart` (`reflect-drain-bg.sh`) | Sole consumer of the queue. Detached, always exits 0. |
 | Bookkeeping | `PostCompact` | Log only. No injection, no queue append, no drain. |
 
@@ -116,7 +116,7 @@ All four append one JSON line to `$REFLECT_STATE_DIR/pending_reflections.jsonl` 
 }
 ```
 
-The `( ... &)` wrapper detaches the drain, so the harness returns immediately and the 5 s timeout (Copilot: `timeoutSec: 5`) only covers the launch. The script always exits 0 and all its output goes to `~/.reflect/drain.log` (rotates at 10 MB). Cost controls (turn cap, wall-clock cap, token-budget poison, debounce, daily cap, quota gate) are all env vars; see [drain env vars](/ainb-reflect-memory/reference/configuration/#drain). The writer path defaults to the single-shot `extract` writer since 5.2.5; set `REFLECT_DRAIN_WRITER=agentic` for the legacy multi-turn loop.
+The `( ... &)` wrapper detaches the drain, so the harness returns immediately and the 5 s timeout (Copilot: `timeoutSec: 5`) only covers the launch. The script always exits 0 and all its output goes to `~/.reflect/drain.log` (rotates at 10 MB). Cost controls (turn cap, wall-clock cap, token-budget poison, debounce, daily cap, quota gate) are all env vars; see [drain env vars](/plugly-reflect-memory/reference/configuration/#drain). The writer path defaults to the single-shot `extract` writer since 5.2.5; set `REFLECT_DRAIN_WRITER=agentic` for the legacy multi-turn loop.
 
 ### Bookkeeping
 
@@ -153,7 +153,7 @@ Two documented-silent exceptions exist in the code today:
 - Bad arguments exit `2` (argparse), and a malformed numeric env var read at import time (`REFLECT_RECALL_MIN_OVERLAP`, `REFLECT_RECALL_MAX_TOKENS` in the SessionStart hook; `REFLECT_SUBAGENT_RECALL_TIMEOUT` in the SubagentStart hook) raises before the silent-fail wrapper exists, giving a traceback and exit `1`. Keep those variables numeric.
 :::
 
-`reflect-drain-bg.sh` prints a `reflect-kb CLI not found` notice to stderr when `reflect` is not on `PATH` (suppress with `REFLECT_QUIET_INSTALL_WARNING=1`). In the shipped wiring this is discarded by the `>/dev/null 2>&1` in the launch command.
+`reflect-drain-bg.sh` prints a `reflect-kb CLI not found` notice to stderr when `plugly-reflect-memory` is not on `PATH` (suppress with `REFLECT_QUIET_INSTALL_WARNING=1`). In the shipped wiring this is discarded by the `>/dev/null 2>&1` in the launch command.
 
 ## Output shapes by harness
 
@@ -194,7 +194,7 @@ Paths are relative to `$REFLECT_STATE_DIR` (default `~/.reflect`).
 | `errors.jsonl` | `errorOccurred` (Copilot) | nothing in this repo (breadcrumb sink) |
 | `last-event.json` | any hook on error | status line |
 | `logs/<hook>.log` | every hook (for example `logs/precompact_reflect.log`) | developers |
-| `drain.log`, `drain-cost.jsonl`, `retry-count.jsonl`, `poison-reflections.jsonl`, `drain.lock.d/` | the drain | the drain; `reflect cost` reads `drain-cost.jsonl` |
+| `drain.log`, `drain-cost.jsonl`, `retry-count.jsonl`, `poison-reflections.jsonl`, `drain.lock.d/` | the drain | the drain; `plugly-reflect-memory cost` reads `drain-cost.jsonl` |
 
 Mini-learnings written by `UserPromptSubmit` and the TodoWrite capture land in `$REFLECT_LEARNINGS_DIR`, default `~/.learnings/documents/`.
 
@@ -204,11 +204,11 @@ Hooks report health through files, never through the session:
 
 | Surface | Source | Shows |
 |---|---|---|
-| `last-event.json` | the silent-fail handler in every hook | the most recent hook error; a status line can render it as a `recall failed` or `reflect failed` warning. Nothing in this repo reads it, so rendering is up to your status line script. |
-| `errors.json` | drain poison, parser crashes, `reflect-maintenance-watch.sh` | an unacked-error badge (`reflect errors count`), cleared with `reflect:errors-ack`. |
+| `last-event.json` | the silent-fail handler in every hook | the most recent hook error; a status line can render it as a `recall failed` or `plugly-reflect-memory failed` warning. Nothing in this repo reads it, so rendering is up to your status line script. |
+| `errors.json` | drain poison, parser crashes, `reflect-maintenance-watch.sh` | an unacked-error badge (`plugly-reflect-memory errors count`), cleared with `plugly-reflect-memory:errors-ack`. |
 | `plugin/scripts/reflect_timeline.sh` | local logs (`recall_log.jsonl`, `drain.log`, `errors.json`, ingest log, session JSONL) | a 4-row, 2-hour sparkline dashboard (rows REC, MEM, ING, DRN, TOK, UNC, CHR, OUT, THR, AGT, COM, ERR) for your status line. 10 s cache; opt out with `REFLECT_TIMELINE_DISABLE=1`. |
 
-See the [hook timeline](/ainb-reflect-memory/interactive/hook-timeline/) for a walkthrough of what fires when.
+See the [hook timeline](/plugly-reflect-memory/interactive/hook-timeline/) for a walkthrough of what fires when.
 
 ## Hooks that are not lifecycle events
 
@@ -230,7 +230,7 @@ Hermes (fleet-lambda) has no hook runtime. `plugin/adapters/hermes/hermes_adapte
 
 | Shim | Stdin | Behavior |
 |---|---|---|
-| `pre_llm_recall.py` | `{prompt, agent_id, domain_hint, session_id}` | `FLEET_MEMORY_BACKEND` selects the mode: `bank` exits immediately; `shadow` (default) runs recall and logs telemetry but prints nothing; `reflect` prints the fleet-context block. Recall is bounded by `REFLECT_FLEET_TIMEOUT` (default 10 s). |
+| `pre_llm_recall.py` | `{prompt, agent_id, domain_hint, session_id}` | `FLEET_MEMORY_BACKEND` selects the mode: `bank` exits immediately; `shadow` (default) runs recall and logs telemetry but prints nothing; `plugly-reflect-memory` prints the fleet-context block. Recall is bounded by `REFLECT_FLEET_TIMEOUT` (default 10 s). |
 | `post_llm_capture.py` | `{last_user_msg, last_assistant_msg, transcript_tail, session_id, agent_id}` | Appends to `pending_reflections.jsonl`; a correction word in the user message (no, wrong, actually, stop, don't, should be) tags the entry `priority: high`. |
 
 ## Disabling hooks
@@ -242,4 +242,4 @@ Hermes (fleet-lambda) has no hook runtime. `plugin/adapters/hermes/hermes_adapte
 | Stop all hooks | Disable the plugin in the harness. `REFLECT_DISABLED` does **not** gate the recall hooks or the other queue producers (`Stop`, `SessionEnd`, `SubagentStop`); only the drain family checks it. |
 | Run the drain by hand, no spend | `REFLECT_DRAIN_DRY_RUN=1`. |
 
-All variables are documented in [Configuration](/ainb-reflect-memory/reference/configuration/#environment-variables). If hooks misbehave, start with [Troubleshooting](/ainb-reflect-memory/guides/troubleshooting/).
+All variables are documented in [Configuration](/plugly-reflect-memory/reference/configuration/#environment-variables). If hooks misbehave, start with [Troubleshooting](/plugly-reflect-memory/guides/troubleshooting/).

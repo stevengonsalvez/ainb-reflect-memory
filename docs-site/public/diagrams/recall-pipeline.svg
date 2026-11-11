@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 734" width="680" height="734" font-family="system-ui,-apple-system,Segoe UI,Roboto,sans-serif" role="img" aria-labelledby="rp-t rp-d">
-<title id="rp-t">reflect recall pipeline</title>
+<title id="rp-t">plugly-reflect-memory recall pipeline</title>
 <desc id="rp-d">Stages of a recall from hook trigger to injected context: persona lookup, scope, cache, four parallel arms (vector, BM25, graph, temporal), RRF fusion, cross-encoder and embeddings, bounded-boost scoring, filters, OOD gate, MMR, token budget, injection.</desc>
 <style>
 svg{color:#55544e;--rp-text:#1b1b24;--rp-muted:#55544e;--rp-line:#b9b6aa;--rp-accent:#3e68c2;--rp-arm:#3f8a5a;--rp-gate:#a8841a;--rp-ok:#3f8a5a;--rp-box-bg:#ffffff;--rp-core-bg:#f0eee6;--rp-hook-bg:#e7eefb;--rp-arm-bg:#e8f3ec;--rp-gate-bg:#faf3dc;--rp-out-bg:#e3f1e8}
@@ -66,7 +66,7 @@ svg{color:#55544e;--rp-text:#1b1b24;--rp-muted:#55544e;--rp-line:#b9b6aa;--rp-ac
 <text x="568.0" y="194.0" class="rp-sub" text-anchor="middle">1 h TTL; hit skips arms + CE</text>
 <rect x="6" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="86.5" y="280.0" class="rp-title" text-anchor="middle">vector</text>
-<text x="86.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="86.5" y="295.0" class="rp-sub" text-anchor="middle">plugly-reflect-memory search</text>
 <text x="86.5" y="310.0" class="rp-sub" text-anchor="middle">--mode naive</text>
 <rect x="175" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="255.5" y="280.0" class="rp-title" text-anchor="middle">BM25</text>
@@ -74,7 +74,7 @@ svg{color:#55544e;--rp-text:#1b1b24;--rp-muted:#55544e;--rp-line:#b9b6aa;--rp-ac
 <text x="255.5" y="310.0" class="rp-sub" text-anchor="middle">-c learnings</text>
 <rect x="344" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="424.5" y="280.0" class="rp-title" text-anchor="middle">graph (R1)</text>
-<text x="424.5" y="295.0" class="rp-sub" text-anchor="middle">reflect search</text>
+<text x="424.5" y="295.0" class="rp-sub" text-anchor="middle">plugly-reflect-memory search</text>
 <text x="424.5" y="310.0" class="rp-sub" text-anchor="middle">--mode local</text>
 <rect x="513" y="256" width="161" height="70" rx="8" class="rp-box rp-arm"/>
 <text x="593.5" y="280.0" class="rp-title" text-anchor="middle">temporal (R5)</text>
@@ -84,11 +84,11 @@ svg{color:#55544e;--rp-text:#1b1b24;--rp-muted:#55544e;--rp-line:#b9b6aa;--rp-ac
 <text x="340.0" y="381.0" class="rp-title" text-anchor="middle">3. RRF fusion, k = 60  (per-arm floors first, off by default)</text>
 <rect x="6" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
 <text x="169.0" y="434.0" class="rp-title" text-anchor="middle">4a. cross-encoder (R2)</text>
-<text x="169.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect rerank</text>
+<text x="169.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via plugly-reflect-memory rerank</text>
 <text x="169.0" y="464.0" class="rp-sub" text-anchor="middle">MiniLM-L-6-v2 logits</text>
 <rect x="348" y="416" width="326" height="58" rx="8" class="rp-box rp-step"/>
 <text x="511.0" y="434.0" class="rp-title" text-anchor="middle">4b. embeddings (R3)</text>
-<text x="511.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via reflect embed</text>
+<text x="511.0" y="449.0" class="rp-sub" text-anchor="middle">top 20 via plugly-reflect-memory embed</text>
 <text x="511.0" y="464.0" class="rp-sub" text-anchor="middle">all-mpnet-base-v2 vectors</text>
 <rect x="6" y="496" width="668" height="58" rx="8" class="rp-box rp-core"/>
 <text x="340.0" y="514.0" class="rp-title" text-anchor="middle">5. score = sigmoid(CE logit) x bounded boosts</text>

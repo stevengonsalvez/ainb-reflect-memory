@@ -33,7 +33,7 @@ content into ``~/.copilot/skills/`` and the hook commands in
   * ``plugins/reflect/skills/<name>/`` → ``~/.copilot/skills/<name>/``
     (recursive: SKILL.md + hooks/ + scripts/).
   * ``plugins/reflect/{hooks,scripts,assets,references}/`` →
-    ``~/.copilot/skills/reflect/{hooks,scripts,assets,references}/``.
+    ``~/.copilot/skills/plugly-reflect-memory/{hooks,scripts,assets,references}/``.
 
 A ``managed_by: reflect-kb/adapters/copilot`` sentinel injected into each
 copied SKILL.md keeps uninstall safe against hand-written sibling files.
@@ -77,13 +77,13 @@ from base import (  # noqa: E402
     run_cli,
 )
 
-POINTER_MANAGED_BY = "reflect-kb/adapters/copilot"
+POINTER_MANAGED_BY = "plugly-reflect-memory/adapters/copilot"
 HARNESS_DIR = ".copilot"
 
 # Copilot's drop-in hook dir combines all ``*.json`` at load; we own this
 # single file under it so install writes it whole and uninstall deletes it.
 HOOKS_DIR = "hooks"
-HOOKS_FILE = "reflect.json"
+HOOKS_FILE = "plugly-reflect-memory.json"
 
 # Copilot drop-in schema version (top-level ``version: 1``).
 COPILOT_HOOKS_SCHEMA_VERSION = 1
@@ -113,7 +113,7 @@ PLUGIN_ROOT_FILES: tuple[str, ...] = ("reflect.toml",)
 # ``VAR=val`` prefix is invalid shell syntax (and the drain script doesn't
 # read REFLECT_HARNESS anyway).
 
-_HARNESS_ENV = "REFLECT_HARNESS=copilot "
+_HARNESS_ENV = "REFLECT_HARNESS=copilot PLUGLY_REFLECT_MEMORY_HARNESS=copilot "
 
 _RECALL_HOOK_TEMPLATE = (
     _HARNESS_ENV
@@ -121,14 +121,14 @@ _RECALL_HOOK_TEMPLATE = (
 )
 _PRECOMPACT_HOOK_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/"
     "precompact_reflect.py --auto --verbose"
 )
 # Detached background drain — same ``(nohup ... &)`` pattern as codex so
 # the parent exits immediately while the drain keeps running. NO env prefix
 # (subshell — see note above).
 _DRAIN_HOOK_TEMPLATE = (
-    "(nohup {home_tool_dir}/skills/reflect/hooks/"
+    "(nohup {home_tool_dir}/skills/plugly-reflect-memory/hooks/"
     "reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1"
 )
 _USER_PROMPT_RECALL_TEMPLATE = (
@@ -137,43 +137,43 @@ _USER_PROMPT_RECALL_TEMPLATE = (
 )
 _POSTTOOLUSE_MINILEARNING_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/posttooluse_minilearning.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/posttooluse_minilearning.py"
 )
 _STOP_REFLECT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/stop_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/stop_reflect.py"
 )
 _NOTIFICATION_REFLECT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/notification_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/notification_reflect.py"
 )
 _PRETOOLUSE_CONTEXT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/pretooluse_context.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/pretooluse_context.py"
 )
 _PERMISSION_REQUEST_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/permission_request_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/permission_request_reflect.py"
 )
 _POSTTOOLUSE_FAILURE_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/posttoolusefailure_minilearning.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/posttoolusefailure_minilearning.py"
 )
 _SUBAGENT_START_RECALL_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/subagent_start_recall.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/subagent_start_recall.py"
 )
 _SUBAGENT_STOP_REFLECT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/subagent_stop_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/subagent_stop_reflect.py"
 )
 _SESSION_END_REFLECT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/session_end_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/session_end_reflect.py"
 )
 _ERROR_OCCURRED_REFLECT_TEMPLATE = (
     _HARNESS_ENV
-    + "uv run {home_tool_dir}/skills/reflect/hooks/error_occurred_reflect.py"
+    + "uv run {home_tool_dir}/skills/plugly-reflect-memory/hooks/error_occurred_reflect.py"
 )
 
 # Timeout (seconds) on the detached drain so Copilot never blocks long on
@@ -346,6 +346,27 @@ def _build_hooks_config(copilot_dir: Path, *, with_bg_drain: bool) -> dict:
     }
 
 
+def _owns_legacy_hooks(legacy_path: Path, copilot_dir: Path) -> bool:
+    """Recognize exact legacy adapter commands, preserving unknown drop-ins."""
+    try:
+        legacy = json.loads(legacy_path.read_text(encoding="utf-8"))
+        expected = _build_hooks_config(copilot_dir, with_bg_drain=True)["hooks"]
+        known = {event: {variant for entry in entries
+                         for variant in (entry["command"].replace("/skills/plugly-reflect-memory/", "/skills/reflect/"),
+                             entry["command"].replace("/skills/plugly-reflect-memory/", "/skills/reflect/").replace(" PLUGLY_REFLECT_MEMORY_HARNESS=copilot", ""))} for event, entries in expected.items()}
+        legacy_hooks = legacy.get("hooks", {})
+        remove_legacy = (
+            legacy.get("version") == 1 and isinstance(legacy_hooks, dict)
+            and bool(legacy_hooks)
+            and all(isinstance(entries, list) and entries and all(
+                isinstance(entry, dict) and entry.get("command") in known.get(event, set())
+                for entry in entries) for event, entries in legacy_hooks.items())
+        )
+    except (ValueError, OSError, AttributeError, TypeError):
+        remove_legacy = False
+    return remove_legacy
+
+
 class CopilotAdapter(AdapterBase):
     """Copilot harness: full-content skill install + native drop-in hooks."""
 
@@ -378,7 +399,13 @@ class CopilotAdapter(AdapterBase):
             text = source_skill.read_text(encoding="utf-8")
         except OSError:
             return super()._pointer_body(source_skill, dst)
-        return _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        text = _inject_managed_by(text, self.POINTER_MANAGED_BY)
+        if dst is not None:
+            text = text.replace(
+                "${CLAUDE_PLUGIN_ROOT}/plugin/skills/plugly-reflect-memory/SKILL.md",
+                str(dst.parents[1] / "plugly-reflect-memory" / "SKILL.md"),
+            )
+        return text
 
     # --- CLI flags -------------------------------------------------------
 
@@ -442,7 +469,7 @@ class CopilotAdapter(AdapterBase):
 
         # Plugin-level shared resources land under the reflect umbrella
         # skill so the hook commands above resolve correctly.
-        reflect_umbrella = plan.target_harness_dir / "skills" / "reflect"
+        reflect_umbrella = plan.target_harness_dir / "skills" / "plugly-reflect-memory"
         root_resource_syncs: list[tuple[Path, Path]] = []
         for resource in PLUGIN_ROOT_RESOURCES:
             src_dir = plugin_root / resource
@@ -533,15 +560,20 @@ class CopilotAdapter(AdapterBase):
         if not with_hooks:
             return []
         hooks_path = home / self.HARNESS_DIR / HOOKS_DIR / HOOKS_FILE
+        actions: list[str] = []
+        legacy_path = hooks_path.with_name("reflect.json")
+        if legacy_path.exists() and _owns_legacy_hooks(legacy_path, home / self.HARNESS_DIR):
+            legacy_path.unlink()
+            actions.append(f"removed legacy drop-in {legacy_path}")
         if not hooks_path.exists():
-            return []
+            return actions
         # We own the whole file — delete it unconditionally (corrupt or not).
         # Foreign ``*.json`` siblings in the drop-in dir are untouched.
         try:
             hooks_path.unlink()
         except OSError as exc:
             return [f"failed to remove {hooks_path}: {exc}"]
-        actions = [f"removed reflect drop-in {hooks_path}"]
+        actions.append(f"removed plugly-reflect-memory drop-in {hooks_path}")
         # Best-effort: prune the hooks dir if no foreign siblings remain.
         try:
             hooks_path.parent.rmdir()
@@ -594,13 +626,23 @@ class CopilotAdapter(AdapterBase):
                 )
 
         copilot_dir = hooks_path.parent.parent  # ~/.copilot/hooks/.. → ~/.copilot
+        legacy_path = hooks_path.with_name("reflect.json")
+        remove_legacy = False
+        if legacy_path.exists():
+            remove_legacy = _owns_legacy_hooks(legacy_path, copilot_dir)
+            if not remove_legacy:
+                raise RuntimeError(f"{legacy_path} is not a recognized legacy drop-in; refusing duplicate hook installation")
         config = _build_hooks_config(copilot_dir, with_bg_drain=with_bg_drain)
         hooks_path.parent.mkdir(parents=True, exist_ok=True)
         hooks_path.write_text(
             json.dumps(config, indent=2, sort_keys=False) + "\n",
             encoding="utf-8",
         )
-        return [f"wrote copilot-native reflect hooks drop-in to {hooks_path}"]
+        actions = [f"wrote copilot-native plugly-reflect-memory hooks drop-in to {hooks_path}"]
+        if remove_legacy:
+            legacy_path.unlink()
+            actions.append(f"removed legacy drop-in {legacy_path}")
+        return actions
 
 
 # --- backwards-compatible module-level API ------------------------------

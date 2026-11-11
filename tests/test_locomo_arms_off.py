@@ -71,7 +71,8 @@ FAKE_QMD = "#!/bin/sh\nexit 1\n"  # no lexical arm: keeps the pool deterministic
 def sandbox(tmp_path, monkeypatch):
     bindir = tmp_path / "bin"
     bindir.mkdir()
-    for name, body in (("reflect", FAKE_REFLECT), ("qmd", FAKE_QMD)):
+    for name, body in (("plugly-reflect-memory", FAKE_REFLECT), ("reflect", FAKE_REFLECT),
+                       ("qmd", FAKE_QMD)):
         p = bindir / name
         p.write_text(body)
         p.chmod(p.stat().st_mode | stat.S_IEXEC)
@@ -89,7 +90,7 @@ def sandbox(tmp_path, monkeypatch):
     calls = tmp_path / "calls.log"
     state = tmp_path / "state"
     state.mkdir()
-    # Fake CLIs first on PATH; the harness must not pick up a real venv's reflect.
+    # Stub both CLI names so canonical discovery cannot reach a real engine.
     monkeypatch.setenv("PATH", f"{bindir}:{os.environ['PATH']}")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.setenv("FAKE_CALLS_LOG", str(calls))

@@ -46,6 +46,11 @@ from __future__ import annotations
 
 import json
 import os
+try:
+    from identity_env import getenv
+except ImportError:  # Broken legacy installs keep silent-fail behavior.
+    getenv = os.environ.get
+
 import sys
 import time
 from dataclasses import asdict, dataclass
@@ -144,6 +149,7 @@ def extract_dialogue(path: Path, max_chars: int = _MAX_SCAN_CHARS) -> str:
 # prefix match would skip the whole transcript and silently drop that signal.
 _REFLECT_RUN_MARKERS = (
     "<command-name>reflect</command-name>",
+    "<command-name>plugly-reflect-memory</command-name>",
     "process the transcript at:",
 )
 
@@ -284,7 +290,7 @@ DEFAULT_IDLE_MAX_PER_SWEEP = 5
 def _idle_env_int(name: str, default: int) -> int:
     """Parse a non-negative int from env; fall back on garbage/negative."""
     try:
-        value = int(os.environ.get(name, default))
+        value = int(getenv(name, default))
     except (TypeError, ValueError):
         return default
     return value if value >= 0 else default
@@ -457,9 +463,9 @@ def main() -> None:
         # Flags win; env (REFLECT_IDLE_*) next; module defaults last — so
         # both the shell hook and a bare launchd invocation are configurable.
         state_dir = Path(
-            os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
+            getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect"))
         )
-        projects_root = args.projects_root or os.environ.get(
+        projects_root = args.projects_root or getenv(
             "REFLECT_IDLE_PROJECTS_ROOT",
             str(Path.home() / ".claude" / "projects"),
         )

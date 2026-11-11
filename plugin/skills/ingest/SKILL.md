@@ -1,5 +1,5 @@
 ---
-name: reflect:ingest
+name: plugly-reflect-memory:ingest
 description: |
   The global knowledge indexer. Harvests ALL memory sources across all tools
   (Claude, Codex, Copilot, Gemini) and all project types into the unified
@@ -9,7 +9,7 @@ description: |
 version: "3.0.0"
 user-invocable: true
 triggers:
-  - reflect:ingest
+  - plugly-reflect-memory:ingest
   - ingest memories
   - index learnings
   - harvest memories
@@ -37,12 +37,12 @@ one place. If it exists in a memory file somewhere, it should be in the global i
 - Periodically (weekly recommended) to keep the knowledge base current
 - Before deleting projects or cleaning up `~/.claude/projects/`
 - After heavy multi-project work across different tools
-- When `reflect:status` shows low sidecar coverage or stale sources
-- After running `reflect:consolidate` (to index what it produced)
+- When `plugly-reflect-memory:status` shows low sidecar coverage or stale sources
+- After running `plugly-reflect-memory:consolidate` (to index what it produced)
 
 ## What Gets Indexed
 
-`reflect:ingest` sweeps ALL of these sources:
+`plugly-reflect-memory:ingest` sweeps ALL of these sources:
 
 | # | Source | Path | Provider |
 |---|--------|------|----------|
@@ -84,7 +84,7 @@ Everything flows to:
 │   │       └── feat__payment/  feat/payment don't pollute each other's recall.
 │   └── <project-b>/            Recall defaults to the CURRENT branch's sub-
 │                                shard; trunk (main/master) uses the project
-│                                shard. `reflect:recall --all-branches` pools
+│                                shard. `plugly-reflect-memory:recall --all-branches` pools
 │                                every branch of the project; `--global` pools
 │                                every project at the top-level KB.
 └── .memory-ingest-log.yaml     Tracks what's been ingested (prevents reprocessing)
@@ -105,7 +105,7 @@ Everything flows to:
 
 ```bash
 # Use multi-tool provider discovery
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/memory_discovery.py discover --json
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/memory_discovery.py discover --json
 
 # Also scan non-provider sources
 # Episode files:
@@ -246,7 +246,7 @@ Relationship hints by memory kind:
 
 Validate before writing:
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/validate_sidecar.py "$SIDECAR_PATH"
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/validate_sidecar.py "$SIDECAR_PATH"
 ```
 
 See `${CLAUDE_PLUGIN_ROOT}/plugin/references/knowledge_format.md` for the full entity/relationship type reference.
@@ -342,7 +342,7 @@ INGEST_LOG="$HOME/.learnings/.memory-ingest-log.yaml"
 ```bash
 cd "$LEARNINGS_HOME"
 git add documents/memories/ documents/learnings/ .memory-ingest-log.yaml
-git commit -m "reflect:ingest — $COUNT learnings from $PROVIDER_COUNT providers
+git commit -m "plugly-reflect-memory:ingest : $COUNT learnings from $PROVIDER_COUNT providers
 
 Archived: $ARCHIVED original memory files
 Indexed: $INDEXED into GraphRAG + QMD
@@ -352,7 +352,7 @@ Sources: $SOURCES"
 ### Step 9: Update Metrics
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/metrics_updater.py \
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/metrics_updater.py \
     --knowledge-notes $COUNT --sidecars $COUNT
 ```
 
@@ -360,7 +360,7 @@ Also rebuild the skills index (R20) so retrieval can match queries against
 installed skills without a filesystem scan:
 
 ```bash
-python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/skill_index.py rebuild
+python3 {{HOME_TOOL_DIR}}/skills/plugly-reflect-memory/scripts/skill_index.py rebuild
 ```
 
 ### Step 10: Report
@@ -377,9 +377,9 @@ python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/skill_index.py rebuild
 - **QMD**: {file_count} files, {vector_count} vectors
 ```
 
-## Difference from reflect:consolidate
+## Difference from plugly-reflect-memory:consolidate
 
-| | reflect:consolidate | reflect:ingest |
+| | plugly-reflect-memory:consolidate | plugly-reflect-memory:ingest |
 |---|---|---|
 | **Scope** | Current project only | ALL projects, ALL tools |
 | **Purpose** | Tidy worktree orphans → `.agents/MEMORY.md` | Build comprehensive global knowledge base |
@@ -387,7 +387,7 @@ python3 {{HOME_TOOL_DIR}}/skills/reflect/scripts/skill_index.py rebuild
 | **Cleanup** | Deletes orphaned worktree dirs | Marks as ingested (preserves originals as archives) |
 | **When** | After deleting worktrees | Periodically, or before project cleanup |
 
-**Typical workflow**: Run `reflect:consolidate` first (tidies project), then `reflect:ingest` (indexes everything globally).
+**Typical workflow**: Run `plugly-reflect-memory:consolidate` first (tidies project), then `plugly-reflect-memory:ingest` (indexes everything globally).
 
 ## Safety
 

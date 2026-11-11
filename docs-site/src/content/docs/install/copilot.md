@@ -1,6 +1,6 @@
 ---
 title: GitHub Copilot CLI
-description: Install reflect into GitHub Copilot CLI with the python adapter. The native reflect.json hooks drop-in, the 13 camelCase events, verification, uninstall, and what is and is not confirmed.
+description: Install plugly-reflect-memory into GitHub Copilot CLI with the python adapter. The native plugly-reflect-memory.json hooks drop-in, the 13 camelCase events, verification, uninstall, and what is and is not confirmed.
 sidebar:
   order: 30
 ---
@@ -14,7 +14,7 @@ GitHub Copilot CLI has a native hook system, so the adapter wires the same recal
 | macOS or Linux | hooks are bash and Python | |
 | GitHub Copilot CLI with hooks | hook system GA Feb 2026 per the adapter docs | `copilot --version` |
 | [uv](https://docs.astral.sh/uv/) | runs every hook and installs the CLI | `uv --version` |
-| reflect engine on `PATH` | recall and indexing | `reflect --version` |
+| plugly-reflect-memory engine on `PATH` | recall and indexing | `plugly-reflect-memory --version` |
 | `claude` on `PATH` | the drain runs `claude -p` to write learnings | `command -v claude` |
 | PyYAML | `plugin/adapters/base.py` imports `yaml`; stock `python3` without it fails | `python3 -c 'import yaml'` |
 
@@ -23,11 +23,11 @@ GitHub Copilot CLI has a native hook system, so the adapter wires the same recal
 ```bash
 # engine
 uv tool install --force --upgrade --torch-backend cpu \
-  'git+https://github.com/stevengonsalvez/ainb-reflect-memory.git[graph]'
+  'git+https://github.com/stevengonsalvez/plugly-reflect-memory.git[graph]'
 
 # adapter
-git clone https://github.com/stevengonsalvez/ainb-reflect-memory.git
-cd ainb-reflect-memory
+git clone https://github.com/stevengonsalvez/plugly-reflect-memory.git
+cd plugly-reflect-memory
 uv run --no-project --with pyyaml python plugin/adapters/copilot/copilot_adapter.py install --dry-run
 uv run --no-project --with pyyaml python plugin/adapters/copilot/copilot_adapter.py install
 ```
@@ -37,7 +37,7 @@ uv run --no-project --with pyyaml python plugin/adapters/copilot/copilot_adapter
 | Flag | Effect |
 |---|---|
 | `--dry-run` | print the plan, change nothing |
-| `--no-hooks` | skills and scripts only, no `reflect.json` |
+| `--no-hooks` | skills and scripts only, no `plugly-reflect-memory.json` |
 | `--no-bg-drain` | skip the `sessionStart` drain entry (see limitations) |
 | `--force` | overwrite a hand-written `SKILL.md` lacking the `managed_by` sentinel |
 | `--home DIR` | treat `DIR` as `$HOME` (testing) |
@@ -53,20 +53,20 @@ Re-run after updating the checkout; the deployed copy does not self-update.
 ```
 ~/.copilot/
 ├── hooks/
-│   └── reflect.json              the one file the adapter owns, written whole
+│   └── plugly-reflect-memory.json              the one file the adapter owns, written whole
 └── skills/
-    ├── reflect/   SKILL.md  hooks/  scripts/  assets/  references/  reflect.toml
+    ├── plugly-reflect-memory/   SKILL.md  hooks/  scripts/  assets/  references/  reflect.toml
     ├── recall/    SKILL.md  hooks/  scripts/
     ├── status/    SKILL.md  scripts/
     ├── consolidate/  SKILL.md
     └── ingest/       SKILL.md
 ```
 
-Each `SKILL.md` is the full plugin content plus `managed_by: reflect-kb/adapters/copilot`.
+Each `SKILL.md` is the full plugin content plus `managed_by: plugly-reflect-memory/adapters/copilot`.
 
 ## How hooks get wired
 
-Copilot loads every `*.json` in `~/.copilot/hooks/` and combines them, so the adapter writes exactly one file, `reflect.json`, and never edits anyone else's. The format differs from Claude and Codex on every axis:
+Copilot loads every `*.json` in `~/.copilot/hooks/` and combines them, so the adapter writes exactly one file, `plugly-reflect-memory.json`, and never edits anyone else's. The format differs from Claude and Codex on every axis:
 
 | | Claude / Codex | Copilot |
 |---|---|---|
@@ -86,7 +86,7 @@ Every `uv run` command is prefixed `REFLECT_HARNESS=copilot`, which makes the re
       { "type": "command",
         "command": "REFLECT_HARNESS=copilot uv run ~/.copilot/skills/recall/hooks/session_start_recall.py" },
       { "type": "command",
-        "command": "(nohup ~/.copilot/skills/reflect/hooks/reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1",
+        "command": "(nohup ~/.copilot/skills/plugly-reflect-memory/hooks/reflect-drain-bg.sh >/dev/null 2>&1 &) >/dev/null 2>&1",
         "timeoutSec": 5 }
     ]
   }
@@ -118,7 +118,7 @@ Every `uv run` command is prefixed `REFLECT_HARNESS=copilot`, which makes the re
 
 ```bash
 jq '.version, (.hooks | keys)' ~/.copilot/hooks/reflect.json   # 1 and 13 event names
-ls ~/.copilot/skills                                            # consolidate ingest recall reflect status
+ls ~/.copilot/skills                                            # consolidate ingest recall plugly-reflect-memory status
 ```
 
 Smoke-test a recall hook with the Copilot env (exit 0, plain `additionalContext` object):
@@ -135,8 +135,8 @@ Then run a Copilot session with a correction in it:
 |---|---|
 | Transcript queued | new line in `~/.reflect/pending_reflections.jsonl`, `"harness": "copilot"` |
 | Drain ran | `~/.reflect/drain.log` |
-| Learning landed | `reflect stats`, `~/.learnings/documents/` |
-| Hook failures | `reflect errors count` |
+| Learning landed | `plugly-reflect-memory stats`, `~/.learnings/documents/` |
+| Hook failures | `plugly-reflect-memory errors count` |
 
 ## Uninstall
 
@@ -147,20 +147,20 @@ uv run --no-project --with pyyaml python plugin/adapters/copilot/copilot_adapter
 Removes `~/.copilot/hooks/reflect.json` (and the `hooks/` dir if empty; foreign `*.json` siblings are untouched) and the five adapter-managed `SKILL.md` files. The copied support directories remain:
 
 ```bash
-rm -rf ~/.copilot/skills/reflect/{hooks,scripts,assets,references} ~/.copilot/skills/reflect/reflect.toml
+rm -rf ~/.copilot/skills/plugly-reflect-memory/{hooks,scripts,assets,references} ~/.copilot/skills/plugly-reflect-memory/reflect.toml
 rm -rf ~/.copilot/skills/recall/{hooks,scripts} ~/.copilot/skills/status/scripts
-rmdir ~/.copilot/skills/{reflect,recall,status,consolidate,ingest} 2>/dev/null
+rmdir ~/.copilot/skills/{plugly-reflect-memory,recall,status,consolidate,ingest} 2>/dev/null
 ```
 
-Your knowledge base is untouched. Remove the engine with `uv tool uninstall reflect-kb`.
+Your knowledge base is untouched. Remove the engine with `uv tool uninstall plugly-reflect-memory`.
 
 ## Limitations
 
-- **Per-prompt recall: repo says yes, I could not confirm.** The adapter README and architecture doc state that `userPromptSubmitted` `additionalContext` reaches the model on Copilot CLI 1.0.66, and that the `sessionStart` and `userPromptSubmitted` envelopes were checked against the live binary. A docstring in `user_prompt_submit_recall.py` still says the output is ignored; it predates that validation. On older builds `/recall` is the manual fallback.
+- **Per-prompt recall: repo says yes, I could not confirm.** The adapter README and architecture doc state that `userPromptSubmitted` `additionalContext` reaches the model on Copilot CLI 1.0.66, and that the `sessionStart` and `userPromptSubmitted` envelopes were checked against the live binary. A docstring in `user_prompt_submit_recall.py` still says the output is ignored; it predates that validation. On older builds `/plugly-reflect-memory:recall` is the manual fallback.
 - **Headless `-p` runs are unconfirmed.** An earlier doc claimed `sessionStart` context is not injected in headless mode. Nothing in this repo confirms or refutes that.
-- **Capture needs `claude`.** The drain runs `claude -p`. Without it, queued transcripts are not converted; recall still works and `/reflect` works by hand. `--no-bg-drain` removes the drain entry, so alone it leaves the queue unconsumed. The queue is shared across harnesses, so a Claude Code session on the same machine drains Copilot entries.
-- **Fewer skills.** The adapter installs `reflect`, `recall`, `status`, `consolidate`, `ingest`. `cost`, `errors-ack`, `corpus`, `export`, `slots` are not installed; use the `reflect` CLI equivalents.
+- **Capture needs `claude`.** The drain runs `claude -p`. Without it, queued transcripts are not converted; recall still works and `/plugly-reflect-memory` works by hand. `--no-bg-drain` removes the drain entry, so alone it leaves the queue unconsumed. The queue is shared across harnesses, so a Claude Code session on the same machine drains Copilot entries.
+- **Fewer skills.** The adapter installs `plugly-reflect-memory`, `recall`, `status`, `consolidate`, `ingest`. `cost`, `errors-ack`, `corpus`, `export`, `slots` are not installed; use the `plugly-reflect-memory` CLI equivalents.
 - **Path anchors not rewritten.** Unlike Codex, the Copilot adapter does not rewrite `${CLAUDE_PLUGIN_ROOT}` anchors inside `SKILL.md` bodies yet, so a skill that cites them may point at paths that do not exist.
 - **Frozen copy.** Re-run the adapter after upgrading.
 
-See also: [Hooks reference](/ainb-reflect-memory/reference/hooks/), [Drain](/ainb-reflect-memory/concepts/drain/), [Troubleshooting](/ainb-reflect-memory/guides/troubleshooting/).
+See also: [Hooks reference](/plugly-reflect-memory/reference/hooks/), [Drain](/plugly-reflect-memory/concepts/drain/), [Troubleshooting](/plugly-reflect-memory/guides/troubleshooting/).

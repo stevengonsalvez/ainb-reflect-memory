@@ -99,6 +99,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional
 
+from identity_env import getenv
+
 _SCRIPTS_DIR = Path(__file__).resolve().parent
 if str(_SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPTS_DIR))
@@ -438,7 +440,7 @@ def dedup_threshold() -> float:
     to the default rather than failing the write path.
     """
     import os
-    raw: object = os.environ.get("REFLECT_DEDUP_THRESHOLD")
+    raw: object = getenv("REFLECT_DEDUP_THRESHOLD")
     if raw is None:
         try:
             import reflect_config
@@ -458,7 +460,7 @@ def _find_reflect_cli() -> Optional[str]:
     """C1: locate the reflect-kb CLI on $PATH (canonical `uv tool install`).
     None when absent — the probe fail-opens and the CREATE proceeds."""
     import shutil
-    return shutil.which("reflect")
+    return shutil.which("plugly-reflect-memory") or shutil.which("reflect")
 
 
 def _cosine(a: list[float], b: list[float]) -> float:
@@ -1003,7 +1005,7 @@ def skills_backing_learning(learning: dict) -> list[dict]:
 def _skill_refresh_queue_file() -> Path:
     """The drain's pending-reflections queue (REFLECT_STATE_DIR-aware)."""
     import os
-    state = os.environ.get("REFLECT_STATE_DIR", "")
+    state = getenv("REFLECT_STATE_DIR", "")
     base = Path(state).expanduser() if state else Path.home() / ".reflect"
     return base / "pending_reflections.jsonl"
 

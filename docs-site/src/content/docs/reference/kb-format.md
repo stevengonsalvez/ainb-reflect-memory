@@ -1,21 +1,21 @@
 ---
 title: KB on-disk format
-description: Directory layout, learning note frontmatter, entity sidecars, ids, and archive and supersession semantics of the reflect knowledge base.
+description: Directory layout, learning note frontmatter, entity sidecars, ids, and archive and supersession semantics of the plugly-reflect-memory knowledge base.
 sidebar:
   order: 4
 ---
 
-The KB is plain files. One markdown note per learning, an optional `.entities.yaml` sidecar beside it, and derived indexes next to them. Ranking state lives in SQLite, never in the notes. Everything on this page is read from the code on `main`; the [OKF profile](/ainb-reflect-memory/reference/okf-profile/) (not merged) is documented separately.
+The KB is plain files. One markdown note per learning, an optional `.entities.yaml` sidecar beside it, and derived indexes next to them. Ranking state lives in SQLite, never in the notes. Everything on this page is read from the code on `main`; the [OKF profile](/plugly-reflect-memory/reference/okf-profile/) (not merged) is documented separately.
 
 ## Layout
 
 ```
-~/.learnings/                         KB root (git repo after `reflect init`)
+~/.learnings/                         KB root (git repo after `plugly-reflect-memory init`)
 ├── documents/
 │   ├── <doc-id>.md                   learning note (frontmatter + body)
 │   ├── <doc-id>.entities.yaml        entity sidecar (optional, same stem)
-│   └── memories/<project>/           archived raw originals from /reflect:ingest
-├── archived/                         soft-archived notes (reflect serve)
+│   └── memories/<project>/           archived raw originals from /plugly-reflect-memory:ingest
+├── archived/                         soft-archived notes (plugly-reflect-memory serve)
 ├── review-queue/<slug>.yaml          LOW-confidence pointers (never indexed)
 ├── nano_graphrag_cache/              derived graph + vector index (gitignored)
 ├── shards/<project>/                 per-project KB: documents/ + nano_graphrag_cache/
@@ -29,14 +29,14 @@ The KB is plain files. One markdown note per learning, an optional `.entities.ya
 
 | Location | Written by | Notes |
 |---|---|---|
-| `documents/*.md` | `reflect add`, drain, hooks, fleet import | The corpus. `reflect add` copies a note here under a generated id. |
-| `documents/<stem>.entities.yaml` | `reflect add --entities`, drain, heuristic extractor | Same stem as the note. Moved and archived together with it. |
-| `archived/` | `reflect serve` archive | Note and sidecar move as a pair; restore moves them back. |
+| `documents/*.md` | `plugly-reflect-memory add`, drain, hooks, fleet import | The corpus. `plugly-reflect-memory add` copies a note here under a generated id. |
+| `documents/<stem>.entities.yaml` | `plugly-reflect-memory add --entities`, drain, heuristic extractor | Same stem as the note. Moved and archived together with it. |
+| `archived/` | `plugly-reflect-memory serve` archive | Note and sidecar move as a pair; restore moves them back. |
 | `review-queue/` | `write_flow` (LOW, or no team KB) | Pointer YAML: `slug, title, source, confidence, category, tags, created, queued_at`. |
-| `nano_graphrag_cache/` | `reflect add`, `reflect reindex` | Derived. Rebuild with `reflect reindex`. `reflect init` gitignores it. |
+| `nano_graphrag_cache/` | `plugly-reflect-memory add`, `plugly-reflect-memory reindex` | Derived. Rebuild with `plugly-reflect-memory reindex`. `plugly-reflect-memory init` gitignores it. |
 | `shards/` | recall scoping | Recall reads the current project or branch shard first, `--global` pools everything. |
 | `reflect.db` | `reflect_db.py` | Path from `storage.db_path` in `reflect.toml` (default `~/.reflect/reflect.db`). |
-| `<artifacts_dir>/<category>/<slug>.md` | `/reflect` skill | Project-scoped notes. `storage.artifacts_dir` defaults to `docs/solutions`. Updates append to `<slug>.history.yaml`. |
+| `<artifacts_dir>/<category>/<slug>.md` | `/plugly-reflect-memory` skill | Project-scoped notes. `storage.artifacts_dir` defaults to `docs/solutions`. Updates append to `<slug>.history.yaml`. |
 
 Overrides:
 
@@ -46,7 +46,7 @@ Overrides:
 | `REFLECT_LEARNINGS_DIR` | Directory the mini-learning and permission hooks write to (default `~/.learnings/documents`). |
 
 :::note
-`reflect init` creates `documents/` and `nano_graphrag_cache/`, runs `git init`, and writes `.gitignore` with `.venv/`, `__pycache__/`, `*.pyc`, `nano_graphrag_cache/`. Notes are meant to be committed; the index is not.
+`plugly-reflect-memory init` creates `documents/` and `nano_graphrag_cache/`, runs `git init`, and writes `.gitignore` with `.venv/`, `__pycache__/`, `*.pyc`, `nano_graphrag_cache/`. Notes are meant to be committed; the index is not.
 :::
 
 ## Ids and file names
@@ -55,8 +55,8 @@ One note can carry up to three names, and they are not the same string.
 
 | Writer | File name in `documents/` | `id` in frontmatter |
 |---|---|---|
-| `reflect add` (any source) | `<slug>-<hash6>.md`: slug = lowercased title, alphanumerics and single hyphens, max 50 chars; `hash6` = first 6 hex of `sha256(title + "\n" + body)` | whatever the source note carries |
-| Drain single-shot writer | as above (it indexes through `reflect add --force`) | `lrn-<slug>-<hash6>`: slug max 60 chars; `hash6` = `sha1(title + rule)[:6]` |
+| `plugly-reflect-memory add` (any source) | `<slug>-<hash6>.md`: slug = lowercased title, alphanumerics and single hyphens, max 50 chars; `hash6` = first 6 hex of `sha256(title + "\n" + body)` | whatever the source note carries |
+| Drain single-shot writer | as above (it indexes through `plugly-reflect-memory add --force`) | `lrn-<slug>-<hash6>`: slug max 60 chars; `hash6` = `sha1(title + rule)[:6]` |
 | Mini-learning hook | `lrn-mini-<unix-ts>-<session8>.md` | same string |
 | Permission-reply hook | `lrn-perm-<unix-ts>-<session8>.md` | same string |
 | Fleet importer | content-addressed doc id | `name:` carries the doc id (no `id:`) |
@@ -64,8 +64,8 @@ One note can carry up to three names, and they are not the same string.
 Resolution rules in the readers:
 
 - Recall: `id`, else `name`, else `?`.
-- `reflect serve`: `id`, else the file stem.
-- Because the hash covers the body, same title and same body is idempotent (re-add overwrites), same title and different body yields a distinct file. A non-TTY `reflect add` onto an existing file exits 2 unless `--force` is passed.
+- `plugly-reflect-memory serve`: `id`, else the file stem.
+- Because the hash covers the body, same title and same body is idempotent (re-add overwrites), same title and different body yields a distinct file. A non-TTY `plugly-reflect-memory add` onto an existing file exits 2 unless `--force` is passed.
 - The sidecar `document_id` for drain output is the note's `lrn-` id, not the file stem.
 
 ## Learning note
@@ -123,11 +123,11 @@ The example is invented. The field set mirrors `plugin/assets/learning_template.
 
 | Field | Type | Req | Meaning |
 |---|---|---|---|
-| `type` | string | no | `learning` (also `observation`, `episode`). Recall does not read it; `reflect serve` falls back to it for a type label. |
+| `type` | string | no | `learning` (also `observation`, `episode`). Recall does not read it; `plugly-reflect-memory serve` falls back to it for a type label. |
 | `id` | string | no | Stable id, see [Ids](#ids-and-file-names). |
 | `created` | ISO timestamp | schema | Capture time. Templates and the drain write a full timestamp. |
 | `updated` | ISO timestamp | no | Real content edits only. Ranking never touches it. |
-| `scope` | string | no | Free text. The drain writes `global`; `reflect serve` shows `unscoped` when absent. |
+| `scope` | string | no | Free text. The drain writes `global`; `plugly-reflect-memory serve` shows `unscoped` when absent. |
 | `confidence` | `high` \| `medium` \| `low` | schema | Display bucket. Routing treats `h/m/l/med` aliases and any case, missing means `medium`. |
 | `confidence_num` | float 0.0 to 1.0 | no | The value recall ranks by. Buckets: `>=0.8` high, `>=0.5` medium, else low. Legacy tier-only notes use the midpoints 0.9 / 0.6 / 0.3. |
 | `learning_type` | string | no | Taxonomy id from the active mode: `pattern`, `correction`, `bug-fix`, `decision`, `anti-pattern`. The drain currently writes `bug-fix` for every note. Selects the glyph and the discovery-cost fallback. |
@@ -148,7 +148,7 @@ The example is invented. The field set mirrors `plugin/assets/learning_template.
 | `superseded_by` | string or null | no | Id of the replacing note. Recall drops a note where this is set, see [Supersession](#archive-forget-and-supersession). |
 | `forget_after` | ISO timestamp or null | no | TTL. The hourly forget sweep archives the note after this instant. `null` is permanent. Unparseable values are treated as permanent. |
 | `provenance` | mapping | no | `source_tool` (`claude`, `codex`, `copilot`, `gemini`), `source_path`, `content_hash`, `detected_at`, `source_memory_ids` (unique), `proof_count` (starts at 1, update increments). Recall reads `provenance.proof_count` when the top-level field is absent. |
-| `language`, `framework` | string | no | Primary language or runtime. Written by the `/reflect` skill when known. |
+| `language`, `framework` | string | no | Primary language or runtime. Written by the `/plugly-reflect-memory` skill when known. |
 | `unverified_refs` | list of string | no | Commit-like refs in the body that do not exist in the project repo. A note where every ref is fabricated is rejected at write. |
 | `source_path`, `session_id` | string | no | Written by the drain and the hooks. |
 
@@ -175,7 +175,7 @@ Writing them into notes would dirty git on every recall and conflict across team
 
 | Consumer | Required keys | Failure mode |
 |---|---|---|
-| `reflect add` | `title`, `category`, `key_insight`, and a frontmatter block | Prints an error and writes nothing. |
+| `plugly-reflect-memory add` | `title`, `category`, `key_insight`, and a frontmatter block | Prints an error and writes nothing. |
 | `schemas/frontmatter.schema.json` (pre-commit and CI) | `title`, `created`, `confidence` | Validation error. Extra keys are allowed. |
 | Recall | none | Missing `confidence` is `MEDIUM`, missing title falls back to `name` then `(no title)`. |
 | Write routing (`write_flow`) | none | Missing `confidence` routes as `medium`. |
@@ -198,7 +198,7 @@ The source note is never rewritten by routing.
 
 ## Entity sidecar
 
-`<stem>.entities.yaml` seeds the graph. `reflect add --entities FILE` copies the file next to the note. Without it, `reflect add` runs a heuristic extractor (no LLM) and writes a sidecar only if it finds entities. `reflect generate-sidecars` backfills missing ones.
+`<stem>.entities.yaml` seeds the graph. `plugly-reflect-memory add --entities FILE` copies the file next to the note. Without it, `plugly-reflect-memory add` runs a heuristic extractor (no LLM) and writes a sidecar only if it finds entities. `plugly-reflect-memory generate-sidecars` backfills missing ones.
 
 ```yaml
 document_id: lrn-pool-timeout-on-cold-start-a1b2c3
@@ -260,7 +260,7 @@ Two enums disagree. The validator accepts the 6 entity types above, but the heur
 
 | Field | Meaning | Default |
 |---|---|---|
-| `tcommit` | When reflect learned the edge | sidecar `extracted_at` |
+| `tcommit` | When plugly-reflect-memory learned the edge | sidecar `extracted_at` |
 | `tvalid` | When it became true in the world | `tcommit` |
 | `tvalid_end` | When it stopped being true | absent means still valid |
 
@@ -282,7 +282,7 @@ Four mechanisms retire a note. They are separate and they do not share storage.
 
 | Mechanism | Trigger | Effect on files | Effect on DB |
 |---|---|---|---|
-| Soft archive | `POST /api/memories/<id>/archive` in `reflect serve` | Note and sidecar move to `archived/`. Refuses if the destination exists; rolls back the note move if the sidecar move fails. | none |
+| Soft archive | `POST /api/memories/<id>/archive` in `plugly-reflect-memory serve` | Note and sidecar move to `archived/`. Refuses if the destination exists; rolls back the note move if the sidecar move fails. | none |
 | Restore | `POST /api/memories/<id>/restore` | Pair moves back to `documents/`. Refuses if a live note holds the name. | none |
 | TTL forget | `forget_after` passed, hourly `reflect_forget_sweep.py` (`--dry-run`, `--now`) | Artifact and sidecar move to a `.forgotten/` sibling directory (collisions get `.1`, `.2`, ... suffixes). Best effort. | History snapshot, `status` to `archived`, `is_latest = 0`, `learning_forgotten` event. |
 | Contradiction | A new learning whose title negates a similar older one (Jaccard above 0.9 and a negation marker in exactly one title) | none | Older row: history snapshot, `is_latest = 0`, `superseded_by_learning_id` set, `contradiction_detected` event. |
@@ -290,12 +290,12 @@ Four mechanisms retire a note. They are separate and they do not share storage.
 
 Notes for each:
 
-- Archiving drops the note from the file-based recall corpus at once. The graph cache still returns it until `reflect reindex`, which `reflect serve` flags with `graph_index_stale: true`, but `recall.py` drops any candidate whose id matches a note in `archived/` or `documents/.forgotten/`, so a stale cache does not put it back in front of the model. `reflect search` warns when `documents/` is newer than the graph cache.
+- Archiving drops the note from the file-based recall corpus at once. The graph cache still returns it until `plugly-reflect-memory reindex`, which `plugly-reflect-memory serve` flags with `graph_index_stale: true`, but `recall.py` drops any candidate whose id matches a note in `archived/` or `documents/.forgotten/`, so a stale cache does not put it back in front of the model. `plugly-reflect-memory search` warns when `documents/` is newer than the graph cache.
 - `archived/` (serve soft-delete) and `.forgotten/` (sweep) are deliberately separate; the sweep has its own DB accounting.
-- Supersession is recorded in the database (`is_latest`, `superseded_by_learning_id`, `supersedes_learning_id`). Nothing rewrites frontmatter `superseded_by` (S9, notes stay immutable), but you can set it by hand or from a tool. `recall.py` drops a candidate that has `superseded_by` set, a `status` of `superseded` or `archived`, an id found in `archived/` or `.forgotten/`, or a matching ledger row with `is_latest = 0` (or status `superseded` or `archived`). The ledger match goes through the note at the row's `artifact_path` or a shared `content_hash`; a row with neither cannot be linked to a note file. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` disables the filter. See [Index and storage](/ainb-reflect-memory/concepts/index-and-storage/).
+- Supersession is recorded in the database (`is_latest`, `superseded_by_learning_id`, `supersedes_learning_id`). Nothing rewrites frontmatter `superseded_by` (S9, notes stay immutable), but you can set it by hand or from a tool. `recall.py` drops a candidate that has `superseded_by` set, a `status` of `superseded` or `archived`, an id found in `archived/` or `.forgotten/`, or a matching ledger row with `is_latest = 0` (or status `superseded` or `archived`). The ledger match goes through the note at the row's `artifact_path` or a shared `content_hash`; a row with neither cannot be linked to a note file. `REFLECT_RECALL_INCLUDE_SUPERSEDED=1` disables the filter. See [Index and storage](/plugly-reflect-memory/concepts/index-and-storage/).
 - Ledger statuses (`learnings.status`): `detected`, `pending`, `proposed`, `approved`, `materialized`, `indexed`, `recalled`, `superseded`, `reverted`, `rejected`, `archived`.
-- Updates to `/reflect` project notes keep the previous form in an append-only `<slug>.history.yaml` (`snapshot_at`, `reason`, `content_hash`, `previous` as a literal block), so a git diff shows one added entry per update. Database-side history goes to `learning_history`.
+- Updates to `/plugly-reflect-memory` project notes keep the previous form in an append-only `<slug>.history.yaml` (`snapshot_at`, `reason`, `content_hash`, `previous` as a literal block), so a git diff shows one added entry per update. Database-side history goes to `learning_history`.
 
-## Reading the KB without reflect
+## Reading the KB without plugly-reflect-memory
 
 Everything above is YAML and markdown, so `rg`, `yq`, and `git` work. The only opaque parts are `reflect.db` (SQLite) and `nano_graphrag_cache/` (derived). `plugin/scripts/kb_export.py` (run it directly with `python`) writes a deterministic tarball of `documents/` plus a filtered copy of `reflect.db`. It skips the index; `kb_import.py` rebuilds it by reindexing.

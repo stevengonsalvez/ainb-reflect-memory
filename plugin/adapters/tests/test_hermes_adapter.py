@@ -75,7 +75,7 @@ def test_install_writes_pointer_files_under_dot_hermes(tmp_path):
     assert skills_root.is_dir()
 
     recall = skills_root / "recall" / "SKILL.md"
-    reflect = skills_root / "reflect" / "SKILL.md"
+    reflect = skills_root / "plugly-reflect-memory" / "SKILL.md"
     assert recall.exists()
     assert reflect.exists()
 
@@ -109,7 +109,7 @@ def test_install_deploys_shim_scripts_under_reflect(tmp_path):
         [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
         check=True, capture_output=True,
     )
-    shim_root = tmp_path / ".hermes" / "skills" / "reflect" / "shim"
+    shim_root = tmp_path / ".hermes" / "skills" / "plugly-reflect-memory" / "shim"
     assert (shim_root / "pre_llm_recall.py").exists()
     assert (shim_root / "post_llm_capture.py").exists()
 
@@ -119,7 +119,7 @@ def test_install_copies_reflect_toml(tmp_path):
         [sys.executable, str(ADAPTER), "install", "--home", str(tmp_path)],
         check=True, capture_output=True,
     )
-    toml = tmp_path / ".hermes" / "skills" / "reflect" / "reflect.toml"
+    toml = tmp_path / ".hermes" / "skills" / "plugly-reflect-memory" / "reflect.toml"
     assert toml.exists()
     assert "[providers.hermes]" in toml.read_text(encoding="utf-8")
 
@@ -152,8 +152,8 @@ def test_uninstall_removes_pointers_and_shim(tmp_path):
     assert not (tmp_path / ".hermes" / "skills" / "recall" / "SKILL.md").exists()
     assert user_file.exists()
     # Shim dir + reflect.toml (adapter-owned) removed.
-    assert not (tmp_path / ".hermes" / "skills" / "reflect" / "shim").exists()
-    assert not (tmp_path / ".hermes" / "skills" / "reflect" / "reflect.toml").exists()
+    assert not (tmp_path / ".hermes" / "skills" / "plugly-reflect-memory" / "shim").exists()
+    assert not (tmp_path / ".hermes" / "skills" / "plugly-reflect-memory" / "reflect.toml").exists()
 
 
 def test_install_refuses_to_overwrite_non_pointer_skill_marker(tmp_path):

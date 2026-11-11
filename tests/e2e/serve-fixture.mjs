@@ -16,7 +16,7 @@ const kb = mkdtempSync(join(tmpdir(), 'reflect-e2e-kb-'));
 cpSync(fixture, kb, { recursive: true });
 console.log(`[serve-fixture] serving copy ${kb} on :${port}`);
 
-const child = spawn('uv', ['run', 'reflect', 'serve', '--port', port, '--repo', kb], {
+const child = spawn('uv', ['run', 'plugly-reflect-memory', 'serve', '--port', port, '--repo', kb], {
   cwd: repoRoot,
   stdio: 'inherit',
 });

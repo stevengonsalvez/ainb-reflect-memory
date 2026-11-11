@@ -18,6 +18,8 @@ from typing import Any, Iterable
 _PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PLUGIN_ROOT / "scripts"))
 
+from identity_env import getenv  # noqa: E402
+
 try:
     from hook_input import (  # type: ignore
         get_agent_id,
@@ -96,7 +98,7 @@ except ImportError:  # pragma: no cover - broken install fallback
 
 
 def state_dir() -> Path:
-    return Path(os.environ.get("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
+    return Path(getenv("REFLECT_STATE_DIR", str(Path.home() / ".reflect")))
 
 
 def read_stdin_json() -> dict[str, Any]:
@@ -174,7 +176,7 @@ def enqueue_reflection(
         "transcript_path": transcript_path,
         "trigger": trigger,
         "cwd": get_cwd(data, os.getcwd()),
-        "harness": os.environ.get("REFLECT_HARNESS", "unknown"),
+        "harness": getenv("REFLECT_HARNESS", "unknown"),
         "scope": scope,
     }
     if extra:
@@ -184,7 +186,7 @@ def enqueue_reflection(
 
 
 def emit_additional_context(event_name: str, additional_context: str) -> None:
-    if os.environ.get("REFLECT_HARNESS") == "copilot":
+    if getenv("REFLECT_HARNESS") == "copilot":
         print(json.dumps({"additionalContext": additional_context}))
     else:
         print(
@@ -230,7 +232,7 @@ def emit_permission_decision(behavior: str, message: str = "") -> None:
 
 
 def _policy_paths() -> Iterable[Path]:
-    explicit = os.environ.get("REFLECT_POLICY_FILE")
+    explicit = getenv("REFLECT_POLICY_FILE")
     if explicit:
         yield Path(explicit).expanduser()
     yield state_dir() / "policy-rules.jsonl"

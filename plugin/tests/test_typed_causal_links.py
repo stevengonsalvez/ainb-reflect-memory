@@ -136,7 +136,7 @@ def test_knowledge_format_documents_every_enum_member():
 # ---------------------------------------------------------------------------
 
 def test_drain_prompt_asks_for_typed_edges():
-    text = (PLUGIN_ROOT / "skills" / "reflect" / "SKILL.md").read_text()
+    text = (PLUGIN_ROOT / "skills" / "plugly-reflect-memory" / "SKILL.md").read_text()
     # Sidecar schema in the drain prompt carries the full typed enum...
     assert ("type: caused_by | causes | enables | prevents | contradicts | "
             "supersedes | part_of | uses") in text

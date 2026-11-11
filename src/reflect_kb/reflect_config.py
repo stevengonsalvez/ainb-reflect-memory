@@ -20,11 +20,12 @@ raising, so the CLI always has working defaults.
 
 from __future__ import annotations
 
-import os
 import tomllib
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+
+from reflect_kb.identity import getenv
 
 _CONFIG_NAME = "reflect.toml"
 
@@ -32,11 +33,11 @@ _CONFIG_NAME = "reflect.toml"
 def _candidate_paths() -> list[Path]:
     candidates: list[Path] = []
 
-    override = os.environ.get("REFLECT_CONFIG")
+    override = getenv("REFLECT_CONFIG")
     if override:
         candidates.append(Path(override).expanduser())
 
-    state_dir = os.environ.get("REFLECT_STATE_DIR")
+    state_dir = getenv("REFLECT_STATE_DIR")
     if state_dir:
         candidates.append(Path(state_dir).expanduser() / _CONFIG_NAME)
 

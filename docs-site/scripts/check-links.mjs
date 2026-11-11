@@ -24,8 +24,8 @@ const DIST = resolve(argVal('--dist') ?? join(ROOT, 'dist'));
 const CHECK_EXTERNAL = !args.includes('--no-external') && process.env.CHECK_EXTERNAL !== '0';
 
 const SITE = 'https://stevengonsalvez.github.io';
-const BASE = '/ainb-reflect-memory/';
-const REPO = 'stevengonsalvez/ainb-reflect-memory';
+const BASE = '/plugly-reflect-memory/';
+const REPO = 'stevengonsalvez/plugly-reflect-memory';
 const RAW = `https://raw.githubusercontent.com/${REPO}`;
 
 // Politeness limits for external checks.
@@ -54,7 +54,7 @@ const pages = walk(DIST);
 // ---- url helpers -------------------------------------------------------------
 const toPosix = (p) => p.split(sep).join('/');
 
-/** Public URL path of an html file in dist, e.g. /ainb-reflect-memory/start/overview/ */
+/** Public URL path of an html file in dist, e.g. /plugly-reflect-memory/start/overview/ */
 function pageUrlPath(file) {
   const rel = toPosix(relative(DIST, file));
   const noIndex = rel.endsWith('index.html') ? rel.slice(0, -'index.html'.length) : rel;
